@@ -56,6 +56,10 @@ chimneys) that lift away when you walk inside. Figures also run, glance
 around, draw their weapon when combat starts, step in a fighting stance near
 a foe, gesture while they talk, and turn through the in-between directions. Wounds leave blood on the ground.
 
+The ground is terraced like Pagan's: land rises in up to four levels with
+rock ledges between them. You can't climb a ledge; roads and scattered slopes
+lead up and down, and anything standing on high ground is drawn there.
+
 ## Controls
 
 Tap the ground to walk, hold and drag to steer. Tap a creature to attack,

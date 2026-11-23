@@ -126,6 +126,8 @@ pub struct Ent {
     /// weapon-drawing animation timer (1 -> 0)
     pub ready: f32,
     pub running: bool,
+    /// drawn height above level 0, following the ground (in levels)
+    pub vz: f32,
 }
 
 impl Ent {
@@ -168,6 +170,7 @@ impl Ent {
             turn_t: 0.0,
             ready: 0.0,
             running: false,
+            vz: 0.0,
         }
     }
     pub fn tile(&self) -> (i32, i32) {
@@ -933,7 +936,13 @@ impl Game {
             }
         }
         for i in 0..self.ents.len() {
+            let (tx, ty) = self.ents[i].tile();
+            let ground = self.map.surface(tx, ty);
             let e = &mut self.ents[i];
+            if (ground - e.vz).abs() > 1.2 {
+                e.vz = ground; // spawned or moved by a jump in position
+            }
+            e.vz += (ground - e.vz) * (dt * 9.0).min(1.0);
             e.atk = (e.atk - dt * 3.0).max(0.0);
             e.kick = (e.kick - dt * 2.6).max(0.0);
             e.down_t = (e.down_t - dt).max(0.0);
@@ -1062,7 +1071,7 @@ impl Game {
         }
         let mut dir: Option<(f32, f32)> = None;
         if self.steering {
-            let (px, py) = self.to_screen(self.ents[0].x, self.ents[0].y);
+            let (px, py) = self.scr_h(self.ents[0].x, self.ents[0].y, self.ents[0].vz);
             let (dx, dy) = (self.ptr_x - px, self.ptr_y - (py - 20.0 * self.zoom));
             if dx * dx + dy * dy > 200.0 {
                 dir = Some((dx, dy));
@@ -1130,7 +1139,7 @@ impl Game {
         }
         // run when heading somewhere far, or steering with the pointer far away
         let far_steer = self.steering && {
-            let (px, py) = self.to_screen(self.ents[0].x, self.ents[0].y);
+            let (px, py) = self.scr_h(self.ents[0].x, self.ents[0].y, self.ents[0].vz);
             ((self.ptr_x - px).powi(2) + (self.ptr_y - py).powi(2)).sqrt() > 140.0
         };
         let run = !self.pl.ghost && !self.pl.blocking && (far_steer || self.ents[0].path.len() > 5);
@@ -2639,6 +2648,22 @@ impl Game {
             (iy - self.camy) * self.zoom + self.h / 2.0,
         )
     }
+    /// screen position of a point standing `h` levels above level 0
+    pub fn scr_h(&self, x: f32, y: f32, h: f32) -> (f32, f32) {
+        let (a, b) = self.to_screen(x, y);
+        (a, b - h * crate::render::LH * self.zoom)
+    }
+    /// the ground point under a screen position, allowing for raised ground
+    pub fn to_world_ground(&self, sx: f32, sy: f32) -> (f32, f32) {
+        for h in (0..=4).rev() {
+            let (wx, wy) = self.to_world(sx, sy + h as f32 * crate::render::LH * self.zoom);
+            let (tx, ty) = (wx.round() as i32, wy.round() as i32);
+            if (self.map.surface(tx, ty) - h as f32).abs() < 0.6 {
+                return (wx, wy);
+            }
+        }
+        self.to_world(sx, sy)
+    }
     pub fn to_world(&self, sx: f32, sy: f32) -> (f32, f32) {
         let ix = (sx - self.w / 2.0) / self.zoom + self.camx;
         let iy = (sy - self.h / 2.0) / self.zoom + self.camy;
@@ -2657,7 +2682,7 @@ impl Game {
                 continue;
             }
             let size = e.mon().map(|m| m.size).unwrap_or(1.0);
-            let (ex, ey) = self.to_screen(e.x, e.y);
+            let (ex, ey) = self.scr_h(e.x, e.y, e.vz);
             let cy = ey - 20.0 * size * self.zoom;
             let rw = (16.0 * size + 8.0) * self.zoom;
             let rh = (24.0 * size + 8.0) * self.zoom;
@@ -2724,7 +2749,7 @@ impl Game {
             }
             return;
         }
-        let (wx, wy) = self.to_world(sx, sy);
+        let (wx, wy) = self.to_world_ground(sx, sy);
         let (tx, ty) = (wx.round() as i32, wy.round() as i32);
         // corpses
         if let Some(c) = self
@@ -2965,6 +2990,41 @@ mod tests {
             }
         }
         assert!(floored);
+    }
+
+    #[test]
+    fn ledges_block_and_slopes_climb() {
+        let m = crate::world::generate(1997);
+        let (mut ledge, mut slope) = (0, 0);
+        for y in 1..crate::world::H - 1 {
+            for x in 1..crate::world::W - 1 {
+                if !m.passable(x, y) || !m.passable(x + 1, y) {
+                    continue;
+                }
+                let d = m.level(x + 1, y) as i32 - m.level(x, y) as i32;
+                if d.abs() >= 2 {
+                    assert!(!m.can_step(x, y, 1, 0), "cliff climbed at {x},{y}");
+                }
+                if d.abs() == 1 {
+                    if m.is_ramp(x, y) || m.is_ramp(x + 1, y) {
+                        assert!(m.can_step(x, y, 1, 0));
+                        slope += 1;
+                    } else {
+                        assert!(!m.can_step(x, y, 1, 0), "ledge climbed at {x},{y}");
+                        ledge += 1;
+                    }
+                }
+            }
+        }
+        assert!(ledge > 100 && slope > 50, "ledges {ledge} slopes {slope}");
+        // entities stand on the ground they occupy
+        let mut g = Game::new(1997);
+        g.create("Tester", false, 0, "warrior", [0, 0, 0]);
+        for _ in 0..30 {
+            g.update(0.05);
+        }
+        let (tx, ty) = g.ents[0].tile();
+        assert!((g.ents[0].vz - g.map.surface(tx, ty)).abs() < 0.05);
     }
 
     #[test]

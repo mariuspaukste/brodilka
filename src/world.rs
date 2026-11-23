@@ -63,6 +63,11 @@ pub struct Map {
     pub style: Vec<u8>,
     pub res: Vec<u8>,
     pub regrow: Vec<(usize, f32)>,
+    /// ground level per tile (Pagan's height-mapped playfield), 0..=4
+    pub lv: Vec<u8>,
+    /// a slope: walkable up to the next level on any side
+    pub ramp: Vec<bool>,
+    pub road: Vec<bool>,
     pub town: (i32, i32, i32, i32),
     pub start: (i32, i32),
     pub npcs: Vec<(usize, i32, i32)>,
@@ -178,15 +183,61 @@ impl Map {
         let t = self.t[i];
         t != T_WATER && t != T_MOUNT && !blocks(self.o[i])
     }
-    /// can step from (x,y) by (dx,dy) without cutting corners
+    pub fn level(&self, x: i32, y: i32) -> u8 {
+        if inb(x, y) {
+            self.lv[idx(x, y)]
+        } else {
+            0
+        }
+    }
+    pub fn is_ramp(&self, x: i32, y: i32) -> bool {
+        inb(x, y) && self.ramp[idx(x, y)]
+    }
+    /// can walk between two neighbouring tiles given their ground levels
+    pub fn height_ok(&self, ax: i32, ay: i32, bx: i32, by: i32) -> bool {
+        let d = self.level(bx, by) as i32 - self.level(ax, ay) as i32;
+        d == 0 || (d.abs() == 1 && (self.is_ramp(ax, ay) || self.is_ramp(bx, by)))
+    }
+    /// can step from (x,y) by (dx,dy) without cutting corners or climbing a ledge
     pub fn can_step(&self, x: i32, y: i32, dx: i32, dy: i32) -> bool {
-        if !self.passable(x + dx, y + dy) {
+        if !self.passable(x + dx, y + dy) || !self.height_ok(x, y, x + dx, y + dy) {
             return false;
         }
         if dx != 0 && dy != 0 {
-            return self.passable(x + dx, y) && self.passable(x, y + dy);
+            return self.passable(x + dx, y)
+                && self.passable(x, y + dy)
+                && self.height_ok(x, y, x + dx, y)
+                && self.height_ok(x, y, x, y + dy)
+                && self.height_ok(x + dx, y, x + dx, y + dy);
         }
         true
+    }
+    /// ground heights (in levels) at a tile's corners: top, right, bottom, left as drawn.
+    /// A slope tile lifts the edge it shares with a higher neighbour.
+    pub fn corners(&self, x: i32, y: i32) -> [f32; 4] {
+        let l = self.level(x, y) as f32;
+        let mut c = [l; 4];
+        if self.is_ramp(x, y) {
+            for (dx, dy, a, b) in [
+                (1, 0, 1usize, 2usize),
+                (0, 1, 2, 3),
+                (-1, 0, 3, 0),
+                (0, -1, 0, 1),
+            ] {
+                let n = self.level(x + dx, y + dy) as f32;
+                let t = self.tile(x + dx, y + dy);
+                if n == l + 1.0 && t != T_MOUNT && t != T_WATER {
+                    c[a] = n;
+                    c[b] = n;
+                }
+            }
+        }
+        c
+    }
+    /// height of the ground at a tile's centre, in levels
+    pub fn surface(&self, x: i32, y: i32) -> f32 {
+        let c = self.corners(x, y);
+        (c[0] + c[1] + c[2] + c[3]) / 4.0
     }
     pub fn in_town(&self, x: i32, y: i32) -> bool {
         let (x0, y0, x1, y1) = self.town;
@@ -306,6 +357,7 @@ impl Map {
                     continue;
                 }
                 let i = idx(px, py);
+                self.road[i] = true;
                 match self.t[i] {
                     T_WATER => self.t[i] = T_BRIDGE,
                     T_COBBLE | T_FLOOR | T_BRIDGE | T_CAVE => {}
@@ -400,6 +452,150 @@ impl Map {
     }
 }
 
+impl Map {
+    /// Terrace the land from its elevation, keep ledges one level high, give
+    /// roads and some ledge feet slopes, then make sure every walkable area
+    /// can be reached from the town.
+    fn assign_levels(&mut self, elev: &[f32]) {
+        let land = |t: u8| t != T_WATER && t != T_MOUNT;
+        for i in 0..N {
+            let t = self.t[i];
+            self.lv[i] = if land(t) && t != T_SAND && t != T_BRIDGE {
+                (((elev[i] - 0.36) / 0.075).floor().clamp(0.0, 3.0)) as u8
+            } else {
+                0
+            };
+        }
+        // the town, its buildings and the shrines sit on one flat level
+        let (x0, y0, x1, y1) = self.town;
+        for y in y0 - 3..y1 + 3 {
+            for x in x0 - 3..x1 + 3 {
+                if inb(x, y) {
+                    self.lv[idx(x, y)] = 1;
+                }
+            }
+        }
+        for &(ax, ay) in self.ankhs.clone().iter() {
+            for y in ay - 2..=ay + 2 {
+                for x in ax - 2..=ax + 2 {
+                    if inb(x, y) && land(self.t[idx(x, y)]) {
+                        self.lv[idx(x, y)] = self.lv[idx(ax, ay)];
+                    }
+                }
+            }
+        }
+        // bridges and their banks sit at water level
+        for i in 0..N {
+            if self.t[i] == T_BRIDGE {
+                self.lv[i] = 0;
+            }
+        }
+        // no ledge taller than one level between walkable neighbours
+        for _ in 0..12 {
+            let mut changed = false;
+            for y in 0..H {
+                for x in 0..W {
+                    let i = idx(x, y);
+                    if !land(self.t[i]) {
+                        continue;
+                    }
+                    for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+                        let (nx, ny) = (x + dx, y + dy);
+                        if !inb(nx, ny) || !land(self.t[idx(nx, ny)]) {
+                            continue;
+                        }
+                        let n = self.lv[idx(nx, ny)];
+                        if self.lv[i] > n + 1 {
+                            self.lv[i] = n + 1;
+                            changed = true;
+                        }
+                    }
+                }
+            }
+            if !changed {
+                break;
+            }
+        }
+        // mountains stand on the highest ground beside them
+        for y in 0..H {
+            for x in 0..W {
+                let i = idx(x, y);
+                if self.t[i] == T_MOUNT {
+                    let mut l = 0;
+                    for &(dx, dy) in DIRS.iter() {
+                        if inb(x + dx, y + dy) && land(self.t[idx(x + dx, y + dy)]) {
+                            l = l.max(self.lv[idx(x + dx, y + dy)]);
+                        }
+                    }
+                    self.lv[i] = l;
+                }
+            }
+        }
+        // slopes: along roads, and at a quarter of the ledge feet
+        for y in 0..H {
+            for x in 0..W {
+                let i = idx(x, y);
+                if !land(self.t[i]) {
+                    continue;
+                }
+                for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+                    let (nx, ny) = (x + dx, y + dy);
+                    if !inb(nx, ny)
+                        || !land(self.t[idx(nx, ny)])
+                        || self.lv[idx(nx, ny)] != self.lv[i] + 1
+                    {
+                        continue;
+                    }
+                    if (self.road[i] && self.road[idx(nx, ny)]) || hash(x, y, 0x5107) < 0.22 {
+                        self.ramp[i] = true;
+                    }
+                }
+            }
+        }
+        // join any walkable area the town cannot reach with one more slope
+        let start = self.start;
+        for _ in 0..400 {
+            let mut seen = vec![false; N];
+            let mut q = std::collections::VecDeque::new();
+            seen[idx(start.0, start.1)] = true;
+            q.push_back(start);
+            while let Some((x, y)) = q.pop_front() {
+                for &(dx, dy) in DIRS.iter() {
+                    let (nx, ny) = (x + dx, y + dy);
+                    if inb(nx, ny) && !seen[idx(nx, ny)] && self.can_step(x, y, dx, dy) {
+                        seen[idx(nx, ny)] = true;
+                        q.push_back((nx, ny));
+                    }
+                }
+            }
+            let mut fixed = false;
+            'outer: for y in 0..H {
+                for x in 0..W {
+                    if !seen[idx(x, y)] || !self.passable(x, y) {
+                        continue;
+                    }
+                    for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+                        let (nx, ny) = (x + dx, y + dy);
+                        if !inb(nx, ny) || seen[idx(nx, ny)] || !self.passable(nx, ny) {
+                            continue;
+                        }
+                        let (a, b) = (self.lv[idx(x, y)], self.lv[idx(nx, ny)]);
+                        if a.abs_diff(b) == 1 {
+                            let lower = if a < b { idx(x, y) } else { idx(nx, ny) };
+                            self.ramp[lower] = true;
+                            fixed = true;
+                            break 'outer;
+                        }
+                    }
+                }
+            }
+            if !fixed {
+                break;
+            }
+        }
+    }
+}
+
 pub fn generate(seed: u32) -> Map {
     let mut rng = Rng::new(seed as u64 ^ 0xABCD);
     let mut m = Map {
@@ -420,6 +616,9 @@ pub fn generate(seed: u32) -> Map {
         pf_par: vec![-1; N],
         pf_stamp: vec![0; N],
         pf_gen: 0,
+        lv: vec![0; N],
+        ramp: vec![false; N],
+        road: vec![false; N],
     };
     let town_c = (80, 78);
     let grave = (124, 32);
@@ -655,6 +854,7 @@ pub fn generate(seed: u32) -> Map {
     m.pois.push(("Town", town_c.0, town_c.1));
 
     // --- spawn regions (monster, x, y, radius, max)
+    m.assign_levels(&elev);
     m.spawns = vec![
         ("rabbit", 80, 108, 10, 5),
         ("rabbit", 48, 80, 10, 4),
@@ -695,7 +895,7 @@ pub fn mini_color(m: &Map, i: usize) -> [u8; 4] {
         (T_CAVE, _) => 0x40382fff,
         _ => 0x000000ff,
     };
-    let s = m.shade[i] as f32 / 255.0 * 0.15 + 0.92;
+    let s = m.shade[i] as f32 / 255.0 * 0.15 + 0.86 + m.lv[i] as f32 * 0.06;
     [
         (((c >> 24) & 255) as f32 * s).min(255.0) as u8,
         (((c >> 16) & 255) as f32 * s).min(255.0) as u8,

@@ -279,6 +279,8 @@ fn tile_color(t: u8) -> u32 {
 
 const WALL_COLORS: [u32; 5] = [0x6a6660ff, 0x6a6660ff, 0x664830ff, 0x7a7060ff, 0x4a4642ff];
 const INK: u32 = 0x120c08ff;
+/// screen pixels per ground level at zoom 1
+pub const LH: f32 = 20.0;
 
 /// Small helper for drawing in "model units" around a screen anchor.
 struct P {
@@ -729,9 +731,6 @@ impl Game {
                 let (x, y) = ((s + d) / 2, (s - d) / 2);
                 let (sx, sy) = scr(x, y);
                 let tl = self.map.tile(x, y);
-                if tl == T_MOUNT {
-                    continue;
-                }
                 let sh = if inb(x, y) {
                     self.map.shade[idx(x, y)]
                 } else {
@@ -753,15 +752,23 @@ impl Game {
                     continue;
                 }
                 let (sx, sy) = scr(x, y);
+                if self.map.is_ramp(x, y) {
+                    continue;
+                }
+                let lvl = self.map.level(x, y);
                 for dir in [(1, 0), (0, 1), (-1, 0), (0, -1)] {
-                    if prio(self.map.tile(x + dir.0, y + dir.1)) < pr {
+                    let (nx, ny) = (x + dir.0, y + dir.1);
+                    if prio(self.map.tile(nx, ny)) < pr
+                        && self.map.level(nx, ny) == lvl
+                        && !self.map.is_ramp(nx, ny)
+                    {
                         self.fringe(c, x, y, sx, sy, tl, dir, z);
                     }
                 }
             }
         }
         if let Some((dx, dy)) = self.dest {
-            let (sx, sy) = scr(dx, dy);
+            let (sx, sy) = self.scr_h(dx as f32, dy as f32, self.map.surface(dx, dy));
             let k = 0.6 + (t * 6.0).sin() * 0.15;
             c.stroke(0xfff0a0cc, 1.5);
             c.poly_s(&[
@@ -774,7 +781,11 @@ impl Game {
 
         // ---- blood and gore on the ground
         for d in self.decals.iter() {
-            let (dx, dy) = self.to_screen(d.x, d.y);
+            let (dx, dy) = self.scr_h(
+                d.x,
+                d.y,
+                self.map.surface(d.x.round() as i32, d.y.round() as i32),
+            );
             if dx < -60.0 || dx > self.w + 60.0 || dy < -60.0 || dy > self.h + 60.0 {
                 continue;
             }
@@ -828,7 +839,7 @@ impl Game {
                     continue;
                 }
                 let i = idx(x, y);
-                let (sx, sy) = scr(x, y);
+                let (sx, sy) = self.scr_h(x as f32, y as f32, self.map.surface(x, y));
                 let tl = self.map.t[i];
                 let near_front =
                     (s as f32) > ps + 0.3 && (s as f32 - ps) < 6.0 && ((d as f32) - pd).abs() < 4.5;
@@ -879,12 +890,12 @@ impl Game {
                 }
             }
             for cp in self.corpses.iter().filter(|cp| cp.x + cp.y == s) {
-                let (sx, sy) = scr(cp.x, cp.y);
+                let (sx, sy) = self.scr_h(cp.x as f32, cp.y as f32, self.map.surface(cp.x, cp.y));
                 self.corpse(c, cp, sx, sy, z);
             }
             while oi < order.len() && order[oi].0 <= s {
                 let e = &self.ents[order[oi].1];
-                let (sx, sy) = self.to_screen(e.x, e.y);
+                let (sx, sy) = self.scr_h(e.x, e.y, e.vz);
                 if sx > -150.0 && sx < self.w + 150.0 && sy > -150.0 && sy < self.h + 250.0 {
                     c.outline(INK, self.pix.max(z));
                     self.entity(c, e, sx, sy, z, t);
@@ -947,7 +958,7 @@ impl Game {
         // ---- night
         let dk = self.darkness();
         if dk > 0.01 {
-            let (px, py) = self.to_screen(p.x, p.y);
+            let (px, py) = self.scr_h(p.x, p.y, p.vz);
             c.dark(px, py - 20.0 * z, 50.0 * z, 300.0 * z, dk, 0x050a1eff);
             c.alpha(dk.min(1.0) * 1.4);
             for &(x, y, r, col) in lights.iter() {
@@ -962,7 +973,7 @@ impl Game {
             if e.dead {
                 continue;
             }
-            let (sx, sy) = self.to_screen(e.x, e.y);
+            let (sx, sy) = self.scr_h(e.x, e.y, e.vz);
             if sx < -100.0 || sx > self.w + 100.0 || sy < -100.0 || sy > self.h + 200.0 {
                 continue;
             }
@@ -1023,7 +1034,7 @@ impl Game {
             }
         }
         for cp in self.corpses.iter().filter(|cp| cp.player) {
-            let (sx, sy) = scr(cp.x, cp.y);
+            let (sx, sy) = self.scr_h(cp.x as f32, cp.y as f32, self.map.surface(cp.x, cp.y));
             c.fill(0xffd070ff);
             c.text(
                 sx,
@@ -1035,7 +1046,11 @@ impl Game {
             );
         }
         for f in self.floats.iter() {
-            let (sx, sy) = self.to_screen(f.x, f.y);
+            let (sx, sy) = self.scr_h(
+                f.x,
+                f.y,
+                self.map.surface(f.x.round() as i32, f.y.round() as i32),
+            );
             c.alpha((1.2 - f.t).min(1.0));
             c.fill(f.color);
             c.text(
@@ -1065,19 +1080,88 @@ impl Game {
     ) {
         let hw = 32.0 * z + 0.7;
         let hh = 16.0 * z + 0.7;
-        self.pat(c, tex_of(tl), 0.0);
-        c.poly(&[(sx, sy - hh), (sx + hw, sy), (sx, sy + hh), (sx - hw, sy)]);
-        if tl == T_BRIDGE {
-            c.fill(0x00000050);
-            let (a, b) = (sx - hw * 0.5, sy - hh * 0.5);
-            c.poly(&[
-                (a, b),
-                (a + 3.0 * z, b - 1.5 * z),
-                (a + hw + 3.0 * z, b + hh - 1.5 * z),
-                (a + hw, b + hh),
-            ]);
+        let lz = LH * z;
+        let cn = self.map.corners(x, y);
+        let base = self.map.level(x, y) as f32;
+        if tl != T_MOUNT {
+            let pts = [
+                (sx, sy - hh - cn[0] * lz),
+                (sx + hw, sy - cn[1] * lz),
+                (sx, sy + hh - cn[2] * lz),
+                (sx - hw, sy - cn[3] * lz),
+            ];
+            self.pat(c, tex_of(tl), base * lz);
+            c.poly(&pts);
+            if tl == T_BRIDGE {
+                let sy = sy - base * lz;
+                c.fill(0x00000050);
+                let (a, b) = (sx - hw * 0.5, sy - hh * 0.5);
+                c.poly(&[
+                    (a, b),
+                    (a + 3.0 * z, b - 1.5 * z),
+                    (a + hw + 3.0 * z, b + hh - 1.5 * z),
+                    (a + hw, b + hh),
+                ]);
+            }
         }
-        let _ = (x, y);
+        self.ledges(c, x, y, sx, sy, &cn, z);
+    }
+
+    /// Rock faces where this tile stands above its front neighbours.
+    #[allow(clippy::too_many_arguments)]
+    fn ledges(&self, c: &mut Canvas, x: i32, y: i32, sx: f32, sy: f32, cn: &[f32; 4], z: f32) {
+        let hw = 32.0 * z + 0.7;
+        let hh = 16.0 * z + 0.7;
+        let lz = LH * z;
+        let ink = self.pix.max(z);
+        let n1 = self.map.corners(x + 1, y);
+        if cn[1] > n1[0] + 0.01 || cn[2] > n1[3] + 0.01 {
+            let face = [
+                (sx + hw, sy - cn[1] * lz),
+                (sx, sy + hh - cn[2] * lz),
+                (sx, sy + hh - n1[3] * lz),
+                (sx + hw, sy - n1[0] * lz),
+            ];
+            // a slope's side is an earth bank, a full step is rock
+            if cn[1] <= n1[0] + 0.01 || cn[2] <= n1[3] + 0.01 {
+                self.pat(
+                    c,
+                    tex_of(self.map.tile(x, y)),
+                    self.map.level(x, y) as f32 * lz,
+                );
+            } else {
+                self.face_pat(c, TEX_CLIFF, true);
+            }
+            c.poly(&face);
+            c.fill(0x00000030);
+            c.poly(&face);
+            c.stroke(INK, ink);
+            c.line(face[0].0, face[0].1, face[1].0, face[1].1);
+        }
+        let n2 = self.map.corners(x, y + 1);
+        if cn[3] > n2[0] + 0.01 || cn[2] > n2[1] + 0.01 {
+            let face = [
+                (sx - hw, sy - cn[3] * lz),
+                (sx, sy + hh - cn[2] * lz),
+                (sx, sy + hh - n2[1] * lz),
+                (sx - hw, sy - n2[0] * lz),
+            ];
+            // a slope's side is an earth bank, a full step is rock
+            if cn[3] <= n2[0] + 0.01 || cn[2] <= n2[1] + 0.01 {
+                self.pat(
+                    c,
+                    tex_of(self.map.tile(x, y)),
+                    self.map.level(x, y) as f32 * lz,
+                );
+            } else {
+                self.face_pat(c, TEX_CLIFF, false);
+            }
+            c.poly(&face);
+            c.fill(0x00000070);
+            c.poly(&face);
+            c.stroke(INK, ink);
+            c.line(face[0].0, face[0].1, face[1].0, face[1].1);
+        }
     }
 
     /// Ragged border of a tile's texture spilling into a lower-priority neighbour,
@@ -1094,6 +1178,8 @@ impl Game {
         dir: (i32, i32),
         z: f32,
     ) {
+        let lift = self.map.level(x, y) as f32 * LH * z;
+        let sy = sy - lift;
         let pt = |u: f32, v: f32| (sx + (u - v) * 32.0 * z, sy - 16.0 * z + (u + v) * 16.0 * z);
         let edge = |s: f32, d: f32| match dir {
             (1, 0) => (1.0 + d, s),
@@ -1117,7 +1203,7 @@ impl Game {
             let (u, v) = edge(k as f32 / n as f32, d);
             pts.push(pt(u, v));
         }
-        self.pat(c, tex_of(tl), 0.0);
+        self.pat(c, tex_of(tl), lift);
         c.poly(&pts);
         if self.map.tile(x + dir.0, y + dir.1) == T_WATER {
             c.stroke(0x9aa8c060, 1.2 * self.pix.max(z));
@@ -1779,9 +1865,10 @@ impl Game {
         let (rx0, rx1) = (x0 + hw, x1 - hw);
         let eave = 38.0 * z;
         let ridge = eave + 34.0 * z;
+        let floor = self.map.level(b.x + 1, b.y + 1) as f32 * LH * z;
         let sp = |x: f32, y: f32, h: f32| {
             let (a, b) = self.to_screen(x, y);
-            (a, b - h)
+            (a, b - h - floor)
         };
         let inn = b.vendor == V_PROV && b.style == 2;
         let base = match b.style {
@@ -2719,8 +2806,16 @@ impl Game {
 
     fn effect(&self, c: &mut Canvas, f: &Fx, z: f32, t: f32) {
         let k = (f.t / f.dur).clamp(0.0, 1.0);
-        let (x0, y0) = self.to_screen(f.x0, f.y0);
-        let (x1, y1) = self.to_screen(f.x1, f.y1);
+        let (x0, y0) = self.scr_h(
+            f.x0,
+            f.y0,
+            self.map.surface(f.x0.round() as i32, f.y0.round() as i32),
+        );
+        let (x1, y1) = self.scr_h(
+            f.x1,
+            f.y1,
+            self.map.surface(f.x1.round() as i32, f.y1.round() as i32),
+        );
         let (y0, y1) = (y0 - 26.0 * z, y1 - 24.0 * z);
         let lerp = |k: f32| (x0 + (x1 - x0) * k, y0 + (y1 - y0) * k);
         match f.kind {
@@ -2822,7 +2917,11 @@ impl Game {
                 }
             }
             FX_BLOOD => {
-                let (bx, by) = self.to_screen(f.x0, f.y0);
+                let (bx, by) = self.scr_h(
+                    f.x0,
+                    f.y0,
+                    self.map.surface(f.x0.round() as i32, f.y0.round() as i32),
+                );
                 let col = f.tgt;
                 for j in 0..8 {
                     let jf = j as f32;
