@@ -32,6 +32,7 @@ fn input(len: usize) -> String {
 }
 
 #[cfg(target_arch = "wasm32")]
+#[link(wasm_import_module = "env")]
 extern "C" {
     fn js_log(p: *const u8, l: usize);
 }
