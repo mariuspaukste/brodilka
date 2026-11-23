@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#1a140e">
+<title>Brodilka — a realm of virtue and steel</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div id="hud" class="hidden">
+  <div id="status" class="gump">
+    <div id="pname">—</div>
+    <div class="bar"><div id="hpb" class="fill hp"></div><span id="hpt"></span></div>
+    <div class="bar"><div id="mpb" class="fill mp"></div><span id="mpt"></span></div>
+    <div id="gold">🪙 0</div>
+  </div>
+  <div id="target" class="gump hidden">
+    <div id="tname"></div>
+    <div class="bar"><div id="tb" class="fill hp"></div></div>
+  </div>
+  <div id="act" class="hidden"></div>
+  <canvas id="radar" width="240" height="240" title="Radar — tap for places"></canvas>
+  <div id="zoombtns">
+    <button data-cmd="zoom:in">＋</button>
+    <button data-cmd="zoom:out">－</button>
+  </div>
+  <div id="journal"></div>
+  <div id="banner" class="hidden"><span id="bannertext"></span> <button data-cmd="canceltarget">Cancel</button></div>
+  <nav id="bar">
+    <button id="bwar" data-cmd="war" title="War / Peace (Tab)"><span>⚔️</span><small>Peace</small></button>
+    <button data-cmd="toggle:paperdoll" title="Paperdoll"><span>🧍</span><small>Status</small></button>
+    <button data-cmd="toggle:pack" title="Backpack (P)"><span>🎒</span><small>Pack</small></button>
+    <button data-cmd="toggle:skills" title="Skills (K)"><span>📜</span><small>Skills</small></button>
+    <button data-cmd="toggle:spells" title="Spellbook"><span>📖</span><small>Spells</small></button>
+    <button id="blast" data-cmd="lastspell" title="Cast last spell"><span>✨</span><small>Last</small></button>
+    <button id="bband" data-cmd="bandage" title="Bandage self (B)"><span>🩹</span><small>0</small></button>
+    <button id="bpot" data-cmd="potion" title="Drink heal potion"><span>🧪</span><small>0</small></button>
+    <button data-cmd="toggle:journal" title="Journal"><span>📓</span><small>Log</small></button>
+    <button data-cmd="toggle:help" title="Help"><span>❔</span><small>Help</small></button>
+  </nav>
+</div>
+
+<div id="win" class="gump hidden"></div>
+
+<div id="create" class="hidden">
+  <div class="gump create">
+    <h1>Brodilka</h1>
+    <p class="sub">A realm of virtue and steel</p>
+    <div id="cont" class="hidden">
+      <button id="bcontinue" class="big">Continue as <b id="contname"></b></button>
+      <p class="or">— or forge a new character —</p>
+    </div>
+    <label>Name <input id="cname" maxlength="16" placeholder="Thy name" autocomplete="off"></label>
+    <div class="row">
+      <button class="seg sel" data-g="m">Male</button>
+      <button class="seg" data-g="f">Female</button>
+      <span id="hairs"></span>
+    </div>
+    <div id="tmpls"></div>
+    <div id="custom" class="hidden">
+      <p>Choose three skills (50 / 30 / 20):</p>
+      <select id="cs1"></select><select id="cs2"></select><select id="cs3"></select>
+    </div>
+    <button id="bstart" class="big">Enter the realm</button>
+    <p class="tiny">Saved automatically in this browser.</p>
+  </div>
+</div>
+
+<div id="loading">Loading the realm…</div>
+<script src="main.js"></script>
+</body>
+</html>
