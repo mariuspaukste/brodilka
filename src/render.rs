@@ -572,6 +572,27 @@ impl Game {
     /// Which animation and frame an entity is showing right now.
     fn anim_of(&self, e: &Ent) -> (Anim, usize) {
         let tau = std::f32::consts::TAU;
+        if e.down_t > 0.0 {
+            // fall (death frames forwards), lie still, then get up (the same frames backwards)
+            let (_, n) = bake::anim_range(Anim::Die);
+            let t = e.down_total - e.down_t;
+            let fall = 0.45;
+            let rise = e.down_total * 0.4;
+            let f = if t < fall {
+                (t / fall * n as f32) as usize
+            } else if e.down_t > rise {
+                n - 1
+            } else {
+                (e.down_t / rise * n as f32) as usize
+            };
+            return (Anim::Die, f.min(n - 1));
+        }
+        if e.kick > 0.0 {
+            return (Anim::Kick, (((1.0 - e.kick) * 4.0) as usize).min(3));
+        }
+        if e.k == EK::Player && self.pl.blocking {
+            return (Anim::Block, ((self.clock * 2.0) as usize) % 2);
+        }
         if e.k == EK::Player {
             if let Action::Cast { t, .. } = self.pl.action {
                 let n = bake::anim_range(Anim::Cast).1;

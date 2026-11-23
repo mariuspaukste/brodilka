@@ -199,7 +199,7 @@ impl Game {
             ""
         };
         format!(
-            "{{\"created\":{},\"name\":{},\"hp\":{},\"mhp\":{},\"mana\":{},\"mmana\":{},\"gold\":{},\"war\":{},\"ghost\":{},\"tgt\":{},\"act\":{},\"last\":{},\"targeting\":{},\"band\":{},\"pot\":{},\"night\":{},\"j\":{}}}",
+            "{{\"created\":{},\"name\":{},\"hp\":{},\"mhp\":{},\"mana\":{},\"mmana\":{},\"gold\":{},\"war\":{},\"ghost\":{},\"tgt\":{},\"act\":{},\"last\":{},\"targeting\":{},\"band\":{},\"pot\":{},\"night\":{},\"blocking\":{},\"down\":{},\"j\":{}}}",
             self.created,
             esc(&self.pl.name),
             p.hp.max(0),
@@ -216,6 +216,8 @@ impl Game {
             self.pl.count(item_idx("bandage")),
             self.pl.count(item_idx("healpotion")),
             self.is_night(),
+            self.pl.blocking,
+            p.down_t > 0.0,
             j
         )
     }
@@ -432,7 +434,8 @@ impl Game {
                     ("📖", "Spells need reagents and mana. Buy scrolls from the mage to learn more."),
                     ("☠️", "Death leaves thy belongings on thy corpse. Find a healer or an ankh, then go back for them."),
                     ("🛡️", "Town guards slay any monster that enters the town."),
-                    ("⌨️", "Keys: WASD/arrows move · Tab war · B bandage · P pack · K skills · 1-9 cast · Esc close"),
+                    ("🛡️", "In war mode hold BLOCK to catch blows; KICK shoves a foe back and may floor it. Heavy blows can knock thee down."),
+                    ("⌨️", "Keys: WASD/arrows move · Tab war · Space block · F kick · B bandage · P pack · K skills · 1-9 cast · Esc close"),
                 ] {
                     w.rows.push(Row::new(i, t, ""));
                 }
@@ -706,6 +709,8 @@ impl Game {
                 }
             }
             "war" => self.toggle_war(),
+            "block" => self.set_block(arg(1) == "1"),
+            "kick" => self.kick(),
             "bandage" => self.bandage(),
             "potion" => self.drink_potion(),
             "cast" => {

@@ -42,7 +42,8 @@ for (const t of ['warrior', 'mage', 'blacksmith', 'woodsman']) {
     ex.frame(1 / 30);
     while (ex.atlas_next() >= 0) { if (ex.atlas_w() * ex.atlas_h() === 0) fail('empty atlas'); baked++; }
     if (k % 40 === 0) { ex.ptr_down(200 + (k % 120), 560); ex.ptr_up(200 + (k % 120), 560); }
-    if (k % 97 === 0) { cmd('war'); cmd('bandage'); cmd('cast:0'); }
+    if (k % 97 === 0) { cmd('war'); cmd('bandage'); cmd('cast:0'); cmd('kick'); cmd('block:1'); }
+    if (k % 97 === 20) cmd('block:0');
   }
   const hud = JSON.parse(out(ex.hud_json()));
   if (!hud.created || hud.name !== 'Smoke') fail('hud after create');

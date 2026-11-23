@@ -375,6 +375,8 @@ function renderHud(h) {
   const bw = $('bwar');
   bw.classList.toggle('on', h.war);
   bw.querySelector('small').textContent = h.war ? 'War' : 'Peace';
+  $('combat').classList.toggle('hidden', !h.war || h.ghost);
+  $('bblock').classList.toggle('on', h.blocking);
   $('bband').querySelector('small').textContent = h.band;
   $('bpot').querySelector('small').textContent = h.pot;
   $('blast').querySelector('small').textContent = h.last ? h.last.split(' ')[0] : 'Last';
@@ -561,6 +563,14 @@ function pinchDist() {
 }
 document.querySelectorAll('[data-cmd]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); cmd(b.dataset.cmd); }));
 
+// combat buttons: block is held, kick is tapped
+const bblock = $('bblock');
+let blockHeld = false;
+function setBlock(on) { if (blockHeld === on) return; blockHeld = on; cmd(on ? 'block:1' : 'block:0'); }
+bblock.addEventListener('pointerdown', (e) => { e.preventDefault(); bblock.setPointerCapture(e.pointerId); setBlock(true); });
+['pointerup', 'pointercancel', 'lostpointercapture'].forEach((ev) => bblock.addEventListener(ev, () => setBlock(false)));
+$('bkick').addEventListener('pointerdown', (e) => { e.preventDefault(); cmd('kick'); });
+
 let keyBits = 0;
 const KEYMAP = { ArrowUp: 1, KeyW: 1, ArrowRight: 2, KeyD: 2, ArrowDown: 4, KeyS: 4, ArrowLeft: 8, KeyA: 8 };
 window.addEventListener('keydown', (e) => {
@@ -576,12 +586,15 @@ window.addEventListener('keydown', (e) => {
   else if (k === 'KeyH') cmd('potion');
   else if (k === 'KeyR') cmd('lastspell');
   else if (k === 'Escape') cmd('escape');
+  else if (k === 'Space') { e.preventDefault(); if (!e.repeat) setBlock(true); }
+  else if (k === 'KeyF') cmd('kick');
   else if (/^Digit[1-9]$/.test(k)) cmd(`cast:${+k.slice(5) - 1}`);
 });
 window.addEventListener('keyup', (e) => {
+  if (e.code === 'Space') setBlock(false);
   if (KEYMAP[e.code]) { keyBits &= ~KEYMAP[e.code]; if (ex) ex.keys(keyBits); }
 });
-window.addEventListener('blur', () => { keyBits = 0; if (ex) ex.keys(0); });
+window.addEventListener('blur', () => { keyBits = 0; if (ex) { ex.keys(0); setBlock(false); } });
 
 // ------------------------------------------------------------------ saving
 function saveGame() {

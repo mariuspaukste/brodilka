@@ -85,6 +85,29 @@ fn main() {
     dump(&mut g, &dir, "graveyard_zoom");
     g.zoom_mul = 1.0;
     g.apply_zoom();
+    // Pagan's combat moves, close up
+    g.zoom_mul = 2.0;
+    g.apply_zoom();
+    g.ents.iter_mut().skip(1).for_each(|e| {
+        e.atk = 0.0;
+        e.hurt = 0.0;
+    });
+    g.ents[0].hurt = 0.0;
+    g.ents[0].atk = 0.0;
+    g.ents[0].path.clear();
+    g.ents[0].dir8 = 2;
+    g.pl.blocking = true;
+    dump(&mut g, &dir, "move_block");
+    g.pl.blocking = false;
+    g.ents[0].kick = 0.55;
+    dump(&mut g, &dir, "move_kick");
+    g.ents[0].kick = 0.0;
+    g.ents[0].down_total = 1.9;
+    g.ents[0].down_t = 1.2;
+    dump(&mut g, &dir, "move_down");
+    g.ents[0].down_t = 0.0;
+    g.zoom_mul = 1.0;
+    g.apply_zoom();
     // forest / wilderness
     tp(&mut g, 44, 70);
     for _ in 0..20 {

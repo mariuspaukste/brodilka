@@ -115,6 +115,11 @@ pub struct Ent {
     pub back: bool,
     /// 8-way facing in tile space, index into DIRS (3 = towards the viewer)
     pub dir8: u8,
+    /// kick animation timer (1 -> 0)
+    pub kick: f32,
+    /// knocked down: time left lying / getting up, and the total
+    pub down_t: f32,
+    pub down_total: f32,
 }
 
 impl Ent {
@@ -150,6 +155,9 @@ impl Ent {
             look: 0,
             back: false,
             dir8: 3,
+            kick: 0.0,
+            down_t: 0.0,
+            down_total: 1.0,
         }
     }
     pub fn tile(&self) -> (i32, i32) {
@@ -306,6 +314,8 @@ pub struct Pl {
     pub cap_warned: bool,
     pub repath_t: f32,
     pub still_t: f32,
+    pub blocking: bool,
+    pub kick_cd: f32,
 }
 
 impl Pl {
@@ -343,6 +353,8 @@ impl Pl {
             cap_warned: false,
             repath_t: 0.0,
             still_t: 0.0,
+            blocking: false,
+            kick_cd: 0.0,
         }
     }
     pub fn sk(&self, s: usize) -> f32 {
@@ -913,6 +925,8 @@ impl Game {
         for i in 0..self.ents.len() {
             let e = &mut self.ents[i];
             e.atk = (e.atk - dt * 3.0).max(0.0);
+            e.kick = (e.kick - dt * 2.6).max(0.0);
+            e.down_t = (e.down_t - dt).max(0.0);
             e.hurt = (e.hurt - dt * 3.0).max(0.0);
             if e.say_t > 0.0 {
                 e.say_t -= dt;
@@ -1025,6 +1039,9 @@ impl Game {
                 self.steering = true;
             }
         }
+        if self.ents[0].down_t > 0.0 || self.pl.blocking {
+            return;
+        }
         let mut dir: Option<(f32, f32)> = None;
         if self.steering {
             let (px, py) = self.to_screen(self.ents[0].x, self.ents[0].y);
@@ -1088,6 +1105,11 @@ impl Game {
     }
 
     fn player_tick(&mut self, dt: f32) {
+        self.pl.kick_cd = (self.pl.kick_cd - dt).max(0.0);
+        if self.ents[0].down_t > 0.0 || self.pl.blocking {
+            // finish the step in progress, then stand still
+            self.ents[0].path.truncate(1);
+        }
         let moving = self.move_ent(0, PLAYER_SPEED, dt);
         if moving {
             self.pl.still_t = 0.0;
@@ -1202,10 +1224,14 @@ impl Game {
             }
             let (ddx, ddy) = (tx - self.ents[0].x, ty - self.ents[0].y);
             self.ents[0].dir8 = dir8_of(ddx, ddy);
-            if self.ents[0].swing <= 0.0 && !matches!(self.pl.action, Action::Cast { .. }) {
+            if self.ents[0].swing <= 0.0
+                && !matches!(self.pl.action, Action::Cast { .. })
+                && !self.pl.blocking
+                && self.ents[0].down_t <= 0.0
+            {
                 self.player_swing(ti);
             }
-        } else if self.pl.chase {
+        } else if self.pl.chase && !self.pl.blocking && self.ents[0].down_t <= 0.0 {
             self.pl.repath_t -= dt;
             if self.pl.repath_t <= 0.0 || self.ents[0].path.is_empty() {
                 self.pl.repath_t = 0.4;
@@ -1293,6 +1319,116 @@ impl Game {
         self.ents[i].hurt = 1.0;
     }
 
+    fn knockable(&self, i: usize) -> bool {
+        !matches!(
+            self.ents[i].mon().map(|m| m.id),
+            Some("dragon") | Some("slime") | Some("mongbat")
+        )
+    }
+
+    /// Fall over, lie a moment, get back up (Pagan's fallBackwards + standUp).
+    pub fn knock_down(&mut self, i: usize, t: f32) {
+        let e = &mut self.ents[i];
+        e.down_t = t;
+        e.down_total = t;
+        e.path.truncate(1);
+        e.atk = 0.0;
+        e.kick = 0.0;
+        if i == 0 {
+            self.pl.action = Action::None;
+            self.pl.blocking = false;
+            self.touch_ui();
+        }
+    }
+
+    pub fn set_block(&mut self, on: bool) {
+        if self.pl.ghost || self.ents[0].down_t > 0.0 {
+            self.pl.blocking = false;
+            return;
+        }
+        if on && !self.pl.war {
+            self.pl.war = true;
+        }
+        if on {
+            if let Action::Gather { .. } = self.pl.action {
+                self.pl.action = Action::None;
+            }
+        }
+        self.pl.blocking = on;
+        self.hud_ver += 1;
+    }
+
+    /// Pagan's kick: short range, staggers and pushes the foe back, may floor it.
+    pub fn kick(&mut self) {
+        if self.pl.ghost || self.ents[0].down_t > 0.0 || self.pl.blocking {
+            return;
+        }
+        if self.pl.kick_cd > 0.0 {
+            return;
+        }
+        let (px, py) = (self.ents[0].x, self.ents[0].y);
+        // the current target, else the nearest hostile in reach
+        let mut ti = self
+            .find(self.ents[0].target)
+            .filter(|&i| self.ents[i].dist(px, py) <= 1.6);
+        if ti.is_none() {
+            ti = (1..self.ents.len())
+                .filter(|&i| {
+                    !self.ents[i].dead
+                        && matches!(self.ents[i].k, EK::Mon(_))
+                        && self.ents[i].dist(px, py) <= 1.6
+                })
+                .min_by(|&a, &b| {
+                    self.ents[a]
+                        .dist(px, py)
+                        .partial_cmp(&self.ents[b].dist(px, py))
+                        .unwrap()
+                });
+        }
+        self.pl.kick_cd = 1.4;
+        self.ents[0].kick = 1.0;
+        self.ents[0].swing = self.ents[0].swing.max(0.5);
+        let Some(ti) = ti else {
+            self.msg("Thou kickest at the air.", C_SYS);
+            return;
+        };
+        self.pl.war = true;
+        self.ents[0].target = self.ents[ti].id;
+        let (tx, ty) = (self.ents[ti].x, self.ents[ti].y);
+        self.ents[0].dir8 = dir8_of(tx - px, ty - py);
+        let mon = self.ents[ti].mon().unwrap_or(&MONS[0]);
+        let atk = self.pl.sk(WRESTLING);
+        let hit = ((atk + 60.0) / ((mon.skill as f32 + 50.0) * 2.0)).clamp(0.1, 0.95);
+        self.gain(WRESTLING, atk < mon.skill as f32 + 40.0);
+        if !self.rng.chance(hit) {
+            self.float(tx, ty, "miss", 0xc0c0c0ff);
+            return;
+        }
+        let dmg = self.rng.range(2, 6) + self.pl.str_ / 15;
+        // shove one tile away if there is room
+        let (mx, my) = self.ents[ti].tile();
+        let (dx, dy) = (
+            (tx - px).round().clamp(-1.0, 1.0) as i32,
+            (ty - py).round().clamp(-1.0, 1.0) as i32,
+        );
+        if (dx != 0 || dy != 0)
+            && self.map.can_step(mx, my, dx, dy)
+            && !self.occupied(mx + dx, my + dy, ti)
+        {
+            let e = &mut self.ents[ti];
+            e.path.clear();
+            e.path.push((mx + dx, my + dy));
+        }
+        self.ents[ti].swing += 1.2;
+        let floored = self.knockable(ti) && self.rng.chance(0.3);
+        self.damage(ti, dmg, true);
+        if floored && !self.ents[ti].dead && self.ents[ti].down_t <= 0.0 {
+            self.knock_down(ti, 1.5);
+            let nm = self.ents[ti].name.clone();
+            self.msg(&format!("Thy kick sends {} sprawling!", nm), C_GOOD);
+        }
+    }
+
     pub fn float(&mut self, x: f32, y: f32, s: &str, col: u32) {
         self.floats.push(Float {
             x,
@@ -1327,6 +1463,15 @@ impl Game {
         }
         if self.ents[i].hp <= 0 {
             self.kill_mon(i, by_player);
+        } else if by_player
+            && self.ents[i].down_t <= 0.0
+            && dmg * 10 >= self.ents[i].mhp * 3
+            && self.knockable(i)
+            && self.rng.chance(0.4)
+        {
+            self.knock_down(i, 1.5);
+            let nm = self.ents[i].name.clone();
+            self.msg(&format!("{} is knocked down!", cap(&nm)), C_GOOD);
         }
         self.hud_ver += 1;
     }
@@ -1368,6 +1513,13 @@ impl Game {
         self.hud_ver += 1;
         if self.ents[0].hp <= 0 {
             self.kill_player();
+        } else if !self.pl.blocking
+            && self.ents[0].down_t <= 0.0
+            && dmg * 100 >= self.ents[0].mhp * 22
+            && self.rng.chance(0.5)
+        {
+            self.knock_down(0, 1.9);
+            self.msg("You are knocked off your feet!", C_WARN);
         }
     }
 
@@ -1621,6 +1773,10 @@ impl Game {
                 }
             }
         }
+        if self.ents[i].down_t > 0.0 {
+            self.ents[i].path.truncate(1);
+            return;
+        }
         // guards protect the town
         let (mx, my) = self.ents[i].tile();
         if self.map.in_town(mx, my) && !d.passive {
@@ -1741,7 +1897,29 @@ impl Game {
             let wsk = self.pl.weapon_def().skill;
             self.gain(wsk, def < d.skill as f32 + 30.0);
             if self.rng.chance(hit) {
-                let dmg = self.rng.range(d.dmg.0, d.dmg.1);
+                let mut dmg = self.rng.range(d.dmg.0, d.dmg.1);
+                if self.pl.blocking && self.ents[0].down_t <= 0.0 {
+                    let parry = self.pl.sk(PARRY);
+                    let shield = if self.pl.shield.is_some() { 0.15 } else { 0.0 };
+                    self.gain(PARRY, true);
+                    if self.rng.chance(0.5 + parry / 250.0 + shield) {
+                        dmg /= 5;
+                        self.msg("You block the blow.", C_SYS);
+                        let (x, y) = (self.ents[0].x, self.ents[0].y);
+                        self.fx.push(Fx {
+                            kind: FX_SPARK,
+                            x0: x,
+                            y0: y,
+                            x1: x,
+                            y1: y,
+                            tgt: 0,
+                            t: 0.0,
+                            dur: 0.35,
+                            dmg: 0,
+                            by_player: false,
+                        });
+                    }
+                }
                 self.damage(0, dmg, false);
             } else {
                 self.float(px, py, "miss", 0xc0c0c0ff);
@@ -2613,6 +2791,14 @@ pub fn dir8_of(dx: f32, dy: f32) -> u8 {
     ((oct + 2) % 8) as u8
 }
 
+fn cap(s: &str) -> String {
+    let mut c = s.chars();
+    match c.next() {
+        Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+        None => String::new(),
+    }
+}
+
 pub fn blood_color(e: &Ent) -> u32 {
     match e.mon().map(|m| m.id) {
         Some("slime") => 0x4a8a2aff,
@@ -2696,6 +2882,45 @@ mod tests {
         }
         assert!(g.ents[0].hp > 10 || g.journal.iter().any(|j| j.1.contains("fizzles")));
         let _ = id;
+    }
+
+    #[test]
+    fn block_kick_knockdown() {
+        let mut g = Game::new(11);
+        g.create("Kicker", false, 0, "warrior", [0, 0, 0]);
+        let (sx, sy) = g.map.start;
+        // an orc right next to us, outside any spawner
+        let oi = mon_idx("orc");
+        let id = g.nid();
+        let mut e = Ent::new(id, EK::Mon(oi), "an orc".into(), sx + 1, sy, 500);
+        e.home = (sx + 1, sy);
+        g.ents.push(e);
+        let i = g.ents.len() - 1;
+        g.pl.war = true;
+        g.kick();
+        assert!(g.ents[0].kick > 0.0);
+        assert!(g.pl.kick_cd > 0.0);
+        // knock-down puts the target on the ground and stops it acting
+        g.knock_down(i, 1.5);
+        assert!(g.ents[i].down_t > 0.0);
+        // blocking stops the player walking
+        g.set_block(true);
+        g.ents[0].path = vec![(sx, sy + 1), (sx, sy + 2)];
+        g.update(0.05);
+        assert!(g.ents[0].path.len() <= 1);
+        g.set_block(false);
+        // a huge blow while not blocking may floor the player
+        let mut floored = false;
+        for _ in 0..20 {
+            g.ents[0].hp = g.ents[0].mhp;
+            g.ents[0].down_t = 0.0;
+            g.damage(0, g.ents[0].mhp / 2, false);
+            if g.ents[0].down_t > 0.0 {
+                floored = true;
+                break;
+            }
+        }
+        assert!(floored);
     }
 
     #[test]

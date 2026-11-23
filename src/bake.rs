@@ -27,9 +27,11 @@ pub enum Anim {
     Work,
     Cast,
     Hit,
+    Block,
+    Kick,
     Die,
 }
-pub const ANIMS: [(Anim, usize); 8] = [
+pub const ANIMS: [(Anim, usize); 10] = [
     (Anim::Idle, 2),
     (Anim::Walk, 8),
     (Anim::Stance, 2),
@@ -37,9 +39,11 @@ pub const ANIMS: [(Anim, usize); 8] = [
     (Anim::Work, 4),
     (Anim::Cast, 4),
     (Anim::Hit, 2),
+    (Anim::Block, 2),
+    (Anim::Kick, 4),
     (Anim::Die, 5),
 ];
-pub const FRAMES_PER_DIR: usize = 32;
+pub const FRAMES_PER_DIR: usize = 38;
 
 /// (first frame, frame count) of an animation within one direction
 pub fn anim_range(a: Anim) -> (usize, usize) {
@@ -333,6 +337,35 @@ fn pose_for(a: Anim, f: usize, n: usize, look: &Look) -> Pose {
             q.hip = [-0.25 * t, 0.15 * t];
             q.knee = [0.3 * t, 0.2];
             q.head_tilt = -0.4 * t;
+        }
+        Anim::Block => {
+            // shield (or forearm) up in front, blade held across as a guard
+            let b = f as f32 * 0.04;
+            q.sh = [1.25 + b, 1.45 + b];
+            q.el = [1.35, 0.8];
+            q.roll = [0.05, 0.05];
+            q.wrist = 0.15;
+            q.twist = 0.15;
+            q.lean -= 0.06;
+            q.hip = [0.3, -0.2];
+            q.knee = [0.45, 0.35];
+            q.head_tilt = 0.15;
+        }
+        Anim::Kick => {
+            // chamber, strike, recoil, set down
+            let (hip, knee, lean) = match f {
+                0 => (0.95, 1.45, 0.0),
+                1 => (1.45, 0.08, -0.28),
+                2 => (1.05, 0.95, -0.12),
+                _ => (0.35, 0.35, 0.0),
+            };
+            q.hip = [hip, -0.1];
+            q.knee = [knee, 0.25];
+            q.lean += lean;
+            q.sh = [0.5, 0.6];
+            q.roll = [0.55, 0.55];
+            q.el = [0.6, 0.6];
+            q.wrist = 0.8;
         }
         Anim::Die => {
             let t = ease(p);
@@ -801,9 +834,18 @@ fn figure_for(look: &Look, a: Anim, f: usize, n: usize) -> Figure {
                 lift: 0.0,
             }
         }
-        Body::Slime => slime(look, a, f, n),
-        Body::Bat => bat(look, a, f, n),
-        _ => quad(look, a, f, n),
+        _ => {
+            let a = match a {
+                Anim::Block => Anim::Stance,
+                Anim::Kick => Anim::Attack,
+                x => x,
+            };
+            match look.body_type {
+                Body::Slime => slime(look, a, f, n),
+                Body::Bat => bat(look, a, f, n),
+                _ => quad(look, a, f, n),
+            }
+        }
     }
 }
 

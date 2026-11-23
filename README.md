@@ -14,7 +14,9 @@ canvas and renders the windows ("gumps") from JSON; all game logic is in Rust.
 - **Use-based skills** (12 of them, 0–100, 700 total cap) and stats that grow
   with the skills you use, with titles like *Journeyman Swordsman*.
 - **Melee** with war mode, swing timers, hit chance from skill vs. skill,
-  Tactics damage, armour and shield parrying.
+  Tactics damage, armour and shield parrying, plus Pagan's moves: **hold
+  Block** to catch blows, **Kick** to shove a foe back (it may go down), and
+  heavy blows can **knock you down** until you get back up.
 - **Magery**: spellbook, reagents, mana, power words (*In Por Ylem*, *Vas Flam*…),
   fizzles; buy scrolls to learn new spells. Meditation speeds mana regen.
 - **Gathering & crafting**: mine ore in the mountains, chop trees, fish,
@@ -40,7 +42,8 @@ from 3D models: `src/bake.rs` builds each figure from 3D shapes on a jointed
 skeleton, poses it, lights it from the upper left, outlines the silhouette and
 renders every frame in 8 directions (5 rendered, 3 mirrored) into an atlas the
 first time that figure appears on screen. Animations follow Pagan's set: idle,
-walk, combat stance, attack, work (mining/chopping/fishing), cast, hit and die;
+walk, combat stance, attack, block, kick, work (mining/chopping/fishing),
+cast, hit, die, and falling down and getting back up;
 corpses keep the last frame of the death fall. Four-legged animals, the
 mongbat, the slime and the dragon have their own rigs (gaits, wing membranes,
 squash-and-stretch). Baking is spread over several frames so play never stalls. Wounds leave blood on the ground.
@@ -50,7 +53,7 @@ squash-and-stretch). Baking is spread over several frames so play never stalls. 
 Tap the ground to walk, hold and drag to steer. Tap a creature to attack,
 tap people to trade, tap yourself for the paperdoll. Trees, mountains and
 water are gathered by tapping them with the right tool.
-Keyboard: WASD/arrows, Tab war mode, B bandage, P pack, K skills, M map,
+Keyboard: WASD/arrows, Tab war mode, Space (hold) block, F kick, B bandage, P pack, K skills, M map,
 1–9 cast, Esc close.
 
 ## Build
