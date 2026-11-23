@@ -6,7 +6,14 @@ use brodilka::game::*;
 use std::fs;
 
 fn dump(g: &mut Game, dir: &str, name: &str) {
+    g.sprites.budget = 64;
     g.render();
+    while let Some((id, a)) = g.sprites.pending.pop_front() {
+        fs::write(format!("{dir}/atlas{id}.rgba"), &a.rgba).unwrap();
+        let mut list = fs::read_to_string(format!("{dir}/atlases.txt")).unwrap_or_default();
+        list.push_str(&format!("{id} {} {}\n", a.w, a.h));
+        fs::write(format!("{dir}/atlases.txt"), list).unwrap();
+    }
     let b: Vec<u8> = g.cmds.cmd.iter().flat_map(|u| u.to_le_bytes()).collect();
     fs::write(format!("{dir}/{name}.cmd"), b).unwrap();
     fs::write(format!("{dir}/{name}.str"), &g.cmds.strs).unwrap();
@@ -71,6 +78,11 @@ fn main() {
         g.update(1.0 / 30.0);
     }
     dump(&mut g, &dir, "graveyard");
+    g.zoom_mul = 2.0;
+    g.apply_zoom();
+    dump(&mut g, &dir, "graveyard_zoom");
+    g.zoom_mul = 1.0;
+    g.apply_zoom();
     // forest / wilderness
     tp(&mut g, 44, 70);
     for _ in 0..20 {

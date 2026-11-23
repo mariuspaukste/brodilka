@@ -113,6 +113,8 @@ pub struct Ent {
     pub look: u32,
     /// facing away from the viewer
     pub back: bool,
+    /// 8-way facing in tile space, index into DIRS (3 = towards the viewer)
+    pub dir8: u8,
 }
 
 impl Ent {
@@ -147,6 +149,7 @@ impl Ent {
             provoked: false,
             look: 0,
             back: false,
+            dir8: 3,
         }
     }
     pub fn tile(&self) -> (i32, i32) {
@@ -226,6 +229,10 @@ pub struct Corpse {
     pub player: bool,
     pub size: f32,
     pub color: u32,
+    /// baked figure to show lying dead, with its facing and age
+    pub look: Option<crate::bake::Look>,
+    pub dir8: u8,
+    pub age: f32,
 }
 
 pub struct Fx {
@@ -497,6 +504,7 @@ pub struct Game {
     pub zoom_mul: f32,
     /// CSS pixels per art pixel (the host renders at low resolution)
     pub pix: f32,
+    pub sprites: crate::render::SpriteCache,
 }
 
 const PLAYER_SPEED: f32 = 4.6;
@@ -542,6 +550,7 @@ impl Game {
             tab: 0,
             zoom_mul: 1.0,
             pix: 1.0,
+            sprites: Default::default(),
             map,
         };
         let (sx, sy) = g.map.start;
@@ -921,6 +930,7 @@ impl Game {
         let before = self.corpses.len();
         for c in self.corpses.iter_mut() {
             c.t -= dt;
+            c.age += dt;
             if !c.player && c.items.is_empty() && c.gold == 0 && c.t > 8.0 {
                 c.t = 8.0;
             }
@@ -970,6 +980,9 @@ impl Game {
         let sdy = dx + dy;
         if sdy.abs() > 0.01 {
             e.back = sdy < 0.0;
+        }
+        if d > 0.01 {
+            e.dir8 = dir8_of(dx, dy);
         }
         e.walk += dt * speed * 2.4;
         if d <= step {
@@ -1187,6 +1200,8 @@ impl Game {
             if sdy.abs() > 0.05 {
                 self.ents[0].back = sdy < 0.0;
             }
+            let (ddx, ddy) = (tx - self.ents[0].x, ty - self.ents[0].y);
+            self.ents[0].dir8 = dir8_of(ddx, ddy);
             if self.ents[0].swing <= 0.0 && !matches!(self.pl.action, Action::Cast { .. }) {
                 self.player_swing(ti);
             }
@@ -1397,6 +1412,8 @@ impl Game {
             items.push(Item::new(item_idx("fish"), 1)); // "meat" placeholder: edible
         }
         let bc = blood_color(&self.ents[i]);
+        let look = self.look_for(i);
+        let dir8 = self.ents[i].dir8;
         self.decals.push(Decal {
             x: x as f32,
             y: y as f32,
@@ -1416,6 +1433,9 @@ impl Game {
             player: false,
             size: d.size,
             color: d.color,
+            look,
+            dir8,
+            age: 0.0,
         });
         if by_player {
             self.pl.kills += 1;
@@ -1438,6 +1458,8 @@ impl Game {
     }
 
     fn kill_player(&mut self) {
+        let look = self.look_for(0);
+        let dir8 = self.ents[0].dir8;
         let (x, y) = self.ents[0].tile();
         let mut items = vec![];
         let mut keep = vec![];
@@ -1471,6 +1493,9 @@ impl Game {
             player: true,
             size: 1.0,
             color: 0xc8a080ff,
+            look,
+            dir8,
+            age: 0.0,
         });
         self.pl.ghost = true;
         self.pl.war = false;
@@ -1655,6 +1680,10 @@ impl Game {
         let sdy = (px + py) - (self.ents[i].x + self.ents[i].y);
         if sdy.abs() > 0.05 {
             self.ents[i].back = sdy < 0.0;
+        }
+        let (ddx, ddy) = (px - self.ents[i].x, py - self.ents[i].y);
+        if ddx.abs() + ddy.abs() > 0.05 {
+            self.ents[i].dir8 = dir8_of(ddx, ddy);
         }
         // dragon breath
         if d.breath && pd < 6.0 && self.ents[i].breath_t <= 0.0 {
@@ -2146,6 +2175,7 @@ impl Game {
         if sdx.abs() > 0.05 {
             self.ents[0].face = sdx.signum();
         }
+        self.ents[0].dir8 = dir8_of(x as f32 - px, y as f32 - py);
         self.ents[0].atk = 1.0;
         self.hud_ver += 1;
     }
@@ -2575,6 +2605,12 @@ impl Game {
         }
         self.touch_ui();
     }
+}
+
+/// 8-way direction index (into DIRS) for a tile-space delta
+pub fn dir8_of(dx: f32, dy: f32) -> u8 {
+    let oct = ((dy.atan2(dx) / (std::f32::consts::PI / 4.0)).round() as i32).rem_euclid(8);
+    ((oct + 2) % 8) as u8
 }
 
 pub fn blood_color(e: &Ent) -> u32 {

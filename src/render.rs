@@ -1,9 +1,54 @@
 //! Isometric renderer. Produces a compact command buffer that the JS host
 //! replays onto a 2D canvas (no wasm-bindgen needed).
+use crate::bake::{self, Anim, Look, Weapon};
 use crate::data::*;
 use crate::game::*;
 use crate::tex::*;
 use crate::world::*;
+use std::collections::{HashMap, VecDeque};
+
+/// A baked atlas the host has (or is about to get).
+pub struct SpriteInfo {
+    pub id: u32,
+    pub last: f32,
+    pub fw: usize,
+    pub fh: usize,
+    pub ax: f32,
+    pub ay: f32,
+}
+
+/// Baked character atlases: baked on first sight, handed to the host once,
+/// dropped after a while off screen.
+pub struct SpriteCache {
+    pub ids: HashMap<u64, SpriteInfo>,
+    pub pending: VecDeque<(u32, bake::Atlas)>,
+    pub current: Option<(u32, bake::Atlas)>,
+    pub evicted: VecDeque<u32>,
+    pub next: u32,
+    pub budget: usize,
+}
+impl Default for SpriteCache {
+    fn default() -> Self {
+        SpriteCache {
+            ids: HashMap::new(),
+            pending: VecDeque::new(),
+            current: None,
+            evicted: VecDeque::new(),
+            next: 1,
+            budget: 2,
+        }
+    }
+}
+
+fn weapon_of(id: Option<&str>) -> Weapon {
+    match id {
+        Some("dagger") | Some("katana") | Some("broadsword") | Some("longsword") => Weapon::Sword,
+        Some("hatchet") => Weapon::Axe,
+        Some("mace") | Some("warhammer") => Weapon::Mace,
+        Some("pickaxe") => Weapon::Pick,
+        _ => Weapon::None,
+    }
+}
 
 #[derive(Default)]
 pub struct Canvas {
@@ -113,6 +158,33 @@ impl Canvas {
         self.cmd.push(13);
         self.cmd.push(c);
         self.f(w);
+    }
+    /// a frame from a baked sprite atlas, anchored at the figure's feet
+    #[allow(clippy::too_many_arguments)]
+    pub fn sprite(
+        &mut self,
+        id: u32,
+        frame: usize,
+        fw: usize,
+        fh: usize,
+        ax: f32,
+        ay: f32,
+        x: f32,
+        y: f32,
+        scale: f32,
+        flags: u32,
+    ) {
+        self.cmd.push(15);
+        self.cmd.push(id);
+        self.cmd.push(frame as u32);
+        self.cmd.push(fw as u32);
+        self.cmd.push(fh as u32);
+        self.f(ax);
+        self.f(ay);
+        self.f(x);
+        self.f(y);
+        self.f(scale);
+        self.cmd.push(flags);
     }
     /// fill with texture `tex`, mapped by the affine matrix (a b c d e f)
     #[allow(clippy::too_many_arguments)]
@@ -249,11 +321,303 @@ const HUM: Hum = Hum {
 
 impl Game {
     pub fn render(&mut self) {
+        self.prebake();
         let mut c = std::mem::take(&mut self.cmds);
         c.clear();
         c.ink = self.pix.max(1.0);
         self.draw(&mut c);
         self.cmds = c;
+    }
+
+    /// The baked look of an entity, if it is drawn as a baked figure.
+    pub fn look_for(&self, i: usize) -> Option<Look> {
+        self.look_for_ent(&self.ents[i])
+    }
+    pub fn look_for_ent(&self, e: &Ent) -> Option<Look> {
+        let skin = 0xe0b090ff;
+        match e.k {
+            EK::Player => {
+                let pl = &self.pl;
+                if pl.ghost {
+                    let mut l = Look::human(0xd8e4f0ff, 0xc8d4e8ff, 0xc8d4e8ff);
+                    l.robe = true;
+                    l.female = pl.female;
+                    return Some(l);
+                }
+                let arm = pl.armor.as_ref().map(|a| a.def().id);
+                let body = pl
+                    .armor
+                    .as_ref()
+                    .map(|a| a.def().color)
+                    .unwrap_or(0x8a6a4aff);
+                let mut l = Look::human(skin, body, 0x3a3040ff);
+                l.robe = arm == Some("robe");
+                l.metal_body = matches!(
+                    arm,
+                    Some("ringmail") | Some("chainmail") | Some("platemail")
+                );
+                l.skirt = l.metal_body;
+                l.helm = if arm == Some("platemail") {
+                    0xc8ced6ff
+                } else {
+                    0
+                };
+                l.hair = pl.hair;
+                l.female = pl.female;
+                l.long_hair = pl.female;
+                l.weapon = if pl.war {
+                    weapon_of(pl.weapon.as_ref().map(|w| w.def().id))
+                } else {
+                    Weapon::None
+                };
+                if let Action::Gather { skill, .. } = pl.action {
+                    l.weapon = match skill {
+                        MINING => Weapon::Pick,
+                        LUMBER => Weapon::Axe,
+                        _ => Weapon::Pole,
+                    };
+                }
+                l.shield = pl.shield.as_ref().map(|s| s.def().color).unwrap_or(0);
+                Some(l)
+            }
+            EK::Npc(v) => {
+                let vd = &VENDORS[v];
+                let mut l = Look::human(skin, vd.robe, 0x3a3028ff);
+                l.hair = HAIR[(e.look % 3) as usize];
+                l.female = e.look % 2 == 0;
+                l.long_hair = l.female;
+                match v {
+                    V_GUARD => {
+                        l.metal_body = true;
+                        l.skirt = true;
+                        l.helm = 0xb0b8c0ff;
+                        l.weapon = Weapon::Halberd;
+                        l.shield = 0x3050a0ff;
+                        l.legs = 0x5a5e66ff;
+                        l.hair = 0;
+                        l.female = false;
+                        l.long_hair = false;
+                    }
+                    V_MAGE => {
+                        l.robe = true;
+                        l.hat = vd.robe;
+                        l.weapon = Weapon::Staff;
+                        l.hair = 0xd0d0d0ff;
+                        l.female = false;
+                        l.long_hair = false;
+                    }
+                    V_HEALER => l.robe = true,
+                    V_SMITH => {
+                        l.weapon = Weapon::Mace;
+                        l.skin = 0xd8a070ff;
+                    }
+                    _ => {}
+                }
+                Some(l)
+            }
+            EK::Mon(m) => {
+                let d = &MONS[m];
+                let mut l = Look::human(d.color, d.color, d.color);
+                match d.id {
+                    "skeleton" => {
+                        l.skeleton = true;
+                        l.weapon = Weapon::Sword;
+                        l.shield = 0x6a5a40ff;
+                        l.eyes = 0x200808ff;
+                        l.boots = d.color;
+                    }
+                    "zombie" => {
+                        l.body = 0x4a3a2eff;
+                        l.legs = 0x3a3a30ff;
+                        l.hair = 0x2a2a20ff;
+                        l.zombie = true;
+                        l.eyes = 0xc0e060ff;
+                    }
+                    "orc" | "orclord" => {
+                        l.body = 0x6a4a2aff;
+                        l.legs = 0x3a2a1aff;
+                        l.weapon = Weapon::Axe;
+                        l.eyes = 0xff3020ff;
+                        l.bulk = 20;
+                        l.scale = 105;
+                        if d.id == "orclord" {
+                            l.body = 0x8a8f96ff;
+                            l.metal_body = true;
+                            l.skirt = true;
+                            l.helm = 0x6a6058ff;
+                            l.shield = 0x5a3a20ff;
+                            l.scale = 112;
+                            l.bulk = 25;
+                        }
+                    }
+                    "troll" => {
+                        l.body = 0x5a4a30ff;
+                        l.weapon = Weapon::Club;
+                        l.eyes = 0xffe040ff;
+                        l.bulk = 45;
+                        l.hunch = 30;
+                        l.scale = 125;
+                        l.skirt = true;
+                    }
+                    "ettin" => {
+                        l.body = 0x6a5038ff;
+                        l.weapon = Weapon::Club;
+                        l.heads = 2;
+                        l.bulk = 50;
+                        l.hunch = 15;
+                        l.scale = 140;
+                        l.skirt = true;
+                        l.eyes = 0x200808ff;
+                    }
+                    "lich" => {
+                        l.skin = 0xe8e2cfff;
+                        l.skeleton = true;
+                        l.robe = true;
+                        l.body = 0x5a3c80ff;
+                        l.hat = 0x3a2a5aff;
+                        l.weapon = Weapon::Staff;
+                        l.eyes = 0x60ff60ff;
+                    }
+                    _ => return None,
+                }
+                Some(l)
+            }
+        }
+    }
+
+    /// Bake atlases for figures on screen that have none yet (a few per frame).
+    fn prebake(&mut self) {
+        let mut want: Vec<Look> = vec![];
+        let onscreen = |g: &Game, x: f32, y: f32| {
+            let (sx, sy) = g.to_screen(x, y);
+            sx > -200.0 && sx < g.w + 200.0 && sy > -200.0 && sy < g.h + 300.0
+        };
+        for i in 0..self.ents.len() {
+            let e = &self.ents[i];
+            if e.dead || !onscreen(self, e.x, e.y) {
+                continue;
+            }
+            if let Some(l) = self.look_for(i) {
+                want.push(l);
+            }
+        }
+        for c in self.corpses.iter() {
+            if let Some(l) = &c.look {
+                if onscreen(self, c.x as f32, c.y as f32) {
+                    want.push(l.clone());
+                }
+            }
+        }
+        let now = self.clock;
+        let mut baked = 0;
+        for l in want {
+            let k = l.key();
+            if let Some(info) = self.sprites.ids.get_mut(&k) {
+                info.last = now;
+                continue;
+            }
+            if baked >= self.sprites.budget {
+                continue;
+            }
+            baked += 1;
+            let atlas = bake::bake(&l);
+            let id = self.sprites.next;
+            self.sprites.next += 1;
+            let (ax, ay) = l.anchor();
+            self.sprites.ids.insert(
+                k,
+                SpriteInfo {
+                    id,
+                    last: now,
+                    fw: atlas.fw,
+                    fh: atlas.fh,
+                    ax,
+                    ay,
+                },
+            );
+            self.sprites.pending.push_back((id, atlas));
+        }
+        let mut gone = vec![];
+        self.sprites.ids.retain(|_, v| {
+            if now - v.last > 45.0 {
+                gone.push(v.id);
+                false
+            } else {
+                true
+            }
+        });
+        self.sprites.evicted.extend(gone);
+    }
+
+    /// Which animation and frame an entity is showing right now.
+    fn anim_of(&self, e: &Ent) -> (Anim, usize) {
+        let tau = std::f32::consts::TAU;
+        if e.k == EK::Player {
+            if let Action::Cast { t, .. } = self.pl.action {
+                let n = bake::anim_range(Anim::Cast).1;
+                let f = ((1.0 - (t / 1.2).min(1.0)) * n as f32) as usize;
+                return (Anim::Cast, f.min(n - 1));
+            }
+            if matches!(self.pl.action, Action::Gather { .. }) && e.path.is_empty() {
+                return (Anim::Work, ((self.clock * 6.0) as usize) % 4);
+            }
+        }
+        if e.atk > 0.0 {
+            return (Anim::Attack, (((1.0 - e.atk) * 5.0) as usize).min(4));
+        }
+        if e.hurt > 0.45 {
+            return (Anim::Hit, if e.hurt > 0.75 { 0 } else { 1 });
+        }
+        if !e.path.is_empty() {
+            return (
+                Anim::Walk,
+                (((e.walk.rem_euclid(tau) / tau) * 8.0) as usize) % 8,
+            );
+        }
+        let war = match e.k {
+            EK::Player => self.pl.war,
+            EK::Mon(_) => e.target != 0,
+            EK::Npc(_) => false,
+        };
+        if war {
+            return (Anim::Stance, ((self.clock * 1.5) as usize) % 2);
+        }
+        (
+            Anim::Idle,
+            ((self.clock * 1.2 + e.id as f32 * 0.37) as usize) % 2,
+        )
+    }
+
+    /// Draw an entity as its baked figure; false if it has none (yet).
+    fn draw_sprite(&self, c: &mut Canvas, e: &Ent, sx: f32, sy: f32, z: f32) -> bool {
+        let Some(look) = self.look_for_ent(e) else {
+            return false;
+        };
+        let Some(info) = self.sprites.ids.get(&look.key()) else {
+            return false;
+        };
+        let (a, f) = self.anim_of(e);
+        let (r, flip) = bake::dir_frame(e.dir8);
+        let frame = r * bake::FRAMES_PER_DIR + bake::anim_range(a).0 + f;
+        let ghost = e.k == EK::Player && self.pl.ghost;
+        let lift = if ghost {
+            4.0 * z + (self.clock * 2.0).sin() * 2.0 * z
+        } else {
+            0.0
+        };
+        c.sprite(
+            info.id,
+            frame,
+            info.fw,
+            info.fh,
+            info.ax,
+            info.ay,
+            sx,
+            sy - lift,
+            z,
+            flip as u32 | if ghost { 2 } else { 0 },
+        );
+        true
     }
 
     fn darkness(&self) -> f32 {
@@ -1271,6 +1635,31 @@ impl Game {
     }
 
     fn corpse(&self, c: &mut Canvas, cp: &Corpse, sx: f32, sy: f32, z: f32) {
+        if let Some(l) = &cp.look {
+            if let Some(info) = self.sprites.ids.get(&l.key()) {
+                let (base, n) = bake::anim_range(Anim::Die);
+                let f = ((cp.age / 0.12) as usize).min(n - 1);
+                let (r, flip) = bake::dir_frame(cp.dir8);
+                c.sprite(
+                    info.id,
+                    r * bake::FRAMES_PER_DIR + base + f,
+                    info.fw,
+                    info.fh,
+                    info.ax,
+                    info.ay,
+                    sx,
+                    sy,
+                    z,
+                    flip as u32,
+                );
+                if cp.player || !cp.items.is_empty() || cp.gold > 0 {
+                    c.outline(0, 0.0);
+                    c.fill(0xffd84060);
+                    c.ell(sx, sy + 2.0 * z, 3.0 * z, 1.5 * z);
+                }
+                return;
+            }
+        }
         let s = z * cp.size.clamp(0.5, 1.8);
         c.fill(0x00000050);
         c.ell(sx, sy, 16.0 * s, 6.0 * s);
@@ -1287,6 +1676,9 @@ impl Game {
     }
 
     fn entity(&self, c: &mut Canvas, e: &Ent, sx: f32, sy: f32, z: f32, t: f32) {
+        if self.draw_sprite(c, e, sx, sy, z) {
+            return;
+        }
         let moving = !e.path.is_empty();
         let wk = if moving { e.walk.sin() } else { 0.0 };
         let flash = e.hurt > 0.5;

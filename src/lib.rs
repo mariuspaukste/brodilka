@@ -1,6 +1,7 @@
 //! Brodilka — an Ultima Online-flavoured sandbox RPG.
 //! All game logic lives in Rust; the browser host (web/main.js) only replays
 //! draw commands on a canvas and renders HTML windows from JSON.
+pub mod bake;
 pub mod data;
 pub mod game;
 pub mod render;
@@ -266,4 +267,42 @@ pub extern "C" fn tex_ptr(i: usize) -> *const u8 {
 #[no_mangle]
 pub extern "C" fn pal_ptr() -> *const u8 {
     art().1.as_ptr()
+}
+
+// ---------------------------------------------------------------- baked sprites
+/// Hand the next freshly baked atlas to the host: returns its id or -1.
+#[no_mangle]
+pub extern "C" fn atlas_next() -> i32 {
+    let g = g();
+    g.sprites.current = g.sprites.pending.pop_front();
+    g.sprites
+        .current
+        .as_ref()
+        .map(|(id, _)| *id as i32)
+        .unwrap_or(-1)
+}
+#[no_mangle]
+pub extern "C" fn atlas_ptr() -> *const u8 {
+    g().sprites
+        .current
+        .as_ref()
+        .map(|(_, a)| a.rgba.as_ptr())
+        .unwrap_or(std::ptr::null())
+}
+#[no_mangle]
+pub extern "C" fn atlas_w() -> usize {
+    g().sprites.current.as_ref().map(|(_, a)| a.w).unwrap_or(0)
+}
+#[no_mangle]
+pub extern "C" fn atlas_h() -> usize {
+    g().sprites.current.as_ref().map(|(_, a)| a.h).unwrap_or(0)
+}
+/// An atlas the host may drop: its id or -1.
+#[no_mangle]
+pub extern "C" fn atlas_evicted() -> i32 {
+    g().sprites
+        .evicted
+        .pop_front()
+        .map(|i| i as i32)
+        .unwrap_or(-1)
 }

@@ -196,6 +196,9 @@ impl Game {
                 player: true,
                 size: 1.0,
                 color: 0xc8a080ff,
+                look: None,
+                dir8: 3,
+                age: 10.0,
             });
         }
         // move monsters away from the loaded position so we don't wake up in a fight

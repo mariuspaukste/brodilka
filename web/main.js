@@ -96,6 +96,22 @@ function replay(ctx, U, F, S, texts) {
         break;
       }
       case 13: inkC = col(U[i++]); inkW = F[i++]; break;
+      case 15: {
+        const cv = atlases.get(U[i]);
+        const fr = U[i + 1], fw = U[i + 2], fh = U[i + 3], ax = F[i + 4], ay = F[i + 5], x = F[i + 6], y = F[i + 7], sc = F[i + 8], fl = U[i + 9];
+        i += 10;
+        if (!cv) break;
+        const sx = (fr % 16) * fw, sy = Math.floor(fr / 16) * fh;
+        const ga = ctx.globalAlpha;
+        if (fl & 2) ctx.globalAlpha = ga * 0.5;
+        if (fl & 1) {
+          ctx.save(); ctx.translate(x, y); ctx.scale(-1, 1);
+          ctx.drawImage(cv, sx, sy, fw, fh, -ax * sc, -ay * sc, fw * sc, fh * sc);
+          ctx.restore();
+        } else ctx.drawImage(cv, sx, sy, fw, fh, x - ax * sc, y - ay * sc, fw * sc, fh * sc);
+        ctx.globalAlpha = ga;
+        break;
+      }
       case 14: {
         const p = patterns[U[i]];
         if (p) { p.setTransform(new DOMMatrix([F[i + 1], F[i + 2], F[i + 3], F[i + 4], F[i + 5], F[i + 6]])); ctx.fillStyle = p; }
@@ -130,6 +146,24 @@ function replay(ctx, U, F, S, texts) {
 // ------------------------------------------------------------------ VGA look
 // Textures and the 256-colour palette come from Rust (src/tex.rs).
 const patterns = [];
+// baked character atlases (id -> canvas), handed over by Rust as they are baked
+const atlases = new Map();
+function addAtlas(id, w, h, data) {
+  const cv = document.createElement('canvas');
+  cv.width = w; cv.height = h;
+  cv.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(data), w, h), 0, 0);
+  atlases.set(id, cv);
+}
+window.brodilkaAddAtlas = addAtlas;
+function pollAtlases() {
+  for (;;) {
+    const id = ex.atlas_next();
+    if (id < 0) break;
+    const w = ex.atlas_w(), h = ex.atlas_h();
+    addAtlas(id, w, h, new Uint8Array(mem(), ex.atlas_ptr(), w * h * 4).slice());
+  }
+  for (;;) { const id = ex.atlas_evicted(); if (id < 0) break; atlases.delete(id); }
+}
 let lut = null;
 function initArt(texs, pal) {
   patterns.length = 0;
@@ -443,6 +477,7 @@ function setupCreate(u) {
     $('contname').textContent = m ? m[1] : 'thy hero';
     $('bcontinue').onclick = () => {
       const ok = ex.load(writeIn(save));
+      atlases.clear();
       buildMinimap();
       resize();
       if (!ok) alert('Could not read the save.');
@@ -564,6 +599,7 @@ function loop(now) {
   const dt = Math.min(0.1, (now - last) / 1000);
   last = now;
   ex.frame(dt);
+  pollAtlases();
   const U = new Uint32Array(mem(), ex.cmd_ptr(), ex.cmd_len());
   const F = new Float32Array(mem(), ex.cmd_ptr(), ex.cmd_len());
   const S = new Uint8Array(mem(), ex.str_ptr(), ex.str_len());
