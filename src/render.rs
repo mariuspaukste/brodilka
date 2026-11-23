@@ -28,6 +28,8 @@ pub struct SpriteCache {
     /// frames baked per game frame, shared by all jobs in progress
     pub budget: usize,
     pub jobs: Vec<(u64, Look, bake::Atlas, usize)>,
+    /// the shared atlas of baked props (furniture, trees, mushrooms...)
+    pub props: Option<u32>,
 }
 impl Default for SpriteCache {
     fn default() -> Self {
@@ -39,6 +41,7 @@ impl Default for SpriteCache {
             next: 1,
             budget: 24,
             jobs: vec![],
+            props: None,
         }
     }
 }
@@ -343,6 +346,7 @@ impl Game {
                 let pl = &self.pl;
                 if pl.ghost {
                     let mut l = Look::human(0xd8e4f0ff, 0xc8d4e8ff, 0xc8d4e8ff);
+                    l.role = 0;
                     l.robe = true;
                     l.female = pl.female;
                     return Some(l);
@@ -354,6 +358,7 @@ impl Game {
                     .map(|a| a.def().color)
                     .unwrap_or(0x8a6a4aff);
                 let mut l = Look::human(skin, body, 0x3a3040ff);
+                l.role = 0;
                 l.robe = arm == Some("robe");
                 l.metal_body = matches!(
                     arm,
@@ -386,6 +391,7 @@ impl Game {
             EK::Npc(v) => {
                 let vd = &VENDORS[v];
                 let mut l = Look::human(skin, vd.robe, 0x3a3028ff);
+                l.role = 1;
                 l.hair = HAIR[(e.look % 3) as usize];
                 l.female = e.look % 2 == 0;
                 l.long_hair = l.female;
@@ -517,6 +523,13 @@ impl Game {
                 }
             }
         }
+        if self.sprites.props.is_none() {
+            let atlas = bake::bake_props();
+            let id = self.sprites.next;
+            self.sprites.next += 1;
+            self.sprites.props = Some(id);
+            self.sprites.pending.push_back((id, atlas));
+        }
         let now = self.clock;
         for l in want {
             let k = l.key();
@@ -538,7 +551,7 @@ impl Game {
             bake::bake_frame(&job.1, &mut job.2, job.3);
             job.3 += 1;
             left = left.saturating_sub(cost);
-            if job.3 >= bake::TOTAL_FRAMES {
+            if job.3 >= bake::total_frames(&job.1) {
                 let (k, l, atlas, _) = self.sprites.jobs.remove(0);
                 let id = self.sprites.next;
                 self.sprites.next += 1;
@@ -569,64 +582,79 @@ impl Game {
         self.sprites.evicted.extend(gone);
     }
 
-    /// Which animation and frame an entity is showing right now.
-    fn anim_of(&self, e: &Ent) -> (Anim, usize) {
+    /// Which animation an entity is showing right now, and how far into it (0..1).
+    fn anim_of(&self, e: &Ent) -> (Anim, f32) {
         let tau = std::f32::consts::TAU;
+        let cyc = |rate: f32| (self.clock * rate + e.id as f32 * 0.37).fract();
         if e.down_t > 0.0 {
             // fall (death frames forwards), lie still, then get up (the same frames backwards)
-            let (_, n) = bake::anim_range(Anim::Die);
             let t = e.down_total - e.down_t;
-            let fall = 0.45;
-            let rise = e.down_total * 0.4;
-            let f = if t < fall {
-                (t / fall * n as f32) as usize
+            let (fall, rise) = (0.45, e.down_total * 0.4);
+            let ph = if t < fall {
+                t / fall
             } else if e.down_t > rise {
-                n - 1
+                0.99
             } else {
-                (e.down_t / rise * n as f32) as usize
+                e.down_t / rise
             };
-            return (Anim::Die, f.min(n - 1));
+            return (Anim::Die, ph);
         }
         if e.kick > 0.0 {
-            return (Anim::Kick, (((1.0 - e.kick) * 4.0) as usize).min(3));
+            return (Anim::Kick, 1.0 - e.kick);
         }
-        if e.k == EK::Player && self.pl.blocking {
-            return (Anim::Block, ((self.clock * 2.0) as usize) % 2);
-        }
-        if e.k == EK::Player {
+        let is_player = e.k == EK::Player;
+        if is_player {
+            if self.pl.blocking {
+                return (Anim::Block, cyc(1.0));
+            }
             if let Action::Cast { t, .. } = self.pl.action {
-                let n = bake::anim_range(Anim::Cast).1;
-                let f = ((1.0 - (t / 1.2).min(1.0)) * n as f32) as usize;
-                return (Anim::Cast, f.min(n - 1));
+                return (Anim::Cast, 1.0 - (t / 1.2).min(1.0));
             }
             if matches!(self.pl.action, Action::Gather { .. }) && e.path.is_empty() {
-                return (Anim::Work, ((self.clock * 6.0) as usize) % 4);
+                return (Anim::Work, (self.clock * 1.5).fract());
             }
         }
         if e.atk > 0.0 {
-            return (Anim::Attack, (((1.0 - e.atk) * 5.0) as usize).min(4));
+            return (Anim::Attack, 1.0 - e.atk);
+        }
+        if e.ready > 0.0 {
+            return (Anim::Ready, 1.0 - e.ready);
         }
         if e.hurt > 0.45 {
-            return (Anim::Hit, if e.hurt > 0.75 { 0 } else { 1 });
+            return (Anim::Hit, if e.hurt > 0.75 { 0.0 } else { 0.6 });
         }
-        if !e.path.is_empty() {
-            return (
-                Anim::Walk,
-                (((e.walk.rem_euclid(tau) / tau) * 8.0) as usize) % 8,
-            );
-        }
-        let war = match e.k {
+        let fighting = match e.k {
             EK::Player => self.pl.war,
             EK::Mon(_) => e.target != 0,
             EK::Npc(_) => false,
         };
-        if war {
-            return (Anim::Stance, ((self.clock * 1.5) as usize) % 2);
+        if !e.path.is_empty() {
+            let ph = (e.walk.rem_euclid(tau)) / tau;
+            let near_foe = fighting
+                && self
+                    .find(e.target)
+                    .map(|i| self.ents[i].dist(e.x, e.y) < 2.6)
+                    .unwrap_or(false);
+            if near_foe {
+                return (Anim::Advance, ph);
+            }
+            if e.running || (matches!(e.k, EK::Mon(_)) && e.target != 0) {
+                return (Anim::Run, ph);
+            }
+            return (Anim::Walk, ph);
         }
-        (
-            Anim::Idle,
-            ((self.clock * 1.2 + e.id as f32 * 0.37) as usize) % 2,
-        )
+        if e.say_t > 0.0 && matches!(e.k, EK::Npc(_)) {
+            return (Anim::Talk, cyc(1.2));
+        }
+        if fighting {
+            return (Anim::Stance, cyc(0.75));
+        }
+        // now and then a figure glances left and right
+        let w = (self.clock * 0.14 + e.id as f32 * 0.61).fract();
+        if w < 0.16 {
+            return (Anim::Look, w / 0.16);
+        }
+        (Anim::Idle, cyc(0.6))
     }
 
     /// Draw an entity as its baked figure; false if it has none (yet).
@@ -637,9 +665,8 @@ impl Game {
         let Some(info) = self.sprites.ids.get(&look.key()) else {
             return false;
         };
-        let (a, f) = self.anim_of(e);
-        let (r, flip) = bake::dir_frame(e.dir8);
-        let frame = r * bake::FRAMES_PER_DIR + bake::anim_range(a).0 + f;
+        let (a, ph) = self.anim_of(e);
+        let (frame, flip) = bake::frame_index(&look, a, ph, e.vdir);
         let ghost = e.k == EK::Player && self.pl.ghost;
         let lift = if ghost {
             4.0 * z + (self.clock * 2.0).sin() * 2.0 * z
@@ -864,6 +891,12 @@ impl Game {
                     c.outline(0, 0.0);
                 }
                 oi += 1;
+            }
+            // roofs close over everything inside once their front corner is reached
+            for b in self.map.buildings.iter() {
+                if b.x + 7 + b.y + 5 == s {
+                    self.roof(c, b, z);
+                }
             }
         }
         while oi < order.len() {
@@ -1196,6 +1229,57 @@ impl Game {
             s: z,
             f: 1.0,
         };
+        if let Some(pid) = self.sprites.props {
+            let flip_v = sh & 4 != 0;
+            let pick = match o {
+                O_TREE => {
+                    let k = if style & 0x7f == 1 {
+                        bake::P_DEAD + (sh as usize % 2)
+                    } else if self.map.res[idx(x, y)] == 0 {
+                        bake::P_STUMP
+                    } else if sh % 3 == 0 {
+                        bake::P_PINE + (sh as usize / 3 % 2)
+                    } else {
+                        bake::P_OAK + (sh as usize % 3)
+                    };
+                    Some((k, flip_v))
+                }
+                O_MUSHROOM => Some((bake::P_SHROOM + (sh as usize % 2), flip_v)),
+                O_BARREL => Some((bake::P_BARREL, false)),
+                O_CRATE => Some((bake::P_CRATE, flip_v)),
+                O_BED => Some((bake::P_BED, style & FACE_S != 0)),
+                O_TABLE => Some((bake::P_TABLE, style & FACE_S != 0)),
+                O_CHAIR => Some((bake::P_CHAIR, style & FACE_S != 0)),
+                O_SHELF => Some((bake::P_SHELF, style & FACE_S != 0)),
+                O_HEARTH => Some((bake::P_HEARTH, style & FACE_S != 0)),
+                O_CHEST => Some((bake::P_CHEST, style & FACE_S != 0)),
+                _ => None,
+            };
+            if let Some((k, flip)) = pick {
+                if o == O_TREE || o == O_MUSHROOM {
+                    c.outline(0, 0.0);
+                    c.fill(0x00000030);
+                    c.ell(sx, sy, 16.0 * z, 6.0 * z);
+                }
+                if o == O_HEARTH {
+                    lights.push((sx, sy - 10.0 * z, 130.0, 0xff9040ff));
+                }
+                let (ax, ay) = bake::PROP_ANCHOR;
+                c.sprite(
+                    pid,
+                    k,
+                    bake::PROP_FW,
+                    bake::PROP_FH,
+                    ax,
+                    ay,
+                    sx,
+                    sy,
+                    z,
+                    flip as u32,
+                );
+                return;
+            }
+        }
         match o {
             O_TREE => {
                 let depleted = self.map.res[idx(x, y)] == 0;
@@ -1675,15 +1759,139 @@ impl Game {
         }
     }
 
+    /// A hipped roof over a building: lifted away while the player is inside,
+    /// see-through while the player is just behind it.
+    fn roof(&self, c: &mut Canvas, b: &Building, z: f32) {
+        let (px, py) = self.ents[0].tile();
+        if px >= b.x && px <= b.x + 7 && py >= b.y && py <= b.y + 5 {
+            return;
+        }
+        let behind = px >= b.x - 2 && px <= b.x + 9 && py >= b.y - 5 && py < b.y;
+        let side = py >= b.y - 2 && py <= b.y + 6 && px >= b.x - 5 && px < b.x;
+        let (x0, y0, x1, y1) = (
+            b.x as f32 - 0.8,
+            b.y as f32 - 0.8,
+            b.x as f32 + 7.8,
+            b.y as f32 + 5.8,
+        );
+        let ym = (y0 + y1) / 2.0;
+        let hw = (y1 - y0) / 2.0;
+        let (rx0, rx1) = (x0 + hw, x1 - hw);
+        let eave = 38.0 * z;
+        let ridge = eave + 34.0 * z;
+        let sp = |x: f32, y: f32, h: f32| {
+            let (a, b) = self.to_screen(x, y);
+            (a, b - h)
+        };
+        let inn = b.vendor == V_PROV && b.style == 2;
+        let base = match b.style {
+            1 => 0x4a505eff,
+            2 => 0x5a3a24ff,
+            3 => 0x7a3a28ff,
+            _ => 0x3a3a40ff,
+        };
+        let faces: [(Vec<(f32, f32)>, f32); 4] = [
+            (
+                vec![
+                    sp(x0, y0, eave),
+                    sp(x1, y0, eave),
+                    sp(rx1, ym, ridge),
+                    sp(rx0, ym, ridge),
+                ],
+                0.6,
+            ),
+            (
+                vec![sp(x0, y0, eave), sp(rx0, ym, ridge), sp(x0, y1, eave)],
+                0.95,
+            ),
+            (
+                vec![sp(x1, y0, eave), sp(x1, y1, eave), sp(rx1, ym, ridge)],
+                0.7,
+            ),
+            (
+                vec![
+                    sp(x0, y1, eave),
+                    sp(rx0, ym, ridge),
+                    sp(rx1, ym, ridge),
+                    sp(x1, y1, eave),
+                ],
+                1.0,
+            ),
+        ];
+        let a = if behind || side { 0.3 } else { 1.0 };
+        if a < 1.0 {
+            c.alpha(a);
+        }
+        let ink = self.pix.max(z);
+        for (pts, k) in faces.iter() {
+            c.outline(INK, ink);
+            c.fill(shade(base, *k));
+            c.poly(pts);
+            c.outline(0, 0.0);
+            // courses of shingles running parallel to the eaves
+            c.stroke(shade(base, k * 0.62), ink);
+            let n = 7;
+            for r in 1..n {
+                let f = r as f32 / n as f32;
+                let lerp =
+                    |p: (f32, f32), q: (f32, f32)| (p.0 + (q.0 - p.0) * f, p.1 + (q.1 - p.1) * f);
+                let (l0, l1) = if pts.len() == 4 {
+                    // trapezoid: eave edge pts[0]-pts[1] (north) or pts[0]-pts[3] (south)
+                    if *k < 0.65 {
+                        (lerp(pts[0], pts[3]), lerp(pts[1], pts[2]))
+                    } else {
+                        (lerp(pts[0], pts[1]), lerp(pts[3], pts[2]))
+                    }
+                } else {
+                    let apex = if *k > 0.9 { pts[1] } else { pts[2] };
+                    let (e0, e1) = if *k > 0.9 {
+                        (pts[0], pts[2])
+                    } else {
+                        (pts[0], pts[1])
+                    };
+                    (lerp(e0, apex), lerp(e1, apex))
+                };
+                c.line(l0.0, l0.1, l1.0, l1.1);
+            }
+        }
+        // ridge cap
+        c.stroke(shade(base, 0.45), 2.0 * ink);
+        let (r0, r1) = (sp(rx0, ym, ridge), sp(rx1, ym, ridge));
+        c.line(r0.0, r0.1, r1.0, r1.1);
+        if inn || b.vendor == V_SMITH {
+            // a stone chimney with a wisp of smoke
+            let (cx, cy) = sp(rx1 - 0.6, ym - 0.4, ridge - 6.0 * z);
+            c.outline(INK, ink);
+            c.fill(0x5a5650ff);
+            c.rect(cx - 5.0 * z, cy - 22.0 * z, 10.0 * z, 26.0 * z);
+            c.fill(0x2a2624ff);
+            c.rect(cx - 6.0 * z, cy - 24.0 * z, 12.0 * z, 4.0 * z);
+            c.outline(0, 0.0);
+            for k in 0..4 {
+                let kf = k as f32;
+                let t = (self.clock * 0.4 + kf * 0.25).fract();
+                c.fill(with_a(0x8a8680ff, 0.35 * (1.0 - t)));
+                c.ell(
+                    cx + (t * 9.0 + kf).sin() * 6.0 * z,
+                    cy - 28.0 * z - t * 40.0 * z,
+                    (4.0 + t * 8.0) * z,
+                    (3.0 + t * 6.0) * z,
+                );
+            }
+        }
+        if a < 1.0 {
+            c.alpha(1.0);
+        }
+    }
+
     fn corpse(&self, c: &mut Canvas, cp: &Corpse, sx: f32, sy: f32, z: f32) {
         if let Some(l) = &cp.look {
             if let Some(info) = self.sprites.ids.get(&l.key()) {
-                let (base, n) = bake::anim_range(Anim::Die);
-                let f = ((cp.age / 0.12) as usize).min(n - 1);
-                let (r, flip) = bake::dir_frame(cp.dir8);
+                let (frame, flip) =
+                    bake::frame_index(l, Anim::Die, (cp.age / 0.6).min(1.0), cp.dir8);
                 c.sprite(
                     info.id,
-                    r * bake::FRAMES_PER_DIR + base + f,
+                    frame,
                     info.fw,
                     info.fh,
                     info.ax,

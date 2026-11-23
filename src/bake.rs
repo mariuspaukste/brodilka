@@ -21,40 +21,118 @@ pub const RDIRS: usize = 5;
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Anim {
     Idle,
+    Look,
     Walk,
+    Run,
     Stance,
+    Ready,
+    Advance,
     Attack,
     Work,
     Cast,
     Hit,
     Block,
     Kick,
+    Talk,
     Die,
 }
-pub const ANIMS: [(Anim, usize); 10] = [
-    (Anim::Idle, 2),
-    (Anim::Walk, 8),
-    (Anim::Stance, 2),
-    (Anim::Attack, 5),
-    (Anim::Work, 4),
-    (Anim::Cast, 4),
-    (Anim::Hit, 2),
-    (Anim::Block, 2),
-    (Anim::Kick, 4),
-    (Anim::Die, 5),
+use Anim::*;
+/// Pagan-style animation sets: each kind of figure only bakes what it uses.
+const PLAYER_ANIMS: &[(Anim, usize)] = &[
+    (Idle, 2),
+    (Look, 3),
+    (Walk, 8),
+    (Run, 6),
+    (Stance, 2),
+    (Ready, 3),
+    (Advance, 4),
+    (Attack, 5),
+    (Block, 2),
+    (Kick, 4),
+    (Work, 4),
+    (Cast, 4),
+    (Hit, 2),
+    (Die, 5),
 ];
-pub const FRAMES_PER_DIR: usize = 38;
+const NPC_ANIMS: &[(Anim, usize)] = &[
+    (Idle, 2),
+    (Look, 3),
+    (Talk, 3),
+    (Walk, 8),
+    (Stance, 2),
+    (Attack, 5),
+    (Hit, 2),
+    (Die, 5),
+];
+const MON_ANIMS: &[(Anim, usize)] = &[
+    (Idle, 2),
+    (Look, 3),
+    (Walk, 8),
+    (Run, 6),
+    (Stance, 2),
+    (Advance, 4),
+    (Attack, 5),
+    (Cast, 4),
+    (Hit, 2),
+    (Die, 5),
+];
+const BEAST_ANIMS: &[(Anim, usize)] = &[
+    (Idle, 2),
+    (Walk, 8),
+    (Stance, 2),
+    (Attack, 5),
+    (Cast, 4),
+    (Hit, 2),
+    (Die, 5),
+];
 
-/// (first frame, frame count) of an animation within one direction
-pub fn anim_range(a: Anim) -> (usize, usize) {
-    let mut off = 0;
-    for &(b, n) in ANIMS.iter() {
-        if b == a {
-            return (off, n);
+pub fn anims(look: &Look) -> &'static [(Anim, usize)] {
+    if look.body_type != Body::Human {
+        return BEAST_ANIMS;
+    }
+    match look.role {
+        0 => PLAYER_ANIMS,
+        1 => NPC_ANIMS,
+        _ => MON_ANIMS,
+    }
+}
+pub fn frames_per_dir(look: &Look) -> usize {
+    anims(look).iter().map(|a| a.1).sum()
+}
+pub fn total_frames(look: &Look) -> usize {
+    RDIRS * frames_per_dir(look)
+}
+fn fallback(a: Anim) -> Anim {
+    match a {
+        Run | Advance => Walk,
+        Look | Talk => Idle,
+        Ready | Block | Cast => Stance,
+        Kick | Work => Attack,
+        _ => Idle,
+    }
+}
+/// (first frame, frame count) of an animation in this look's layout, using
+/// the nearest stand-in when the figure has no such animation.
+pub fn slot(look: &Look, a: Anim) -> (usize, usize) {
+    let mut a = a;
+    for _ in 0..3 {
+        let mut off = 0;
+        for &(b, n) in anims(look).iter() {
+            if b == a {
+                return (off, n);
+            }
+            off += n;
         }
-        off += n;
+        a = fallback(a);
     }
     (0, 1)
+}
+/// atlas frame for an animation at `phase` (0..1) facing `dir8`
+pub fn frame_index(look: &Look, a: Anim, phase: f32, dir8: u8) -> (usize, bool) {
+    let (r, flip) = dir_frame(dir8);
+    let (off, n) = slot(look, a);
+    let f = ((phase.clamp(0.0, 0.999) * n as f32) as usize).min(n - 1);
+    (r * frames_per_dir(look) + off + f, flip)
 }
 
 /// The tile-space direction table used by the game (N, NE, E, SE, S, SW, W, NW).
@@ -107,6 +185,8 @@ pub enum Weapon {
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct Look {
     pub body_type: Body,
+    /// 0 player, 1 townsfolk, 2 monster: decides which animations are baked
+    pub role: u8,
     pub scale: u16,
     pub skin: u32,
     pub body: u32,
@@ -134,6 +214,7 @@ impl Look {
     pub fn human(skin: u32, body: u32, legs: u32) -> Look {
         Look {
             body_type: Body::Human,
+            role: 2,
             scale: 100,
             skin,
             body,
@@ -216,6 +297,7 @@ struct Pose {
     knee: [f32; 2],
     wrist: f32,
     head_tilt: f32,
+    head_yaw: f32,
 }
 
 fn ease(t: f32) -> f32 {
@@ -258,6 +340,57 @@ fn pose_for(a: Anim, f: usize, n: usize, look: &Look) -> Pose {
             q.sink = 0.025 * (2.0 * ph).cos().abs();
             q.lean += 0.06;
             q.twist = 0.08 * s;
+        }
+        Anim::Run => {
+            let ph = f as f32 / n as f32 * tau;
+            let (s, c) = (ph.sin(), ph.cos());
+            q.hip = [0.8 * s, -0.8 * s];
+            q.knee = [0.2 + 1.2 * c.max(0.0), 0.2 + 1.2 * (-c).max(0.0)];
+            q.sh = [-0.65 * s, 0.65 * s];
+            q.el = [1.3, 1.3];
+            q.roll = [0.2, 0.2];
+            q.sink = 0.05 * (2.0 * ph).cos().abs();
+            q.lean += 0.25;
+            q.twist = 0.12 * s;
+        }
+        Anim::Look => {
+            q.head_yaw = [0.75, 0.0, -0.75][f.min(2)];
+            q.twist = q.head_yaw * 0.15;
+        }
+        Anim::Talk => {
+            let g = [0.0f32, 1.0, 0.5][f.min(2)];
+            q.sh = [0.5 + 0.6 * g, 0.15 + 0.3 * (1.0 - g)];
+            q.el = [0.9 - 0.3 * g, 0.5];
+            q.roll = [0.35, 0.25];
+            q.head_tilt = 0.1 * g;
+            q.head_yaw = 0.15 * (g - 0.5);
+        }
+        Anim::Ready => {
+            // reach across to the hip, draw, come up to guard
+            let (sh, el, roll) = match f {
+                0 => (0.35, 1.7, -0.45),
+                1 => (1.4, 1.1, 0.0),
+                _ => (0.95, 1.05, 0.2),
+            };
+            q.sh = [sh, 0.6];
+            q.el = [el, 0.9];
+            q.roll = [roll, 0.2];
+            q.wrist = 0.6;
+            q.twist = -0.25 * (2 - f.min(2)) as f32;
+        }
+        Anim::Advance => {
+            let ph = f as f32 / n as f32 * tau;
+            q.sh = [0.95, 0.75];
+            q.el = [1.05, 1.1];
+            q.roll = [0.2, 0.25];
+            q.wrist = 0.55;
+            q.hip = [0.3 + 0.3 * ph.sin(), -0.15 - 0.3 * ph.sin()];
+            q.knee = [
+                0.4 + 0.3 * ph.cos().max(0.0),
+                0.35 + 0.3 * (-ph.cos()).max(0.0),
+            ];
+            q.lean += 0.12;
+            q.twist = -0.2;
         }
         Anim::Stance => {
             let b = (f as f32 / n as f32 * tau).sin();
@@ -756,7 +889,7 @@ fn build(look: &Look, q: &Pose) -> Vec<Prim> {
     } else {
         &[0.0]
     };
-    let fwd = rotz([1.0, 0.0, 0.0], q.twist * 0.5);
+    let fwd = rotz([1.0, 0.0, 0.0], q.twist * 0.5 + q.head_yaw);
     for &hy in heads {
         let hc = add(head_c, mul(la, hy * bulk));
         p(
@@ -829,6 +962,7 @@ fn figure_for(look: &Look, a: Anim, f: usize, n: usize) -> Figure {
             let q = pose_for(a, f, n, look);
             Figure {
                 prims: build(look, &q),
+                boxes: vec![],
                 pitch: q.fall,
                 roll: 0.0,
                 lift: 0.0,
@@ -1208,6 +1342,7 @@ fn quad(look: &Look, a: Anim, f: usize, n: usize) -> Figure {
     }
     Figure {
         prims: v,
+        boxes: vec![],
         pitch: 0.0,
         roll: 1.45 * die,
         lift: 0.0,
@@ -1281,6 +1416,7 @@ fn bat(look: &Look, a: Anim, f: usize, n: usize) -> Figure {
     };
     Figure {
         prims: v,
+        boxes: vec![],
         pitch: 0.0,
         roll: 1.2 * die,
         lift,
@@ -1334,10 +1470,513 @@ fn slime(look: &Look, a: Anim, f: usize, n: usize) -> Figure {
     }
     Figure {
         prims: v,
+        boxes: vec![],
         pitch: 0.0,
         roll: 0.0,
         lift: 0.0,
     }
+}
+
+// ------------------------------------------------------------------ props
+pub const P_BED: usize = 0;
+pub const P_TABLE: usize = 1;
+pub const P_CHAIR: usize = 2;
+pub const P_SHELF: usize = 3;
+pub const P_HEARTH: usize = 4;
+pub const P_CHEST: usize = 5;
+pub const P_BARREL: usize = 6;
+pub const P_CRATE: usize = 7;
+pub const P_OAK: usize = 8; // 3 variants
+pub const P_PINE: usize = 11; // 2 variants
+pub const P_DEAD: usize = 13; // 2 variants
+pub const P_SHROOM: usize = 15; // red, violet
+pub const P_STUMP: usize = 17;
+pub const N_PROPS: usize = 18;
+pub const PROP_FW: usize = 96;
+pub const PROP_FH: usize = 128;
+pub const PROP_ANCHOR: (f32, f32) = (48.0, 116.0);
+
+fn bx(v: &mut Vec<BoxP>, c: V3, h: V3, color: u32, mat: Mat) {
+    v.push(BoxP {
+        c,
+        h,
+        yaw: 0.0,
+        color,
+        mat,
+    });
+}
+fn hsh(i: usize, k: usize) -> f32 {
+    let mut h = (i as u32).wrapping_mul(0x9e37_79b9) ^ (k as u32).wrapping_mul(0x85eb_ca6b);
+    h ^= h >> 15;
+    h = h.wrapping_mul(0x2c1b_3c6d);
+    h ^= h >> 12;
+    (h & 0xffff) as f32 / 65536.0
+}
+
+/// a prop model in local metres, front facing +x
+fn prop(kind: usize) -> Figure {
+    let mut p: Vec<Prim> = vec![];
+    let mut b: Vec<BoxP> = vec![];
+    let wood = 0x6a4628ff;
+    let dark = 0x3e2816ff;
+    match kind {
+        P_BED => {
+            bx(
+                &mut b,
+                [0.0, 0.0, 0.18],
+                [0.62, 0.36, 0.18],
+                wood,
+                Mat::Matte,
+            );
+            bx(
+                &mut b,
+                [0.02, 0.0, 0.4],
+                [0.58, 0.33, 0.05],
+                0xd0c8b0ff,
+                Mat::Matte,
+            );
+            bx(
+                &mut b,
+                [-0.14, 0.0, 0.45],
+                [0.44, 0.34, 0.04],
+                0x7a2420ff,
+                Mat::Matte,
+            );
+            bx(
+                &mut b,
+                [0.44, 0.0, 0.5],
+                [0.1, 0.24, 0.05],
+                0xe0d8c8ff,
+                Mat::Matte,
+            );
+            bx(
+                &mut b,
+                [0.62, 0.0, 0.42],
+                [0.04, 0.38, 0.42],
+                dark,
+                Mat::Matte,
+            );
+            bx(
+                &mut b,
+                [-0.62, 0.0, 0.28],
+                [0.04, 0.38, 0.28],
+                dark,
+                Mat::Matte,
+            );
+        }
+        P_TABLE => {
+            bx(
+                &mut b,
+                [0.0, 0.0, 0.74],
+                [0.46, 0.36, 0.035],
+                wood,
+                Mat::Matte,
+            );
+            for (x, y) in [
+                (0.38f32, 0.28f32),
+                (-0.38, 0.28),
+                (0.38, -0.28),
+                (-0.38, -0.28),
+            ] {
+                bx(&mut b, [x, y, 0.36], [0.035, 0.035, 0.36], dark, Mat::Matte);
+            }
+            // a candle and a tankard
+            prim(
+                &mut p,
+                [0.1, -0.1, 0.78],
+                [0.1, -0.1, 0.9],
+                0.025,
+                0.025,
+                0xe8e0c0ff,
+                Mat::Matte,
+            );
+            prim(
+                &mut p,
+                [0.1, -0.1, 0.93],
+                [0.1, -0.1, 0.93],
+                0.018,
+                0.018,
+                0xffc040ff,
+                Mat::Glow,
+            );
+            prim(
+                &mut p,
+                [-0.15, 0.12, 0.79],
+                [-0.15, 0.12, 0.88],
+                0.045,
+                0.045,
+                0x8a8e94ff,
+                Mat::Metal,
+            );
+        }
+        P_CHAIR => {
+            bx(&mut b, [0.0, 0.0, 0.44], [0.2, 0.2, 0.03], wood, Mat::Matte);
+            for (x, y) in [
+                (0.16f32, 0.16f32),
+                (-0.16, 0.16),
+                (0.16, -0.16),
+                (-0.16, -0.16),
+            ] {
+                bx(&mut b, [x, y, 0.22], [0.025, 0.025, 0.22], dark, Mat::Matte);
+            }
+            bx(
+                &mut b,
+                [-0.18, 0.0, 0.76],
+                [0.025, 0.2, 0.3],
+                wood,
+                Mat::Matte,
+            );
+        }
+        P_SHELF => {
+            bx(
+                &mut b,
+                [0.0, 0.0, 0.95],
+                [0.17, 0.48, 0.95],
+                dark,
+                Mat::Matte,
+            );
+            for row in 0..4 {
+                let z = 0.3 + row as f32 * 0.45;
+                bx(
+                    &mut b,
+                    [0.08, 0.0, z - 0.05],
+                    [0.1, 0.44, 0.02],
+                    wood,
+                    Mat::Matte,
+                );
+                let mut y = -0.42;
+                let mut k = 0;
+                while y < 0.4 {
+                    let w = 0.03 + hsh(row * 31 + k, 1) * 0.04;
+                    let hgt = 0.12 + hsh(row * 31 + k, 2) * 0.08;
+                    let col = [0x7a2a20ff, 0x2a4a7aff, 0x3a6a2aff, 0x8a6a2aff, 0x5a2a5aff]
+                        [(hsh(row * 31 + k, 3) * 5.0) as usize % 5];
+                    bx(
+                        &mut b,
+                        [0.1, y + w, z + hgt],
+                        [0.08, w * 0.9, hgt],
+                        col,
+                        Mat::Matte,
+                    );
+                    y += w * 2.0 + 0.005;
+                    k += 1;
+                }
+            }
+        }
+        P_HEARTH => {
+            let stone = 0x6a6660ff;
+            bx(
+                &mut b,
+                [-0.05, 0.0, 0.9],
+                [0.28, 0.6, 0.9],
+                stone,
+                Mat::Matte,
+            );
+            bx(
+                &mut b,
+                [0.2, 0.0, 0.33],
+                [0.06, 0.36, 0.33],
+                0x0c0806ff,
+                Mat::Matte,
+            );
+            bx(
+                &mut b,
+                [0.25, 0.0, 0.72],
+                [0.08, 0.64, 0.05],
+                0x5a4a3aff,
+                Mat::Matte,
+            );
+            for k in 0..5 {
+                let kf = k as f32;
+                prim(
+                    &mut p,
+                    [0.22, -0.15 + kf * 0.075, 0.08],
+                    [0.22, -0.13 + kf * 0.07, 0.2 + 0.06 * (kf * 1.7).sin().abs()],
+                    0.06,
+                    0.02,
+                    if k % 2 == 0 { 0xff8a20ff } else { 0xffd050ff },
+                    Mat::Glow,
+                );
+            }
+        }
+        P_CHEST => {
+            bx(&mut b, [0.0, 0.0, 0.2], [0.26, 0.4, 0.2], wood, Mat::Matte);
+            bx(
+                &mut b,
+                [0.0, 0.0, 0.43],
+                [0.27, 0.41, 0.05],
+                dark,
+                Mat::Matte,
+            );
+            for y in [-0.28f32, 0.28] {
+                bx(
+                    &mut b,
+                    [0.0, y, 0.25],
+                    [0.275, 0.03, 0.25],
+                    0x5a5e66ff,
+                    Mat::Metal,
+                );
+            }
+            prim(
+                &mut p,
+                [0.28, 0.0, 0.34],
+                [0.28, 0.0, 0.34],
+                0.04,
+                0.04,
+                0xd8b050ff,
+                Mat::Metal,
+            );
+        }
+        P_BARREL => {
+            // an eight-sided stave barrel with two iron hoops
+            for k in 0..8 {
+                let yaw = k as f32 / 8.0 * std::f32::consts::PI;
+                b.push(BoxP {
+                    c: [0.0, 0.0, 0.42],
+                    h: [0.29, 0.12, 0.42],
+                    yaw,
+                    color: if k % 2 == 0 { wood } else { 0x5e3e22ff },
+                    mat: Mat::Matte,
+                });
+                for z in [0.16f32, 0.68] {
+                    b.push(BoxP {
+                        c: [0.0, 0.0, z],
+                        h: [0.3, 0.125, 0.03],
+                        yaw,
+                        color: 0x2e2e30ff,
+                        mat: Mat::Metal,
+                    });
+                }
+            }
+        }
+        P_CRATE => {
+            bx(
+                &mut b,
+                [0.0, 0.0, 0.3],
+                [0.3, 0.3, 0.3],
+                0x7a5632ff,
+                Mat::Matte,
+            );
+            for (y, z) in [(0.0f32, 0.0f32), (0.0, 0.5), (0.0, 0.25)] {
+                let _ = y;
+                bx(
+                    &mut b,
+                    [0.0, 0.0, 0.04 + z],
+                    [0.305, 0.305, 0.03],
+                    dark,
+                    Mat::Matte,
+                );
+            }
+        }
+        k if (P_OAK..P_OAK + 3).contains(&k) => {
+            let v = k - P_OAK;
+            let trunk = 0x4a3220ff;
+            prim(
+                &mut p,
+                [0.0, 0.0, 0.0],
+                [0.05, 0.0, 1.5],
+                0.16,
+                0.1,
+                trunk,
+                Mat::Matte,
+            );
+            prim(
+                &mut p,
+                [0.05, 0.0, 1.1],
+                [0.5, 0.25, 1.75],
+                0.07,
+                0.04,
+                trunk,
+                Mat::Matte,
+            );
+            prim(
+                &mut p,
+                [0.0, 0.0, 1.2],
+                [-0.4, -0.3, 1.8],
+                0.07,
+                0.04,
+                trunk,
+                Mat::Matte,
+            );
+            let n = 18 + v * 4;
+            for i in 0..n {
+                let (a, r, h) = (
+                    hsh(i, v * 7 + 1) * std::f32::consts::TAU,
+                    hsh(i, v * 7 + 2),
+                    hsh(i, v * 7 + 3),
+                );
+                let rad = 0.75 + v as f32 * 0.12;
+                let c = [
+                    a.cos() * r * rad,
+                    a.sin() * r * rad,
+                    1.75 + h * 0.9 - r * 0.25,
+                ];
+                let g = [0x263e18ffu32, 0x2e4a1cff, 0x355420ff, 0x22381aff]
+                    [(hsh(i, v + 9) * 4.0) as usize % 4];
+                prim(&mut p, c, c, 0.3 + hsh(i, 5) * 0.18, 0.3, g, Mat::Matte);
+            }
+        }
+        k if (P_PINE..P_PINE + 2).contains(&k) => {
+            let v = k - P_PINE;
+            prim(
+                &mut p,
+                [0.0, 0.0, 0.0],
+                [0.0, 0.0, 2.6],
+                0.12,
+                0.05,
+                0x3e2a1aff,
+                Mat::Matte,
+            );
+            for tier in 0..5 {
+                let tf = tier as f32;
+                let z = 0.6 + tf * 0.45;
+                let rad = 0.95 - tf * 0.18 + v as f32 * 0.08;
+                let cnt = 9 - tier;
+                for j in 0..cnt {
+                    let a = j as f32 / cnt as f32 * std::f32::consts::TAU + tf * 0.4;
+                    let c = [a.cos() * rad * 0.7, a.sin() * rad * 0.7, z];
+                    prim(
+                        &mut p,
+                        c,
+                        [c[0] * 0.3, c[1] * 0.3, z + 0.35],
+                        0.2,
+                        0.12,
+                        if (j + tier) % 2 == 0 {
+                            0x1e3418ff
+                        } else {
+                            0x243c1cff
+                        },
+                        Mat::Matte,
+                    );
+                }
+            }
+            prim(
+                &mut p,
+                [0.0, 0.0, 2.6],
+                [0.0, 0.0, 2.95],
+                0.12,
+                0.02,
+                0x243c1cff,
+                Mat::Matte,
+            );
+        }
+        k if (P_DEAD..P_DEAD + 2).contains(&k) => {
+            let v = k - P_DEAD;
+            let c = 0x4a3a2aff;
+            prim(
+                &mut p,
+                [0.0, 0.0, 0.0],
+                [0.08, 0.0, 1.6],
+                0.14,
+                0.06,
+                c,
+                Mat::Matte,
+            );
+            for i in 0..5 + v {
+                let a = hsh(i, 40 + v) * std::f32::consts::TAU;
+                let z = 0.8 + hsh(i, 41) * 0.8;
+                let l = 0.4 + hsh(i, 42) * 0.4;
+                let e = [a.cos() * l, a.sin() * l, z + 0.3 + hsh(i, 43) * 0.3];
+                prim(&mut p, [0.04, 0.0, z], e, 0.05, 0.015, c, Mat::Matte);
+                prim(
+                    &mut p,
+                    e,
+                    add(e, [a.cos() * 0.2, a.sin() * 0.2 + 0.1, 0.18]),
+                    0.015,
+                    0.008,
+                    c,
+                    Mat::Matte,
+                );
+            }
+        }
+        P_SHROOM | 16 => {
+            let cap = if kind == P_SHROOM {
+                0x8a2a20ffu32
+            } else {
+                0x5a4a8aff
+            };
+            prim(
+                &mut p,
+                [0.0, 0.0, 0.0],
+                [0.03, 0.0, 0.95],
+                0.13,
+                0.09,
+                0xc8bca0ff,
+                Mat::Matte,
+            );
+            for j in 0..10 {
+                let a = j as f32 / 10.0 * std::f32::consts::TAU;
+                let c = [a.cos() * 0.38, a.sin() * 0.38, 0.98];
+                prim(&mut p, c, c, 0.17, 0.17, cap, Mat::Hair);
+            }
+            prim(
+                &mut p,
+                [0.0, 0.0, 1.05],
+                [0.0, 0.0, 1.05],
+                0.36,
+                0.36,
+                cap,
+                Mat::Hair,
+            );
+            for j in 0..6 {
+                let a = hsh(j, 70) * std::f32::consts::TAU;
+                let r = 0.15 + hsh(j, 71) * 0.25;
+                let c = [a.cos() * r, a.sin() * r, 1.17 + 0.1 * (0.4 - r)];
+                prim(&mut p, c, c, 0.045, 0.045, 0xe8e0c8ff, Mat::Matte);
+            }
+        }
+        _ => {
+            // stump
+            prim(
+                &mut p,
+                [0.0, 0.0, 0.0],
+                [0.0, 0.0, 0.3],
+                0.2,
+                0.18,
+                0x4a3220ff,
+                Mat::Matte,
+            );
+            prim(
+                &mut p,
+                [0.0, 0.0, 0.31],
+                [0.0, 0.0, 0.32],
+                0.17,
+                0.17,
+                0x9a7a50ff,
+                Mat::Matte,
+            );
+        }
+    }
+    Figure {
+        prims: p,
+        boxes: b,
+        pitch: 0.0,
+        roll: 0.0,
+        lift: 0.0,
+    }
+}
+
+/// Bake every prop, facing down-right (mirror for down-left), into one atlas.
+pub fn bake_props() -> Atlas {
+    let (fw, fh) = (PROP_FW, PROP_FH);
+    let rows = N_PROPS.div_ceil(COLS);
+    let (w, h) = (fw * COLS, fh * rows);
+    let mut rgba = vec![0u8; w * h * 4];
+    for k in 0..N_PROPS {
+        render_frame(
+            1.0,
+            PROP_ANCHOR,
+            prop(k),
+            (1.0, 0.0),
+            &mut rgba,
+            w,
+            (k % COLS) * fw,
+            (k / COLS) * fh,
+            fw,
+            fh,
+        );
+    }
+    Atlas { w, h, fw, fh, rgba }
 }
 
 // ------------------------------------------------------------------ raster
@@ -1393,6 +2032,63 @@ impl Raster {
     }
 }
 
+impl Raster {
+    /// an oriented box: centre in pixels (+ depth), half-axes in pixels (u, v up, w)
+    fn boxp(&mut self, cx: f32, cy: f32, cz: f32, ax: [[f32; 3]; 3], color: u32, mat: u8) {
+        let ext_u: f32 = ax.iter().map(|a| a[0].abs()).sum();
+        let ext_v: f32 = ax.iter().map(|a| a[1].abs()).sum();
+        let x0 = (cx - ext_u).floor().max(0.0) as usize;
+        let x1 = ((cx + ext_u).ceil().min(self.w as f32 - 1.0)).max(0.0) as usize;
+        let y0 = (cy - ext_v).floor().max(0.0) as usize;
+        let y1 = ((cy + ext_v).ceil().min(self.h as f32 - 1.0)).max(0.0) as usize;
+        let l2: Vec<f32> = ax
+            .iter()
+            .map(|a| (a[0] * a[0] + a[1] * a[1] + a[2] * a[2]).max(1e-6))
+            .collect();
+        for y in y0..=y1 {
+            for x in x0..=x1 {
+                let du = x as f32 + 0.5 - cx;
+                let dv = -(y as f32 + 0.5 - cy);
+                let (mut lo, mut hi, mut face, mut sign) =
+                    (f32::NEG_INFINITY, f32::INFINITY, 0usize, 1.0f32);
+                let mut miss = false;
+                for i in 0..3 {
+                    let a = (du * ax[i][0] + dv * ax[i][1]) / l2[i];
+                    let b = ax[i][2] / l2[i];
+                    if b.abs() < 1e-7 {
+                        if a.abs() > 1.0 {
+                            miss = true;
+                            break;
+                        }
+                        continue;
+                    }
+                    let (t1, t2) = ((-1.0 - a) / b, (1.0 - a) / b);
+                    let (tl, th) = if t1 < t2 { (t1, t2) } else { (t2, t1) };
+                    lo = lo.max(tl);
+                    if th < hi {
+                        hi = th;
+                        face = i;
+                        sign = if (a + b * th) > 0.0 { 1.0 } else { -1.0 };
+                    }
+                }
+                if miss || lo > hi || !hi.is_finite() {
+                    continue;
+                }
+                let z = cz + hi;
+                let i = y * self.w + x;
+                if z > self.depth[i] {
+                    let a = ax[face];
+                    let m = l2[face].sqrt();
+                    self.depth[i] = z;
+                    self.nrm[i] = [sign * a[0] / m, sign * a[1] / m, sign * a[2] / m];
+                    self.col[i] = color;
+                    self.mat[i] = mat;
+                }
+            }
+        }
+    }
+}
+
 fn shade_px(color: u32, n: [f32; 3], mat: u8) -> [f32; 3] {
     let base = [
         ((color >> 24) & 255) as f32,
@@ -1426,8 +2122,18 @@ fn shade_px(color: u32, n: [f32; 3], mat: u8) -> [f32; 3] {
 const SS: usize = 2;
 
 /// A posed figure ready to render: its shapes plus whole-body rotations.
+/// a box (for furniture), centred at `c`, half sizes `h`, turned `yaw` about z
+struct BoxP {
+    c: V3,
+    h: V3,
+    yaw: f32,
+    color: u32,
+    mat: Mat,
+}
+
 struct Figure {
     prims: Vec<Prim>,
+    boxes: Vec<BoxP>,
     /// rotation about the side axis (falling backwards), radians
     pitch: f32,
     /// rotation about the forward axis (falling onto the side)
@@ -1436,8 +2142,21 @@ struct Figure {
     lift: f32,
 }
 
+fn mat_code(m: Mat) -> u8 {
+    match m {
+        Mat::Matte => 0,
+        Mat::Metal => 1,
+        Mat::Glow => 2,
+        Mat::Hair => 3,
+        Mat::Bone => 4,
+        Mat::Membrane => 5,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 fn render_frame(
-    look: &Look,
+    s: f32,
+    anchor: (f32, f32),
     fig: Figure,
     dir: (f32, f32),
     out: &mut [u8],
@@ -1447,9 +2166,9 @@ fn render_frame(
     fw: usize,
     fh: usize,
 ) {
-    let s = look.s();
     let m2t = 1.25 / 1.8 * s;
     let prims = fig.prims;
+    let boxes = fig.boxes;
     // falling rotations about the feet, then ground the figure
     let (fs, fc) = fig.pitch.sin_cos();
     let (rs, rc) = fig.roll.sin_cos();
@@ -1464,14 +2183,43 @@ fn render_frame(
             lowest = lowest.min(z);
         }
     }
+    for bx in boxes.iter() {
+        for k in 0..8 {
+            let (sx, sy, sz) = (
+                if k & 1 == 0 { -1.0 } else { 1.0 },
+                if k & 2 == 0 { -1.0 } else { 1.0 },
+                if k & 4 == 0 { -1.0 } else { 1.0 },
+            );
+            let (c, sn) = (bx.yaw.cos(), bx.yaw.sin());
+            let p = [
+                bx.c[0] + sx * bx.h[0] * c - sy * bx.h[1] * sn,
+                bx.c[1] + sx * bx.h[0] * sn + sy * bx.h[1] * c,
+                bx.c[2] + sz * bx.h[2],
+            ];
+            lowest = lowest.min(tf(p)[2]);
+        }
+    }
+    if !lowest.is_finite() {
+        lowest = 0.0;
+    }
     let ground = -lowest + fig.lift;
     let th = dir.1.atan2(dir.0);
     let r2 = std::f32::consts::FRAC_1_SQRT_2;
     let kk = K * SS as f32;
     let (aw, ah) = (fw * SS, fh * SS);
-    let (ax, ay) = {
-        let (x, y) = look.anchor();
-        (x * SS as f32, y * SS as f32)
+    let (ax, ay) = (anchor.0 * SS as f32, anchor.1 * SS as f32);
+    // local metres -> view space (u right, v up, w towards the camera), in tile units
+    let view = |p: V3, with_ground: bool| -> V3 {
+        let x = p[0] * m2t;
+        let y = p[1] * m2t;
+        let wx = x * th.cos() - y * th.sin();
+        let wy = x * th.sin() + y * th.cos();
+        let wz = (p[2] + if with_ground { ground } else { 0.0 }) * m2t;
+        [
+            (wx - wy) * r2,
+            -0.5 * (wx + wy) * r2 + 0.866 * wz,
+            0.866 * (wx + wy) * r2 + 0.5 * wz,
+        ]
     };
     let mut ras = Raster::new(aw, ah);
     for pr in prims.iter() {
@@ -1480,14 +2228,7 @@ fn render_frame(
         let len = ((b[0] - a[0]).powi(2) + (b[1] - a[1]).powi(2) + (b[2] - a[2]).powi(2)).sqrt();
         let step = (pr.ra.min(pr.rb).max(0.012)) * 0.32;
         let n = ((len / step).ceil() as usize).clamp(1, 200);
-        let mat = match pr.mat {
-            Mat::Matte => 0,
-            Mat::Metal => 1,
-            Mat::Glow => 2,
-            Mat::Hair => 3,
-            Mat::Bone => 4,
-            Mat::Membrane => 5,
-        };
+        let mat = mat_code(pr.mat);
         for i in 0..=n {
             let t = i as f32 / n as f32;
             let pl = [
@@ -1507,6 +2248,24 @@ fn render_frame(
             let w = 0.866 * (wx + wy) * r2 + 0.5 * wz;
             ras.sphere(ax + u * kk, ay - v * kk, w * kk, rr * kk, pr.color, mat);
         }
+    }
+    for bx in boxes.iter() {
+        let c = view(tf(bx.c), true);
+        let (cy, sy) = (bx.yaw.cos(), bx.yaw.sin());
+        let axes = [
+            view(tf([cy * bx.h[0], sy * bx.h[0], 0.0]), false),
+            view(tf([-sy * bx.h[1], cy * bx.h[1], 0.0]), false),
+            view(tf([0.0, 0.0, bx.h[2]]), false),
+        ];
+        let px = |v: V3| [v[0] * kk, v[1] * kk, v[2] * kk];
+        ras.boxp(
+            ax + c[0] * kk,
+            ay - c[1] * kk,
+            c[2] * kk,
+            [px(axes[0]), px(axes[1]), px(axes[2])],
+            bx.color,
+            mat_code(bx.mat),
+        );
     }
     // shade at 2x, reduce to 1x with a hard alpha edge
     let mut alpha = vec![false; fw * fh];
@@ -1592,7 +2351,7 @@ fn render_frame(
 /// An empty atlas sized for `look`.
 pub fn new_atlas(look: &Look) -> Atlas {
     let (fw, fh) = look.frame_size();
-    let rows = (RDIRS * FRAMES_PER_DIR).div_ceil(COLS);
+    let rows = total_frames(look).div_ceil(COLS);
     let (w, h) = (fw * COLS, fh * rows);
     Atlas {
         w,
@@ -1602,14 +2361,14 @@ pub fn new_atlas(look: &Look) -> Atlas {
         rgba: vec![0u8; w * h * 4],
     }
 }
-pub const TOTAL_FRAMES: usize = RDIRS * FRAMES_PER_DIR;
 
-/// Render one frame (0..TOTAL_FRAMES) of `look` into its atlas.
+/// Render one frame (0..total_frames) of `look` into its atlas.
 pub fn bake_frame(look: &Look, atlas: &mut Atlas, idx: usize) {
-    let r = idx / FRAMES_PER_DIR;
-    let mut f = idx % FRAMES_PER_DIR;
-    let mut anim = (Anim::Idle, 0usize, 1usize);
-    for &(a, n) in ANIMS.iter() {
+    let fpd = frames_per_dir(look);
+    let r = idx / fpd;
+    let mut f = idx % fpd;
+    let mut anim = (Idle, 0usize, 1usize);
+    for &(a, n) in anims(look).iter() {
         if f < n {
             anim = (a, f, n);
             break;
@@ -1619,7 +2378,8 @@ pub fn bake_frame(look: &Look, atlas: &mut Atlas, idx: usize) {
     let fig = figure_for(look, anim.0, anim.1, anim.2);
     let (fw, fh, w) = (atlas.fw, atlas.fh, atlas.w);
     render_frame(
-        look,
+        look.s(),
+        look.anchor(),
         fig,
         RENDER_DIRS[r],
         &mut atlas.rgba,
@@ -1634,7 +2394,7 @@ pub fn bake_frame(look: &Look, atlas: &mut Atlas, idx: usize) {
 /// Bake every animation frame in the 5 rendered directions into one atlas.
 pub fn bake(look: &Look) -> Atlas {
     let mut a = new_atlas(look);
-    for idx in 0..TOTAL_FRAMES {
+    for idx in 0..total_frames(look) {
         bake_frame(look, &mut a, idx);
     }
     a
@@ -1654,7 +2414,7 @@ mod tests {
         let ms = t.elapsed().as_millis();
         assert_eq!(a.w, FW * COLS);
         // every frame has a figure in it
-        for idx in 0..RDIRS * FRAMES_PER_DIR {
+        for idx in 0..total_frames(&l) {
             let (ox, oy) = ((idx % COLS) * a.fw, (idx / COLS) * a.fh);
             let mut n = 0;
             for y in 0..a.fh {
@@ -1667,9 +2427,20 @@ mod tests {
             assert!(n > 150, "frame {idx} nearly empty ({n})");
         }
         eprintln!("bake took {ms} ms");
-        assert_eq!(
-            anim_range(Anim::Die).0 + anim_range(Anim::Die).1,
-            FRAMES_PER_DIR
-        );
+        assert_eq!(slot(&l, Die).0 + slot(&l, Die).1, frames_per_dir(&l));
+        assert_eq!(slot(&l, Talk), slot(&l, Idle));
+        let props = bake_props();
+        for k in 0..N_PROPS {
+            let (ox, oy) = ((k % COLS) * props.fw, (k / COLS) * props.fh);
+            let mut n = 0;
+            for y in 0..props.fh {
+                for x in 0..props.fw {
+                    if props.rgba[((oy + y) * props.w + ox + x) * 4 + 3] > 0 {
+                        n += 1;
+                    }
+                }
+            }
+            assert!(n > 60, "prop {k} nearly empty ({n})");
+        }
     }
 }

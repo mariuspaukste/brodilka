@@ -120,6 +120,12 @@ pub struct Ent {
     /// knocked down: time left lying / getting up, and the total
     pub down_t: f32,
     pub down_total: f32,
+    /// facing as drawn: turns one step at a time towards dir8
+    pub vdir: u8,
+    pub turn_t: f32,
+    /// weapon-drawing animation timer (1 -> 0)
+    pub ready: f32,
+    pub running: bool,
 }
 
 impl Ent {
@@ -158,6 +164,10 @@ impl Ent {
             kick: 0.0,
             down_t: 0.0,
             down_total: 1.0,
+            vdir: 3,
+            turn_t: 0.0,
+            ready: 0.0,
+            running: false,
         }
     }
     pub fn tile(&self) -> (i32, i32) {
@@ -927,6 +937,14 @@ impl Game {
             e.atk = (e.atk - dt * 3.0).max(0.0);
             e.kick = (e.kick - dt * 2.6).max(0.0);
             e.down_t = (e.down_t - dt).max(0.0);
+            e.ready = (e.ready - dt * 2.5).max(0.0);
+            // turn through the in-between directions, as Pagan's figures do
+            e.turn_t += dt;
+            if e.vdir != e.dir8 && e.turn_t > 0.045 {
+                e.turn_t = 0.0;
+                let diff = (e.dir8 as i32 - e.vdir as i32).rem_euclid(8);
+                e.vdir = ((e.vdir as i32 + if diff <= 4 { 1 } else { -1 }).rem_euclid(8)) as u8;
+            }
             e.hurt = (e.hurt - dt * 3.0).max(0.0);
             if e.say_t > 0.0 {
                 e.say_t -= dt;
@@ -1110,7 +1128,22 @@ impl Game {
             // finish the step in progress, then stand still
             self.ents[0].path.truncate(1);
         }
-        let moving = self.move_ent(0, PLAYER_SPEED, dt);
+        // run when heading somewhere far, or steering with the pointer far away
+        let far_steer = self.steering && {
+            let (px, py) = self.to_screen(self.ents[0].x, self.ents[0].y);
+            ((self.ptr_x - px).powi(2) + (self.ptr_y - py).powi(2)).sqrt() > 140.0
+        };
+        let run = !self.pl.ghost && !self.pl.blocking && (far_steer || self.ents[0].path.len() > 5);
+        self.ents[0].running = run;
+        let moving = self.move_ent(
+            0,
+            if run {
+                PLAYER_SPEED * 1.55
+            } else {
+                PLAYER_SPEED
+            },
+            dt,
+        );
         if moving {
             self.pl.still_t = 0.0;
         } else {
@@ -1346,8 +1379,8 @@ impl Game {
             self.pl.blocking = false;
             return;
         }
-        if on && !self.pl.war {
-            self.pl.war = true;
+        if on {
+            self.enter_war();
         }
         if on {
             if let Action::Gather { .. } = self.pl.action {
@@ -1392,7 +1425,7 @@ impl Game {
             self.msg("Thou kickest at the air.", C_SYS);
             return;
         };
-        self.pl.war = true;
+        self.enter_war();
         self.ents[0].target = self.ents[ti].id;
         let (tx, ty) = (self.ents[ti].x, self.ents[ti].y);
         self.ents[0].dir8 = dir8_of(tx - px, ty - py);
@@ -2178,7 +2211,7 @@ impl Game {
                 self.msg("Thou canst not harm the townsfolk.", C_WARN);
                 return;
             }
-            self.pl.war = true;
+            self.enter_war();
             self.spell_fx(s.fx, 0, ti, amt, true);
         } else {
             let e = &mut self.ents[ti];
@@ -2680,9 +2713,7 @@ impl Game {
                         return;
                     }
                     self.cancel_activity();
-                    if !self.pl.war {
-                        self.pl.war = true;
-                    }
+                    self.enter_war();
                     self.ents[0].target = id;
                     self.pl.chase = true;
                     self.pl.repath_t = 0.0;
@@ -2772,11 +2803,24 @@ impl Game {
         }
     }
 
+    /// Go into combat stance, drawing the weapon (Pagan's readyWeapon).
+    pub fn enter_war(&mut self) {
+        if !self.pl.war {
+            self.pl.war = true;
+            self.ents[0].ready = 1.0;
+            self.touch_ui();
+        }
+    }
+
     pub fn toggle_war(&mut self) {
         if self.pl.ghost {
             return;
         }
-        self.pl.war = !self.pl.war;
+        if !self.pl.war {
+            self.enter_war();
+            return;
+        }
+        self.pl.war = false;
         if !self.pl.war {
             self.ents[0].target = 0;
             self.pl.chase = false;

@@ -40,6 +40,14 @@ pub const O_MUSHROOM: u8 = 18;
 pub const O_BARREL: u8 = 19;
 pub const O_CRATE: u8 = 20;
 pub const O_BONES: u8 = 21;
+pub const O_BED: u8 = 22;
+pub const O_TABLE: u8 = 23;
+pub const O_CHAIR: u8 = 24;
+pub const O_SHELF: u8 = 25;
+pub const O_HEARTH: u8 = 26;
+pub const O_CHEST: u8 = 27;
+/// style bit: furniture faces down-left (mirrored) instead of down-right
+pub const FACE_S: u8 = 0x80;
 
 pub struct Building {
     pub x: i32,
@@ -325,7 +333,63 @@ impl Map {
         self.set_o(bx + 4, by + 6, O_SIGN);
         self.set_o(bx + 1, by + 6, O_BARREL);
         self.set_o(bx + 6, by + 6, O_CRATE);
-        self.set_o(bx + 1, by + 1, O_CRATE);
+        // furniture: along the back wall it faces the door (down-left),
+        // along the left wall it faces into the room (down-right)
+        let back = |x: i32| (x, by + 1, true);
+        let side = |y: i32| (bx + 1, y, false);
+        let inn = vendor == V_PROV && style == 2;
+        let items: Vec<((i32, i32, bool), u8)> = match vendor {
+            V_BANKER => vec![
+                (back(bx + 1), O_CHEST),
+                (back(bx + 5), O_CHEST),
+                (back(bx + 6), O_CHEST),
+                (side(by + 3), O_SHELF),
+                ((bx + 6, by + 3, false), O_TABLE),
+            ],
+            V_MAGE => vec![
+                (back(bx + 1), O_SHELF),
+                (back(bx + 5), O_SHELF),
+                (back(bx + 6), O_SHELF),
+                ((bx + 6, by + 3, false), O_TABLE),
+                ((bx + 6, by + 4, true), O_CHAIR),
+            ],
+            V_HEALER => vec![
+                (back(bx + 5), O_BED),
+                (back(bx + 6), O_BED),
+                (side(by + 3), O_TABLE),
+                (back(bx + 1), O_CHEST),
+            ],
+            V_SMITH => vec![
+                (back(bx + 1), O_CHEST),
+                (back(bx + 6), O_BARREL),
+                ((bx + 6, by + 2, false), O_CRATE),
+                (back(bx + 5), O_CRATE),
+            ],
+            _ if inn => vec![
+                (back(bx + 5), O_HEARTH),
+                (side(by + 1), O_BED),
+                (side(by + 2), O_BED),
+                ((bx + 6, by + 3, false), O_TABLE),
+                ((bx + 6, by + 4, true), O_CHAIR),
+                ((bx + 5, by + 3, false), O_CHAIR),
+            ],
+            _ => vec![
+                (back(bx + 1), O_SHELF),
+                (back(bx + 6), O_CRATE),
+                (back(bx + 5), O_BARREL),
+                ((bx + 6, by + 3, false), O_BARREL),
+                (side(by + 3), O_CRATE),
+            ],
+        };
+        for ((x, y, south), o) in items {
+            if inb(x, y) {
+                let i = idx(x, y);
+                self.o[i] = o;
+                if south {
+                    self.style[i] |= FACE_S;
+                }
+            }
+        }
         self.buildings.push(Building {
             x: bx,
             y: by,

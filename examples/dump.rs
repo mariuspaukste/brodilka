@@ -59,6 +59,18 @@ fn main() {
         g.update(1.0 / 30.0);
     }
     dump(&mut g, &dir, "town");
+    g.zoom_mul = 0.55;
+    g.apply_zoom();
+    tp(&mut g, 80, 94);
+    dump(&mut g, &dir, "town_wide");
+    g.zoom_mul = 1.0;
+    g.apply_zoom();
+    tp(&mut g, 91, 68);
+    dump(&mut g, &dir, "inside");
+    tp(&mut g, 79, 82);
+    dump(&mut g, &dir, "inside_inn");
+    let (x, y) = g.map.start;
+    tp(&mut g, x, y);
     g.win = Win::Paperdoll;
     g.touch_ui();
     dump(&mut g, &dir, "paperdoll");

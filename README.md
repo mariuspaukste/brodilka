@@ -46,7 +46,15 @@ walk, combat stance, attack, block, kick, work (mining/chopping/fishing),
 cast, hit, die, and falling down and getting back up;
 corpses keep the last frame of the death fall. Four-legged animals, the
 mongbat, the slime and the dragon have their own rigs (gaits, wing membranes,
-squash-and-stretch). Baking is spread over several frames so play never stalls. Wounds leave blood on the ground.
+squash-and-stretch). Baking is spread over several frames so play never stalls.
+
+The same baker renders the props — oaks, pines, dead trees, stumps, giant
+mushrooms, barrels, crates, beds, tables, chairs, bookshelves, hearths and
+chests — so the world shares one lighting. Shops and the inn are furnished,
+and buildings wear hipped roofs (slate, shingle or tile, with smoking
+chimneys) that lift away when you walk inside. Figures also run, glance
+around, draw their weapon when combat starts, step in a fighting stance near
+a foe, gesture while they talk, and turn through the in-between directions. Wounds leave blood on the ground.
 
 ## Controls
 
