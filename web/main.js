@@ -253,8 +253,84 @@ function glPresent(lw, lh) {
   gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 }
 // overhead text is drawn at art resolution with a small pixel-ish font
+// ------------------------------------------------------------------ interface art from Rust
+let font = null; // { img, adv, tints: Map }
+function uiImg(i) {
+  const w = ex.ui_img_w(i), h = ex.ui_img_h(i);
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  c.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(mem(), ex.ui_img_ptr(i), w * h * 4).slice(), w, h), 0, 0);
+  return c;
+}
+function initUiArt() {
+  const root = document.documentElement.style;
+  const icons = uiImg(0);
+  root.setProperty('--icons', `url(${icons.toDataURL()})`);
+  root.setProperty('--icons-w', `${icons.width}px`);
+  root.setProperty('--icons-h', `${icons.height}px`);
+  root.setProperty('--panel', `url(${uiImg(1).toDataURL()})`);
+  root.setProperty('--frame', `url(${uiImg(2).toDataURL()})`);
+  document.body.classList.add('painted');
+  font = { img: uiImg(3), adv: new Uint8Array(mem(), ex.font_adv_ptr(), 95).slice(), tints: new Map() };
+  // toolbar icons replace the emoji, in toolbar order
+  document.querySelectorAll('#bar button').forEach((b, k) => {
+    const sp = b.querySelector('span');
+    if (sp) { sp.textContent = ''; sp.appendChild(icon(k)); }
+  });
+}
+function icon(k) {
+  const i = document.createElement('i');
+  i.className = 'ico';
+  i.style.backgroundPosition = `${-(k % 16) * 48}px ${-Math.floor(k / 16) * 48}px`;
+  return i;
+}
+function fontTint(color) {
+  let t = font.tints.get(color);
+  if (!t) {
+    t = document.createElement('canvas');
+    t.width = font.img.width; t.height = font.img.height;
+    const g = t.getContext('2d');
+    g.drawImage(font.img, 0, 0);
+    g.globalCompositeOperation = 'source-in';
+    g.fillStyle = color;
+    g.fillRect(0, 0, t.width, t.height);
+    font.tints.set(color, t);
+  }
+  return t;
+}
+function fontWidth(s) {
+  let w = 0;
+  for (let i = 0; i < s.length; i++) {
+    const k = s.charCodeAt(i) - 32;
+    w += font.adv[k >= 0 && k < 95 ? k : 31];
+  }
+  return Math.max(0, w - 1);
+}
+function fontDraw(c, s, x, y, color) {
+  const t = fontTint(color);
+  for (let i = 0; i < s.length; i++) {
+    let k = s.charCodeAt(i) - 32;
+    if (k < 0 || k >= 95) k = 31;
+    c.drawImage(t, k * 6, 0, 6, 9, x, y, 6, 9);
+    x += font.adv[k];
+  }
+}
 function drawTexts(c, texts) {
   c.setTransform(1, 0, 0, 1, 0, 0);
+  if (font) {
+    for (const [s, x, y, size, align, outline, fill, alpha] of texts) {
+      c.globalAlpha = alpha;
+      const w = fontWidth(s);
+      const X = Math.round(x / pix - (align === 0 ? w / 2 : 0)), Y = Math.round(y / pix) - 4;
+      if ((outline & 255) > 0) {
+        const o = col(outline);
+        for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1], [1, 1]]) fontDraw(c, s, X + dx, Y + dy, o);
+      }
+      fontDraw(c, s, X, Y, fill);
+    }
+    c.globalAlpha = 1;
+    return;
+  }
   c.textBaseline = 'middle';
   c.lineJoin = 'round';
   for (const [s, x, y, size, align, outline, fill, alpha] of texts) {
@@ -371,7 +447,8 @@ function renderHud(h) {
   $('hpt').textContent = `${h.hp} / ${h.mhp}`;
   $('mpb').style.width = `${(100 * h.mana / Math.max(1, h.mmana)).toFixed(1)}%`;
   $('mpt').textContent = `${h.mana} / ${h.mmana}`;
-  $('gold').textContent = `🪙 ${h.gold}`;
+  if (font) { const g = $('gold'); g.textContent = ''; g.appendChild(icon(10)); g.append(` ${h.gold}`); }
+  else $('gold').textContent = `🪙 ${h.gold}`;
   const bw = $('bwar');
   bw.classList.toggle('on', h.war);
   bw.querySelector('small').textContent = h.war ? 'War' : 'Peace';
@@ -448,7 +525,8 @@ function renderUI(u) {
     const rows = el('div', 'rows');
     for (const r of w.rows) {
       const row = el('div', 'r' + (r.dim ? ' dim' : ''));
-      row.appendChild(el('div', 'ic', r.i));
+      if (font && r.i.startsWith('#')) { const d = el('div', 'ic'); d.appendChild(icon(+r.i.slice(1))); row.appendChild(d); }
+      else row.appendChild(el('div', 'ic', r.i));
       const tx = el('div', 'tx');
       tx.appendChild(el('div', '', r.t));
       if (r.s) tx.appendChild(el('div', 's', r.s));
@@ -635,6 +713,7 @@ async function boot() {
     texs.push({ w, h, data: new Uint8Array(mem(), ex.tex_ptr(k), w * h * 4).slice() });
   }
   initArt(texs, new Uint8Array(mem(), ex.pal_ptr(), 768).slice());
+  if (ex.ui_img_w) initUiArt();
   resize();
   buildMinimap();
   $('loading').classList.add('hidden');

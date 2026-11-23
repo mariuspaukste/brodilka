@@ -2974,6 +2974,39 @@ impl Game {
         );
         let (y0, y1) = (y0 - 26.0 * z, y1 - 24.0 * z);
         let lerp = |k: f32| (x0 + (x1 - x0) * k, y0 + (y1 - y0) * k);
+        // baked frame animations for the big spells
+        if let Some(pid) = self.sprites.props {
+            let (ax, ay) = bake::PROP_ANCHOR;
+            let fr = ((k * bake::FX_FRAMES as f32) as usize).min(bake::FX_FRAMES - 1);
+            let pick = match f.kind {
+                FX_EXPLOSION => Some((bake::P_FX_EXPLO + fr, x1, y1 + 24.0 * z, 0xff8030ff)),
+                FX_FLAMESTRIKE => Some((bake::P_FX_FLAME + fr, x1, y1 + 24.0 * z, 0xff6020ff)),
+                FX_HEAL | FX_RES => Some((bake::P_FX_HEAL + fr, x0, y0 + 26.0 * z, 0xffe090ff)),
+                FX_FIREBALL => {
+                    let (x, y) = lerp(k);
+                    Some((
+                        bake::P_FX_BALL + ((t * 14.0) as usize % 4),
+                        x,
+                        y + 12.0 * z,
+                        0xff8030ff,
+                    ))
+                }
+                _ => None,
+            };
+            if let Some((frame, x, y, glow)) = pick {
+                c.outline(0, 0.0);
+                c.alpha(0.45 * (1.0 - k * 0.7));
+                c.glow(x, y - 20.0 * z, 34.0 * z, glow);
+                c.alpha(if k > 0.85 { (1.0 - k) / 0.15 } else { 1.0 });
+                c.sprite(pid, frame, bake::PROP_FW, bake::PROP_FH, ax, ay, x, y, z, 0);
+                c.alpha(1.0);
+                if f.kind == FX_RES {
+                    c.fill(with_a(0xfff0b0ff, 0.3 * (1.0 - k)));
+                    c.rect(x0 - 14.0 * z, y0 - 200.0 * z, 28.0 * z, 230.0 * z);
+                }
+                return;
+            }
+        }
         match f.kind {
             FX_ARROW => {
                 let (a, b) = (lerp((k - 0.15).max(0.0)), lerp(k));

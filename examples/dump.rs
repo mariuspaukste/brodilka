@@ -5,6 +5,10 @@ use brodilka::data::*;
 use brodilka::game::*;
 use std::fs;
 
+/// dump without running the game, so effects stay as placed
+fn dump_nofx_update(g: &mut Game, dir: &str, name: &str) {
+    dump(g, dir, name)
+}
 fn dump(g: &mut Game, dir: &str, name: &str) {
     g.sprites.budget = 100000;
     for _ in 0..8 {
@@ -53,6 +57,31 @@ fn main() {
     meta.push(']');
     fs::write(format!("{dir}/tex.json"), meta).unwrap();
     fs::write(format!("{dir}/pal.bin"), brodilka::tex::palette()).unwrap();
+    // interface art, laid out as the host would read it from wasm memory
+    {
+        let icons = brodilka::bake::icons::bake_icons(|n| {
+            brodilka::data::ITEMS
+                .iter()
+                .find(|d| d.id == n)
+                .map(|d| d.color)
+                .unwrap_or(0x9a9a9aff)
+        });
+        let (fr, fw, fh, adv) = brodilka::uiart::font();
+        let imgs = [
+            (icons.rgba, icons.w, icons.h),
+            brodilka::uiart::panel(),
+            brodilka::uiart::frame(),
+            (fr, fw, fh),
+        ];
+        let mut meta = String::from("[");
+        for (i, (r, w, h)) in imgs.iter().enumerate() {
+            fs::write(format!("{dir}/ui{i}.rgba"), r).unwrap();
+            meta.push_str(&format!("{}[{w},{h}]", if i > 0 { "," } else { "" }));
+        }
+        meta.push(']');
+        fs::write(format!("{dir}/ui.json"), meta).unwrap();
+        fs::write(format!("{dir}/uiadv.bin"), adv).unwrap();
+    }
     dump(&mut g, &dir, "create");
     g.create("Marius", false, 0, "warrior", [0, 0, 0]);
     for _ in 0..30 {
@@ -175,6 +204,45 @@ fn main() {
         g.update(1.0 / 30.0);
     }
     dump(&mut g, &dir, "folk");
+    // the big spells, caught mid-cast
+    tp(&mut g, 70, 100);
+    g.zoom_mul = 1.3;
+    g.apply_zoom();
+    let (px, py) = (g.ents[0].x, g.ents[0].y);
+    for (kind, dx, dy, k) in [
+        (brodilka::data::FX_EXPLOSION, 1.5, -2.5, 0.25),
+        (brodilka::data::FX_FLAMESTRIKE, 2.0, 2.5, 0.35),
+        (brodilka::data::FX_HEAL, 0.0, 0.0, 0.4),
+        (brodilka::data::FX_FIREBALL, -3.0, 0.0, 0.5),
+    ] {
+        g.fx.push(brodilka::game::Fx {
+            kind,
+            x0: px
+                + if kind == brodilka::data::FX_FIREBALL {
+                    -1.0
+                } else {
+                    dx
+                },
+            y0: py + dy
+                - if kind == brodilka::data::FX_FIREBALL {
+                    3.0
+                } else {
+                    0.0
+                },
+            x1: px + dx,
+            y1: py + dy,
+            tgt: 0,
+            t: k * 1.0,
+            dur: 1.0,
+            dmg: 0,
+            by_player: false,
+        });
+    }
+    let n = g.fx.len();
+    g.sprites.budget = 100000;
+    g.render();
+    g.fx.truncate(n);
+    dump_nofx_update(&mut g, &dir, "spells");
     g.zoom_mul = 1.0;
     g.apply_zoom();
     // night in town

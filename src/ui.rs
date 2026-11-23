@@ -23,6 +23,14 @@ fn hex(c: u32) -> String {
     format!("\"#{:06x}\"", c >> 8)
 }
 
+/// a baked icon ("#k" into the icon sheet), or the item's emoji
+fn icon(d: &ItemDef) -> String {
+    match crate::bake::icons::icon_index(d.id) {
+        Some(k) => format!("#{k}"),
+        None => d.icon.to_string(),
+    }
+}
+
 #[derive(Default)]
 struct Row {
     icon: String,
@@ -264,7 +272,7 @@ impl Game {
             }
             sub.push_str("blessed");
         }
-        Row::new(d.icon, &it.label(), &sub)
+        Row::new(&icon(d), &it.label(), &sub)
     }
 
     fn window(&self) -> Option<WinJ> {
@@ -399,7 +407,7 @@ impl Game {
                         regs.join(" ")
                     );
                     let mut r = Row::new(
-                        if s.hostile { "🔥" } else { "✨" },
+                        if s.hostile { "🔥" } else { "#5" },
                         &format!("{} — {}", s.name, s.words),
                         &sub,
                     );
@@ -538,7 +546,7 @@ impl Game {
                             sub.push_str(" · known");
                         }
                         let mut r =
-                            Row::new(d.icon, d.name, &sub).btn("Buy", &format!("buy:{}:1", sid));
+                            Row::new(&icon(d), d.name, &sub).btn("Buy", &format!("buy:{}:1", sid));
                         if d.stack {
                             r = r.btn("×10", &format!("buy:{}:10", sid));
                         }
@@ -600,7 +608,7 @@ impl Game {
                 let mut w = WinJ::new("loot", &c.name);
                 if c.gold > 0 {
                     w.rows.push(
-                        Row::new("🪙", &format!("{} gold coins", c.gold), "")
+                        Row::new("#10", &format!("{} gold coins", c.gold), "")
                             .btn("Take", "loot:gold"),
                     );
                 }
@@ -632,7 +640,7 @@ impl Game {
                     let d = &ITEMS[item_idx(id)];
                     let ch = ((pl.skills[SMITHING] - min + 250) as f32 / 500.0).clamp(0.0, 1.0);
                     let mut r = Row::new(
-                        d.icon,
+                        &icon(d),
                         d.name,
                         &format!("{} ingots · {:.0}% success", n, ch * 100.0),
                     )

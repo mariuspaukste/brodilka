@@ -5,6 +5,7 @@
 //! Rendering is "sphere splatting": every limb is a chain of overlapping
 //! spheres rasterised with a depth buffer, lit from the upper left, rendered
 //! at 2x and reduced, then given a dark silhouette outline.
+pub mod icons;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
@@ -1515,7 +1516,13 @@ pub const P_WELL: usize = 24;
 pub const P_CRAG: usize = 25; // 3 low, then 3 tall
 pub const P_LONGTABLE: usize = 31;
 pub const P_CART: usize = 32;
-pub const N_PROPS: usize = 33;
+/// spell effects, baked as frame animations
+pub const P_FX_EXPLO: usize = 33; // 8 frames
+pub const P_FX_FLAME: usize = 41; // 8 frames
+pub const P_FX_HEAL: usize = 49; // 8 frames
+pub const P_FX_BALL: usize = 57; // 4 frames
+pub const FX_FRAMES: usize = 8;
+pub const N_PROPS: usize = 61;
 pub const PROP_FW: usize = 96;
 pub const PROP_FH: usize = 128;
 pub const PROP_ANCHOR: (f32, f32) = (48.0, 116.0);
@@ -2534,6 +2541,106 @@ fn prop(kind: usize) -> Figure {
                 });
             }
         }
+        k if (P_FX_EXPLO..P_FX_EXPLO + 8).contains(&k) => {
+            // a burst: white heat, then orange fire, then rolling smoke
+            let t = (k - P_FX_EXPLO) as f32 / 7.0;
+            for i in 0..18 {
+                let a = hsh(i, 50) * std::f32::consts::TAU;
+                let up = hsh(i, 51) * 0.9 + 0.1;
+                let reach = (0.15 + t * 1.1) * (0.5 + hsh(i, 52) * 0.6);
+                let c = [
+                    a.cos() * reach * (1.0 - up * 0.5),
+                    a.sin() * reach * (1.0 - up * 0.5),
+                    0.3 + up * reach * 1.1 + t * 0.4,
+                ];
+                let r = (0.32 * (1.0 - t * 0.6) + hsh(i, 53) * 0.12) * (0.6 + t * 0.8);
+                let heat = (1.0 - t * 1.3 + hsh(i, 54) * 0.3).clamp(0.0, 1.0);
+                let (col, mat) = if heat > 0.75 {
+                    (0xffd060ffu32, Mat::Glow)
+                } else if heat > 0.4 {
+                    (0xe86818ff, Mat::Glow)
+                } else if heat > 0.15 {
+                    (0xa02a0cff, Mat::Glow)
+                } else {
+                    (0x3a3230ff, Mat::Matte)
+                };
+                prim(&mut p, c, c, r, r, col, mat);
+            }
+        }
+        k if (P_FX_FLAME..P_FX_FLAME + 8).contains(&k) => {
+            // a pillar of fire rising, roaring, then guttering out
+            let f = k - P_FX_FLAME;
+            let t = f as f32 / 7.0;
+            let rise = (t * 3.0).min(1.0);
+            let fade = if t > 0.6 { 1.0 - (t - 0.6) / 0.4 } else { 1.0 };
+            for i in 0..16 {
+                let fi = i as f32 / 16.0;
+                let z = fi * 2.6 * rise;
+                let wob = (fi * 9.0 + f as f32 * 1.7).sin() * 0.12;
+                let r = (0.42 * (1.0 - fi) + 0.06) * (0.5 + fade * 0.5);
+                if fi > fade + 0.1 {
+                    continue;
+                }
+                let col = if fi < 0.25 {
+                    0xffc848ffu32
+                } else if fi < 0.6 {
+                    0xe86414ff
+                } else {
+                    0xa82a0cff
+                };
+                for j in 0..3 {
+                    let a = j as f32 * 2.1 + f as f32 * 0.9 + fi * 4.0;
+                    let c = [a.cos() * r * 0.45 + wob, a.sin() * r * 0.45, z];
+                    prim(&mut p, c, c, r * 0.7, r * 0.7, col, Mat::Glow);
+                }
+            }
+        }
+        k if (P_FX_HEAL..P_FX_HEAL + 8).contains(&k) => {
+            // motes of light spiralling up around the figure
+            let t = (k - P_FX_HEAL) as f32 / 8.0;
+            for i in 0..22 {
+                let fi = i as f32 / 22.0;
+                let z = ((fi + t) % 1.0) * 2.2;
+                let a = fi * 13.0 + t * std::f32::consts::TAU;
+                let r = 0.5 - z * 0.08;
+                let size = 0.05 + 0.04 * (1.0 - (z / 2.2 - 0.5).abs() * 2.0);
+                let col = if i % 3 == 0 {
+                    0x5a9ae0ffu32
+                } else {
+                    0xd8a838ff
+                };
+                let c = [a.cos() * r, a.sin() * r, z];
+                prim(&mut p, c, c, size, size, col, Mat::Glow);
+            }
+            let c = [0.0, 0.0, 0.0];
+            prim(&mut p, c, c, 0.01, 0.01, 0xffe8a0ff, Mat::Glow);
+        }
+        k if (P_FX_BALL..P_FX_BALL + 4).contains(&k) => {
+            let f = k - P_FX_BALL;
+            prim(
+                &mut p,
+                [0.0, 0.0, 0.3],
+                [0.0, 0.0, 0.3],
+                0.16,
+                0.16,
+                0xffd060ff,
+                Mat::Glow,
+            );
+            for i in 0..9 {
+                let a = i as f32 / 9.0 * std::f32::consts::TAU + f as f32 * 0.7;
+                let l = 0.18 + hsh(i + f * 9, 60) * 0.12;
+                let c = [a.cos() * l, a.sin() * l, 0.3 + (a * 2.0).sin() * 0.1];
+                prim(
+                    &mut p,
+                    c,
+                    c,
+                    0.1,
+                    0.1,
+                    if i % 2 == 0 { 0xe87018ff } else { 0xb8380cff },
+                    Mat::Glow,
+                );
+            }
+        }
         k if (P_CRAG..P_CRAG + 6).contains(&k) => {
             // a mass of broken rock filling its tile
             let v = k - P_CRAG;
@@ -2617,6 +2724,7 @@ pub fn bake_props() -> Atlas {
     let (w, h) = (fw * COLS, fh * rows);
     let mut rgba = vec![0u8; w * h * 4];
     for k in 0..N_PROPS {
+        NO_INK.with(|f| f.set(k >= P_FX_EXPLO));
         render_frame(
             1.0,
             PROP_ANCHOR,
@@ -2630,6 +2738,7 @@ pub fn bake_props() -> Atlas {
             fh,
         );
     }
+    NO_INK.with(|f| f.set(false));
     Atlas { w, h, fw, fh, rgba }
 }
 
@@ -2774,6 +2883,10 @@ fn shade_px(color: u32, n: [f32; 3], mat: u8) -> [f32; 3] {
 }
 
 const SS: usize = 2;
+
+thread_local! {
+    static NO_INK: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
 
 /// A posed figure ready to render: its shapes plus whole-body rotations.
 /// a box (for furniture), centred at `c`, half sizes `h`, turned `yaw` about z
@@ -2958,6 +3071,8 @@ fn render_frame(
         }
     }
     // inner contour where a nearer part overlaps a farther one, then the ink outline
+    // (light itself — fire, magic — has no outline)
+    let inked = !NO_INK.with(|f| f.get());
     let ink = [20u8, 12, 8, 255];
     let thr = 2.2 * s.max(1.0);
     for y in 0..fh {
@@ -2971,7 +3086,8 @@ fn render_frame(
                     if nx >= 0 && ny >= 0 && (nx as usize) < fw && (ny as usize) < fh {
                         let j = ny as usize * fw + nx as usize;
                         let gap = depth[j] - depth[i];
-                        if alpha[j] && ((gap > thr && cid[j] != cid[i]) || gap > thr * 4.0) {
+                        if inked && alpha[j] && ((gap > thr && cid[j] != cid[i]) || gap > thr * 4.0)
+                        {
                             k = 0.5;
                         }
                     }
@@ -2994,7 +3110,7 @@ fn render_frame(
                         edge = true;
                     }
                 }
-                if edge {
+                if edge && inked {
                     out[o..o + 4].copy_from_slice(&ink);
                 }
             }

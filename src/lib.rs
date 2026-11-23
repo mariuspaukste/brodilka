@@ -9,6 +9,7 @@ mod rng;
 pub mod save;
 pub mod tex;
 pub mod ui;
+pub mod uiart;
 pub mod world;
 
 use game::Game;
@@ -267,6 +268,52 @@ pub extern "C" fn tex_ptr(i: usize) -> *const u8 {
 #[no_mangle]
 pub extern "C" fn pal_ptr() -> *const u8 {
     art().1.as_ptr()
+}
+
+// ---------------------------------------------------------------- interface art
+/// 0 icon sheet, 1 leather panel, 2 bronze frame, 3 pixel font; plus font advances
+struct UiArt {
+    imgs: Vec<(Vec<u8>, usize, usize)>,
+    adv: Vec<u8>,
+}
+static UI_ART: std::sync::OnceLock<UiArt> = std::sync::OnceLock::new();
+fn ui_art() -> &'static UiArt {
+    UI_ART.get_or_init(|| {
+        let icons = bake::icons::bake_icons(|n| {
+            data::ITEMS
+                .iter()
+                .find(|d| d.id == n)
+                .map(|d| d.color)
+                .unwrap_or(0x9a9a9aff)
+        });
+        let (frgba, fw, fh, adv) = uiart::font();
+        UiArt {
+            imgs: vec![
+                (icons.rgba, icons.w, icons.h),
+                uiart::panel(),
+                uiart::frame(),
+                (frgba, fw, fh),
+            ],
+            adv,
+        }
+    })
+}
+#[no_mangle]
+pub extern "C" fn ui_img_w(i: usize) -> usize {
+    ui_art().imgs[i].1
+}
+#[no_mangle]
+pub extern "C" fn ui_img_h(i: usize) -> usize {
+    ui_art().imgs[i].2
+}
+#[no_mangle]
+pub extern "C" fn ui_img_ptr(i: usize) -> *const u8 {
+    ui_art().imgs[i].0.as_ptr()
+}
+/// advance widths of the 95 printable ASCII glyphs
+#[no_mangle]
+pub extern "C" fn font_adv_ptr() -> *const u8 {
+    ui_art().adv.as_ptr()
 }
 
 // ---------------------------------------------------------------- baked sprites

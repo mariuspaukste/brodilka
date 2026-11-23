@@ -60,6 +60,16 @@ a foe, gesture while they talk, and turn through the in-between directions. Woun
 The ground is terraced like Pagan's: land rises in up to four levels with
 rock ledges between them. You can't climb a ledge; roads and scattered slopes
 lead up and down, and anything standing on high ground is drawn there.
+Larger objects (the inn's trestle table, hand carts) span more than one tile,
+and anything tall enough to hide you turns see-through when you walk behind it.
+Townsfolk differ in build, skin, hair and clothes, and commoners wander the
+streets.
+
+The interface is drawn by the game too: inventory and toolbar icons are
+modelled and lit like the props, windows are painted leather in bronze
+frames, words spoken in the world use a hand-made pixel font, and the big
+spells (fireball, explosion, flame strike, healing) are baked frame
+animations.
 
 ## Controls
 

@@ -30,6 +30,17 @@ function checkDraw() {
 
 ex.init(1997);
 if (ex.tex_count() !== 13) fail('textures');
+// interface art: icon sheet, panel, frame, font, glyph advances
+for (let i = 0; i < 4; i++) if (!(ex.ui_img_w(i) > 0 && ex.ui_img_h(i) > 0)) fail('ui art ' + i);
+{
+  const w = ex.ui_img_w(0), h = ex.ui_img_h(0);
+  const px = new Uint8Array(ex.memory.buffer, ex.ui_img_ptr(0), w * h * 4);
+  let opaque = 0;
+  for (let i = 3; i < px.length; i += 4) if (px[i]) opaque++;
+  if (opaque < 20000) fail('icons look empty: ' + opaque);
+  const adv = new Uint8Array(ex.memory.buffer, ex.font_adv_ptr(), 95);
+  if (adv[33] < 4) fail('font advances');
+}
 ex.set_pix(4 / 3);
 ex.resize(390, 780);
 ex.frame(0.016);
