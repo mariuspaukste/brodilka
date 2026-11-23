@@ -76,6 +76,17 @@ const RENDER_DIRS: [(f32, f32); RDIRS] = [
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum Body {
+    Human,
+    Rabbit,
+    Rat,
+    Wolf,
+    Bat,
+    Slime,
+    Dragon,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Weapon {
     None,
     Sword,
@@ -91,6 +102,7 @@ pub enum Weapon {
 /// Everything that decides how a figure looks. Colours are 0xRRGGBBAA, 0 = absent.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct Look {
+    pub body_type: Body,
     pub scale: u16,
     pub skin: u32,
     pub body: u32,
@@ -117,6 +129,7 @@ pub struct Look {
 impl Look {
     pub fn human(skin: u32, body: u32, legs: u32) -> Look {
         Look {
+            body_type: Body::Human,
             scale: 100,
             skin,
             body,
@@ -140,6 +153,12 @@ impl Look {
             female: false,
         }
     }
+    pub fn creature(body: Body, color: u32, scale: u16) -> Look {
+        let mut l = Look::human(color, color, color);
+        l.body_type = body;
+        l.scale = scale;
+        l
+    }
     pub fn key(&self) -> u64 {
         let mut h = DefaultHasher::new();
         self.hash(&mut h);
@@ -148,15 +167,25 @@ impl Look {
     pub fn s(&self) -> f32 {
         self.scale as f32 / 100.0
     }
+    /// extra frame room for wide creatures
+    fn room(&self) -> (f32, f32) {
+        match self.body_type {
+            Body::Dragon => (1.55, 1.3),
+            Body::Bat => (1.2, 1.0),
+            _ => (1.0, 1.0),
+        }
+    }
     pub fn frame_size(&self) -> (usize, usize) {
         let s = self.s();
+        let (mx, my) = self.room();
         (
-            (FW as f32 * s).ceil() as usize,
-            (FH as f32 * s).ceil() as usize,
+            (FW as f32 * s * mx).ceil() as usize,
+            (FH as f32 * s * my).ceil() as usize,
         )
     }
     pub fn anchor(&self) -> (f32, f32) {
-        (AX * self.s(), AY * self.s())
+        let (fw, fh) = self.frame_size();
+        (fw as f32 / 2.0, fh as f32 - 8.0 * self.s())
     }
 }
 
@@ -351,6 +380,7 @@ enum Mat {
     Glow,
     Bone,
     Hair,
+    Membrane,
 }
 
 /// a primitive in local model space (metres): a tapered chain of spheres
@@ -759,7 +789,517 @@ fn build(look: &Look, q: &Pose) -> Vec<Prim> {
     v
 }
 
+// ------------------------------------------------------------------ creatures
+fn figure_for(look: &Look, a: Anim, f: usize, n: usize) -> Figure {
+    match look.body_type {
+        Body::Human => {
+            let q = pose_for(a, f, n, look);
+            Figure {
+                prims: build(look, &q),
+                pitch: q.fall,
+                roll: 0.0,
+                lift: 0.0,
+            }
+        }
+        Body::Slime => slime(look, a, f, n),
+        Body::Bat => bat(look, a, f, n),
+        _ => quad(look, a, f, n),
+    }
+}
+
+fn prim(v: &mut Vec<Prim>, a: V3, b: V3, ra: f32, rb: f32, color: u32, mat: Mat) {
+    v.push(Prim {
+        a,
+        b,
+        ra,
+        rb,
+        color,
+        mat,
+    });
+}
+fn shade_col(c: u32, k: f32) -> u32 {
+    let ch = |sh: u32| ((((c >> sh) & 255) as f32 * k).clamp(0.0, 255.0) as u32) << sh;
+    ch(24) | ch(16) | ch(8) | (c & 255)
+}
+
+/// shared timing: (gait phase, lunge 0..1, recoil 0..1, death 0..1, crouch 0..1)
+fn creature_phase(a: Anim, f: usize, n: usize) -> (f32, f32, f32, f32, f32) {
+    let tau = std::f32::consts::TAU;
+    let p = if n > 1 {
+        f as f32 / (n - 1) as f32
+    } else {
+        0.0
+    };
+    match a {
+        Anim::Walk => (f as f32 / n as f32 * tau, 0.0, 0.0, 0.0, 0.0),
+        Anim::Stance => (0.0, 0.0, 0.0, 0.0, 1.0),
+        Anim::Attack => (0.0, (p * std::f32::consts::PI).sin(), 0.0, 0.0, 0.6),
+        Anim::Cast => (0.0, 0.0, 0.0, 0.0, -ease(p)),
+        Anim::Hit => (0.0, 0.0, if f == 0 { 1.0 } else { 0.5 }, 0.0, 0.0),
+        Anim::Die => (0.0, 0.0, 0.0, ease(p), 0.0),
+        _ => (f as f32 * 0.6, 0.0, 0.0, 0.0, 0.0),
+    }
+}
+
+/// a membrane wing: a fan of finger bones filled with small spheres
+fn wing(v: &mut Vec<Prim>, root: V3, side: f32, span: f32, flap: f32, color: u32) {
+    let (fs, fc) = flap.sin_cos();
+    let elbow = add(
+        root,
+        [
+            -0.12 * span,
+            side * 0.5 * span * fc,
+            0.5 * span * fs + 0.08 * span,
+        ],
+    );
+    let tips: Vec<V3> = (0..4)
+        .map(|k| {
+            let kf = k as f32;
+            add(
+                elbow,
+                [
+                    -0.15 * span - 0.28 * span * kf,
+                    side * 0.55 * span * fc * (1.0 - kf * 0.12),
+                    0.55 * span * fs - 0.12 * span * kf,
+                ],
+            )
+        })
+        .collect();
+    let bone = shade_col(color, 0.6);
+    let r = 0.02 * span.max(0.4);
+    prim(v, root, elbow, r * 1.4, r, bone, Mat::Matte);
+    for t in tips.iter() {
+        prim(v, elbow, *t, r, r * 0.6, bone, Mat::Matte);
+    }
+    // membrane between root, elbow and the finger tips
+    let mut tri = |a: V3, b: V3, c: V3| {
+        let steps = 9;
+        for i in 0..=steps {
+            for j in 0..=(steps - i) {
+                let (u, w) = (i as f32 / steps as f32, j as f32 / steps as f32);
+                let pt = add(add(mul(a, 1.0 - u - w), mul(b, u)), mul(c, w));
+                prim(v, pt, pt, 0.05 * span, 0.05 * span, color, Mat::Membrane);
+            }
+        }
+    };
+    for k in 0..3 {
+        tri(elbow, tips[k], tips[k + 1]);
+    }
+    tri(root, elbow, tips[3]);
+}
+
+fn quad(look: &Look, a: Anim, f: usize, n: usize) -> Figure {
+    let mut v = vec![];
+    let col = look.skin;
+    let dark = shade_col(col, 0.7);
+    let (ph, lunge, recoil, die, crouch) = creature_phase(a, f, n);
+    let kind = look.body_type;
+    // body length, shoulder height, body radii, leg radius, neck length, head radius
+    let (len, hgt, rb, rf, lr, neck, hr) = match kind {
+        Body::Rabbit => (0.22, 0.12, 0.1, 0.08, 0.025, 0.06, 0.07),
+        Body::Rat => (0.3, 0.1, 0.08, 0.07, 0.022, 0.05, 0.06),
+        Body::Dragon => (1.3, 0.75, 0.38, 0.33, 0.09, 0.75, 0.2),
+        _ => (0.62, 0.42, 0.15, 0.16, 0.045, 0.18, 0.11),
+    };
+    let crouch_k = 1.0 - 0.12 * crouch.max(0.0);
+    let bob = if a == Anim::Walk {
+        0.04 * hgt * (2.0 * ph).cos()
+    } else {
+        0.0
+    };
+    let dx = lunge * 0.3 * len - recoil * 0.15 * len;
+    let hip = [-len / 2.0 + dx, 0.0, hgt * crouch_k + bob];
+    let rear_up = (-crouch).max(0.0);
+    let sho = [
+        len / 2.0 + dx,
+        0.0,
+        hgt * crouch_k * 1.05 + bob + rear_up * 0.35 * len,
+    ];
+    prim(&mut v, hip, sho, rb, rf, col, Mat::Matte);
+    if kind == Body::Dragon {
+        // pale belly
+        prim(
+            &mut v,
+            add(hip, [0.1, 0.0, -0.12]),
+            add(sho, [-0.1, 0.0, -0.12]),
+            rb * 0.75,
+            rf * 0.7,
+            0xd89a5aff,
+            Mat::Matte,
+        );
+    }
+    // legs: diagonal pairs (rabbits hop with both hind legs)
+    let width = rb * 0.75;
+    for (front, side, off) in [
+        (true, 1.0f32, 0.0f32),
+        (true, -1.0, 1.0),
+        (false, 1.0, 1.0),
+        (false, -1.0, 0.0),
+    ] {
+        let base = if front { sho } else { hip };
+        let o = if kind == Body::Rabbit {
+            if front {
+                0.0
+            } else {
+                0.5
+            }
+        } else {
+            off
+        };
+        let phase = ph + o * std::f32::consts::PI;
+        let swing = if a == Anim::Walk {
+            0.5 * phase.sin()
+        } else {
+            0.0
+        };
+        let bend = if a == Anim::Walk {
+            0.6 * phase.cos().max(0.0)
+        } else {
+            0.25 + 0.4 * crouch.max(0.0)
+        };
+        let top = add(base, [0.0, side * width, -rb * 0.4]);
+        let l1 = (base[2] - rb * 0.4) * 0.55;
+        let l2 = (base[2] - rb * 0.4) * 0.52;
+        let d1 = [swing.sin(), 0.0, -swing.cos()];
+        let knee = add(top, mul(d1, l1));
+        let b2 = if front { swing - bend } else { swing + bend };
+        let foot = add(knee, mul([b2.sin(), 0.0, -b2.cos()], l2));
+        prim(&mut v, top, knee, lr * 1.3, lr, col, Mat::Matte);
+        prim(&mut v, knee, foot, lr, lr * 0.85, dark, Mat::Matte);
+        prim(
+            &mut v,
+            foot,
+            add(foot, [lr * 1.6, 0.0, 0.0]),
+            lr * 0.9,
+            lr * 0.7,
+            dark,
+            Mat::Matte,
+        );
+    }
+    // neck and head
+    let np = match a {
+        Anim::Stance => 0.15,
+        Anim::Attack => 0.5 - 0.6 * lunge,
+        Anim::Cast => 0.9,
+        Anim::Hit => 0.9,
+        Anim::Die => 0.2 - 0.6 * die,
+        _ => 0.55 + 0.05 * (ph * 0.5).sin(),
+    };
+    let neck_top = add(
+        sho,
+        [neck * np.cos() + lunge * 0.1 * len, 0.0, neck * np.sin()],
+    );
+    prim(&mut v, sho, neck_top, rf * 0.6, hr * 0.8, col, Mat::Matte);
+    let head = add(neck_top, [hr * 0.5, 0.0, 0.0]);
+    prim(&mut v, head, head, hr, hr, col, Mat::Matte);
+    let (snout, snr) = match kind {
+        Body::Rabbit => (0.05, 0.045),
+        Body::Rat => (0.09, 0.035),
+        Body::Dragon => (0.32, 0.12),
+        _ => (0.14, 0.05),
+    };
+    let jaw_open = if kind == Body::Dragon && (a == Anim::Attack || a == Anim::Cast) {
+        0.35
+    } else {
+        0.0
+    };
+    let tip = add(head, [hr * 0.6 + snout, 0.0, -0.02]);
+    prim(
+        &mut v,
+        add(head, [hr * 0.4, 0.0, 0.0]),
+        tip,
+        snr * 1.2,
+        snr * 0.8,
+        col,
+        Mat::Matte,
+    );
+    if jaw_open > 0.0 {
+        prim(
+            &mut v,
+            add(head, [hr * 0.3, 0.0, -hr * 0.4]),
+            add(tip, [-0.05, 0.0, -jaw_open * snout]),
+            snr,
+            snr * 0.6,
+            dark,
+            Mat::Matte,
+        );
+        prim(
+            &mut v,
+            add(tip, [0.02, 0.0, -0.05]),
+            add(tip, [0.02, 0.0, -0.05]),
+            snr * 0.7,
+            snr * 0.7,
+            0xffa030ff,
+            Mat::Glow,
+        );
+    }
+    // eyes
+    for es in [-1.0f32, 1.0] {
+        let e = add(head, [hr * 0.75, es * hr * 0.5, hr * 0.3]);
+        let ec = if kind == Body::Dragon {
+            0xffd040ff
+        } else {
+            0x100808ff
+        };
+        prim(
+            &mut v,
+            e,
+            e,
+            hr * 0.18,
+            hr * 0.18,
+            ec,
+            if kind == Body::Dragon {
+                Mat::Glow
+            } else {
+                Mat::Hair
+            },
+        );
+    }
+    // ears / horns
+    for es in [-1.0f32, 1.0] {
+        let base = add(head, [-hr * 0.2, es * hr * 0.5, hr * 0.6]);
+        match kind {
+            Body::Rabbit => prim(
+                &mut v,
+                base,
+                add(base, [-0.04, es * 0.02, 0.13]),
+                0.022,
+                0.016,
+                col,
+                Mat::Matte,
+            ),
+            Body::Rat => prim(
+                &mut v,
+                base,
+                base,
+                0.025,
+                0.025,
+                shade_col(col, 1.3),
+                Mat::Matte,
+            ),
+            Body::Dragon => prim(
+                &mut v,
+                base,
+                add(base, [-0.25, es * 0.08, 0.18]),
+                0.05,
+                0.01,
+                0xe0d8c0ff,
+                Mat::Bone,
+            ),
+            _ => prim(
+                &mut v,
+                base,
+                add(base, [-0.01, 0.0, 0.08]),
+                0.035,
+                0.008,
+                dark,
+                Mat::Matte,
+            ),
+        }
+    }
+    // tail
+    let wag = (ph * 1.3).sin()
+        * if a == Anim::Walk || a == Anim::Idle {
+            0.12
+        } else {
+            0.0
+        };
+    match kind {
+        Body::Rabbit => {
+            let t = add(hip, [-0.07, 0.0, 0.03]);
+            prim(&mut v, t, t, 0.04, 0.04, 0xe8e0d0ff, Mat::Matte);
+        }
+        Body::Rat => {
+            let mut p0 = add(hip, [-0.05, 0.0, 0.0]);
+            for k in 0..6 {
+                let kf = k as f32;
+                let p1 = add(
+                    p0,
+                    [-0.06, wag * (kf * 0.7).sin() * 0.3, -0.012 + 0.004 * kf],
+                );
+                prim(&mut v, p0, p1, 0.014, 0.01, 0xb08a80ff, Mat::Matte);
+                p0 = p1;
+            }
+        }
+        Body::Dragon => {
+            let mut p0 = add(hip, [-0.1, 0.0, 0.0]);
+            let mut r = rb * 0.8;
+            for k in 0..8 {
+                let kf = k as f32;
+                let p1 = add(
+                    p0,
+                    [
+                        -0.22,
+                        (wag + 0.1) * (kf * 0.6).sin() * 0.5,
+                        -0.06 + 0.01 * kf,
+                    ],
+                );
+                prim(&mut v, p0, p1, r, r * 0.8, col, Mat::Matte);
+                r *= 0.8;
+                p0 = p1;
+            }
+        }
+        _ => {
+            let t0 = add(hip, [-0.05, 0.0, 0.03]);
+            prim(
+                &mut v,
+                t0,
+                add(t0, [-0.3, wag, -0.18]),
+                0.05,
+                0.035,
+                dark,
+                Mat::Matte,
+            );
+        }
+    }
+    if kind == Body::Dragon {
+        let flap = match a {
+            Anim::Walk => 0.9 + 0.35 * (ph * 2.0).sin(),
+            Anim::Cast | Anim::Attack => 1.2,
+            Anim::Die => 0.2 - 0.5 * die,
+            _ => 1.05 + 0.08 * ph.sin(),
+        };
+        for side in [-1.0f32, 1.0] {
+            let root = add(sho, [-0.25, side * rf * 0.6, rf * 0.6]);
+            wing(&mut v, root, side, 0.85, flap, shade_col(col, 0.75));
+        }
+    }
+    Figure {
+        prims: v,
+        pitch: 0.0,
+        roll: 1.45 * die,
+        lift: 0.0,
+    }
+}
+
+fn bat(look: &Look, a: Anim, f: usize, n: usize) -> Figure {
+    let mut v = vec![];
+    let col = look.skin;
+    let (ph, lunge, recoil, die, _) = creature_phase(a, f, n);
+    let tau = std::f32::consts::TAU;
+    let flap = if a == Anim::Die {
+        0.2 - 0.9 * die
+    } else {
+        0.6 * ((f as f32 / n.max(2) as f32) * tau * 2.0).sin() + 0.2 + 0.0 * ph
+    };
+    let c = [lunge * 0.12 - recoil * 0.06, 0.0, 0.0];
+    let body = add(c, [0.0, 0.0, 0.12]);
+    prim(
+        &mut v,
+        body,
+        add(body, [0.03, 0.0, 0.09]),
+        0.1,
+        0.085,
+        col,
+        Mat::Matte,
+    );
+    let head = add(body, [0.07, 0.0, 0.17]);
+    prim(&mut v, head, head, 0.07, 0.07, col, Mat::Matte);
+    for es in [-1.0f32, 1.0] {
+        let e = add(head, [0.05, es * 0.03, 0.02]);
+        prim(&mut v, e, e, 0.016, 0.016, 0xffd040ff, Mat::Glow);
+        let ear = add(head, [-0.01, es * 0.035, 0.05]);
+        prim(
+            &mut v,
+            ear,
+            add(ear, [-0.02, es * 0.02, 0.07]),
+            0.025,
+            0.006,
+            col,
+            Mat::Matte,
+        );
+    }
+    for side in [-1.0f32, 1.0] {
+        wing(
+            &mut v,
+            add(body, [0.0, side * 0.06, 0.08]),
+            side,
+            0.55,
+            flap,
+            shade_col(col, 0.8),
+        );
+    }
+    // dangling feet
+    for side in [-1.0f32, 1.0] {
+        let hip = add(body, [-0.04, side * 0.04, -0.05]);
+        prim(
+            &mut v,
+            hip,
+            add(hip, [-0.02, 0.0, -0.08]),
+            0.02,
+            0.012,
+            shade_col(col, 0.6),
+            Mat::Matte,
+        );
+    }
+    let lift = if a == Anim::Die {
+        0.75 * (1.0 - die)
+    } else {
+        0.75 + 0.06 * (f as f32 * 1.7).sin()
+    };
+    Figure {
+        prims: v,
+        pitch: 0.0,
+        roll: 1.2 * die,
+        lift,
+    }
+}
+
+fn slime(look: &Look, a: Anim, f: usize, n: usize) -> Figure {
+    let mut v = vec![];
+    let col = look.skin;
+    let (_, lunge, recoil, die, _) = creature_phase(a, f, n);
+    let tau = std::f32::consts::TAU;
+    let wob = (f as f32 / n.max(1) as f32 * tau).sin();
+    let squash = match a {
+        Anim::Walk | Anim::Idle | Anim::Stance => 0.15 * wob,
+        Anim::Attack => -0.3 * lunge,
+        Anim::Hit => 0.3 * recoil,
+        Anim::Die => 0.7 * die,
+        _ => 0.0,
+    };
+    let (hk, wk) = (1.0 - squash, 1.0 + squash * 0.7);
+    let fwd = lunge * 0.12;
+    prim(
+        &mut v,
+        [fwd, 0.0, 0.2 * hk],
+        [fwd, 0.0, 0.2 * hk],
+        0.22 * wk.min(1.4),
+        0.22 * wk.min(1.4),
+        col,
+        Mat::Metal,
+    );
+    for k in 0..8 {
+        let ang = k as f32 / 8.0 * tau;
+        let pt = [fwd + ang.cos() * 0.17 * wk, ang.sin() * 0.17 * wk, 0.1 * hk];
+        prim(&mut v, pt, pt, 0.13, 0.13, col, Mat::Metal);
+    }
+    let top = [fwd - 0.02, 0.0, 0.34 * hk];
+    prim(
+        &mut v,
+        top,
+        top,
+        0.12 * wk.min(1.3),
+        0.12,
+        shade_col(col, 1.1),
+        Mat::Metal,
+    );
+    if a != Anim::Die {
+        for es in [-1.0f32, 1.0] {
+            let e = [fwd + 0.2 * wk, es * 0.06, 0.24 * hk];
+            prim(&mut v, e, e, 0.03, 0.03, 0x102008ff, Mat::Hair);
+        }
+    }
+    Figure {
+        prims: v,
+        pitch: 0.0,
+        roll: 0.0,
+        lift: 0.0,
+    }
+}
+
 // ------------------------------------------------------------------ raster
+
 struct Raster {
     w: usize,
     h: usize,
@@ -829,6 +1369,7 @@ fn shade_px(color: u32, n: [f32; 3], mat: u8) -> [f32; 3] {
     let (k, spec) = match mat {
         1 => (0.28 + 0.6 * diff, spec_dot.powi(18) * 0.95),
         2 => (1.3, 0.0),
+        5 => (0.62, 0.0),
         3 => (0.4 + 0.62 * diff, spec_dot.powi(10) * 0.2),
         4 => (0.42 + 0.66 * diff, spec_dot.powi(12) * 0.3),
         _ => (0.4 + 0.72 * diff, spec_dot.powi(8) * 0.06),
@@ -842,9 +1383,20 @@ fn shade_px(color: u32, n: [f32; 3], mat: u8) -> [f32; 3] {
 
 const SS: usize = 2;
 
+/// A posed figure ready to render: its shapes plus whole-body rotations.
+struct Figure {
+    prims: Vec<Prim>,
+    /// rotation about the side axis (falling backwards), radians
+    pitch: f32,
+    /// rotation about the forward axis (falling onto the side)
+    roll: f32,
+    /// height above the ground after grounding (flying), metres
+    lift: f32,
+}
+
 fn render_frame(
     look: &Look,
-    q: &Pose,
+    fig: Figure,
     dir: (f32, f32),
     out: &mut [u8],
     ow: usize,
@@ -855,10 +1407,14 @@ fn render_frame(
 ) {
     let s = look.s();
     let m2t = 1.25 / 1.8 * s;
-    let prims = build(look, q);
-    // falling rotation about the feet, then ground the figure
-    let (fs, fc) = q.fall.sin_cos();
-    let tf = |v: V3| -> V3 { [v[0] * fc + v[2] * fs, v[1], -v[0] * fs + v[2] * fc] };
+    let prims = fig.prims;
+    // falling rotations about the feet, then ground the figure
+    let (fs, fc) = fig.pitch.sin_cos();
+    let (rs, rc) = fig.roll.sin_cos();
+    let tf = |v: V3| -> V3 {
+        let p = [v[0] * fc + v[2] * fs, v[1], -v[0] * fs + v[2] * fc];
+        [p[0], p[1] * rc - p[2] * rs, p[1] * rs + p[2] * rc]
+    };
     let mut lowest = f32::INFINITY;
     for pr in prims.iter() {
         for (pt, r) in [(pr.a, pr.ra), (pr.b, pr.rb)] {
@@ -866,18 +1422,21 @@ fn render_frame(
             lowest = lowest.min(z);
         }
     }
-    let ground = -lowest;
+    let ground = -lowest + fig.lift;
     let th = dir.1.atan2(dir.0);
     let r2 = std::f32::consts::FRAC_1_SQRT_2;
     let kk = K * SS as f32;
     let (aw, ah) = (fw * SS, fh * SS);
-    let (ax, ay) = (AX * s * SS as f32, AY * s * SS as f32);
+    let (ax, ay) = {
+        let (x, y) = look.anchor();
+        (x * SS as f32, y * SS as f32)
+    };
     let mut ras = Raster::new(aw, ah);
     for pr in prims.iter() {
         let a = tf(pr.a);
         let b = tf(pr.b);
         let len = ((b[0] - a[0]).powi(2) + (b[1] - a[1]).powi(2) + (b[2] - a[2]).powi(2)).sqrt();
-        let step = (pr.ra.min(pr.rb).max(0.012)) * 0.4;
+        let step = (pr.ra.min(pr.rb).max(0.012)) * 0.32;
         let n = ((len / step).ceil() as usize).clamp(1, 200);
         let mat = match pr.mat {
             Mat::Matte => 0,
@@ -885,6 +1444,7 @@ fn render_frame(
             Mat::Glow => 2,
             Mat::Hair => 3,
             Mat::Bone => 4,
+            Mat::Membrane => 5,
         };
         for i in 0..=n {
             let t = i as f32 / n as f32;
@@ -910,6 +1470,7 @@ fn render_frame(
     let mut alpha = vec![false; fw * fh];
     let mut depth = vec![f32::NEG_INFINITY; fw * fh];
     let mut rgb = vec![[0.0f32; 3]; fw * fh];
+    let mut cid = vec![0u32; fw * fh];
     for y in 0..fh {
         for x in 0..fw {
             let mut acc = [0.0f32; 3];
@@ -922,7 +1483,10 @@ fn render_frame(
                         let c = shade_px(ras.col[i], ras.nrm[i], ras.mat[i]);
                         acc = [acc[0] + c[0], acc[1] + c[1], acc[2] + c[2]];
                         cnt += 1;
-                        dz = dz.max(ras.depth[i]);
+                        if ras.depth[i] > dz {
+                            dz = ras.depth[i];
+                            cid[y * fw + x] = ras.col[i];
+                        }
                     }
                 }
             }
@@ -940,6 +1504,7 @@ fn render_frame(
     }
     // inner contour where a nearer part overlaps a farther one, then the ink outline
     let ink = [20u8, 12, 8, 255];
+    let thr = 2.2 * s.max(1.0);
     for y in 0..fh {
         for x in 0..fw {
             let i = y * fw + x;
@@ -950,7 +1515,8 @@ fn render_frame(
                     let (nx, ny) = (x as i32 + dx, y as i32 + dy);
                     if nx >= 0 && ny >= 0 && (nx as usize) < fw && (ny as usize) < fh {
                         let j = ny as usize * fw + nx as usize;
-                        if alpha[j] && depth[j] - depth[i] > 2.2 {
+                        let gap = depth[j] - depth[i];
+                        if alpha[j] && ((gap > thr && cid[j] != cid[i]) || gap > thr * 4.0) {
                             k = 0.5;
                         }
                     }
@@ -981,35 +1547,55 @@ fn render_frame(
     }
 }
 
+/// An empty atlas sized for `look`.
+pub fn new_atlas(look: &Look) -> Atlas {
+    let (fw, fh) = look.frame_size();
+    let rows = (RDIRS * FRAMES_PER_DIR).div_ceil(COLS);
+    let (w, h) = (fw * COLS, fh * rows);
+    Atlas {
+        w,
+        h,
+        fw,
+        fh,
+        rgba: vec![0u8; w * h * 4],
+    }
+}
+pub const TOTAL_FRAMES: usize = RDIRS * FRAMES_PER_DIR;
+
+/// Render one frame (0..TOTAL_FRAMES) of `look` into its atlas.
+pub fn bake_frame(look: &Look, atlas: &mut Atlas, idx: usize) {
+    let r = idx / FRAMES_PER_DIR;
+    let mut f = idx % FRAMES_PER_DIR;
+    let mut anim = (Anim::Idle, 0usize, 1usize);
+    for &(a, n) in ANIMS.iter() {
+        if f < n {
+            anim = (a, f, n);
+            break;
+        }
+        f -= n;
+    }
+    let fig = figure_for(look, anim.0, anim.1, anim.2);
+    let (fw, fh, w) = (atlas.fw, atlas.fh, atlas.w);
+    render_frame(
+        look,
+        fig,
+        RENDER_DIRS[r],
+        &mut atlas.rgba,
+        w,
+        (idx % COLS) * fw,
+        (idx / COLS) * fh,
+        fw,
+        fh,
+    );
+}
+
 /// Bake every animation frame in the 5 rendered directions into one atlas.
 pub fn bake(look: &Look) -> Atlas {
-    let (fw, fh) = look.frame_size();
-    let total = RDIRS * FRAMES_PER_DIR;
-    let rows = total.div_ceil(COLS);
-    let (w, h) = (fw * COLS, fh * rows);
-    let mut rgba = vec![0u8; w * h * 4];
-    for (r, &dir) in RENDER_DIRS.iter().enumerate() {
-        let mut f = 0;
-        for &(a, n) in ANIMS.iter() {
-            for k in 0..n {
-                let q = pose_for(a, k, n, look);
-                let idx = r * FRAMES_PER_DIR + f;
-                render_frame(
-                    look,
-                    &q,
-                    dir,
-                    &mut rgba,
-                    w,
-                    (idx % COLS) * fw,
-                    (idx / COLS) * fh,
-                    fw,
-                    fh,
-                );
-                f += 1;
-            }
-        }
+    let mut a = new_atlas(look);
+    for idx in 0..TOTAL_FRAMES {
+        bake_frame(look, &mut a, idx);
     }
-    Atlas { w, h, fw, fh, rgba }
+    a
 }
 
 #[cfg(test)]

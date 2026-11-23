@@ -6,8 +6,10 @@ use brodilka::game::*;
 use std::fs;
 
 fn dump(g: &mut Game, dir: &str, name: &str) {
-    g.sprites.budget = 64;
-    g.render();
+    g.sprites.budget = 100000;
+    for _ in 0..8 {
+        g.render();
+    }
     while let Some((id, a)) = g.sprites.pending.pop_front() {
         fs::write(format!("{dir}/atlas{id}.rgba"), &a.rgba).unwrap();
         let mut list = fs::read_to_string(format!("{dir}/atlases.txt")).unwrap_or_default();

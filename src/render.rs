@@ -25,7 +25,9 @@ pub struct SpriteCache {
     pub current: Option<(u32, bake::Atlas)>,
     pub evicted: VecDeque<u32>,
     pub next: u32,
+    /// frames baked per game frame, shared by all jobs in progress
     pub budget: usize,
+    pub jobs: Vec<(u64, Look, bake::Atlas, usize)>,
 }
 impl Default for SpriteCache {
     fn default() -> Self {
@@ -35,7 +37,8 @@ impl Default for SpriteCache {
             current: None,
             evicted: VecDeque::new(),
             next: 1,
-            budget: 2,
+            budget: 24,
+            jobs: vec![],
         }
     }
 }
@@ -478,6 +481,12 @@ impl Game {
                         l.weapon = Weapon::Staff;
                         l.eyes = 0x60ff60ff;
                     }
+                    "rabbit" => return Some(Look::creature(bake::Body::Rabbit, 0x8a6a48ff, 140)),
+                    "rat" => return Some(Look::creature(bake::Body::Rat, 0x5e4e42ff, 130)),
+                    "wolf" => return Some(Look::creature(bake::Body::Wolf, 0x8a8a86ff, 100)),
+                    "mongbat" => return Some(Look::creature(bake::Body::Bat, 0x6a4e6aff, 100)),
+                    "slime" => return Some(Look::creature(bake::Body::Slime, 0x5aa83aff, 100)),
+                    "dragon" => return Some(Look::creature(bake::Body::Dragon, 0x9a2e24ff, 160)),
                     _ => return None,
                 }
                 Some(l)
@@ -509,33 +518,44 @@ impl Game {
             }
         }
         let now = self.clock;
-        let mut baked = 0;
         for l in want {
             let k = l.key();
             if let Some(info) = self.sprites.ids.get_mut(&k) {
                 info.last = now;
                 continue;
             }
-            if baked >= self.sprites.budget {
+            if self.sprites.jobs.iter().any(|j| j.0 == k) || self.sprites.jobs.len() >= 3 {
                 continue;
             }
-            baked += 1;
-            let atlas = bake::bake(&l);
-            let id = self.sprites.next;
-            self.sprites.next += 1;
-            let (ax, ay) = l.anchor();
-            self.sprites.ids.insert(
-                k,
-                SpriteInfo {
-                    id,
-                    last: now,
-                    fw: atlas.fw,
-                    fh: atlas.fh,
-                    ax,
-                    ay,
-                },
-            );
-            self.sprites.pending.push_back((id, atlas));
+            let atlas = bake::new_atlas(&l);
+            self.sprites.jobs.push((k, l, atlas, 0));
+        }
+        // bake a slice of frames per game frame so play never stalls
+        let mut left = self.sprites.budget;
+        while left > 0 && !self.sprites.jobs.is_empty() {
+            let job = &mut self.sprites.jobs[0];
+            let cost = if job.1.scale > 130 { 4 } else { 1 };
+            bake::bake_frame(&job.1, &mut job.2, job.3);
+            job.3 += 1;
+            left = left.saturating_sub(cost);
+            if job.3 >= bake::TOTAL_FRAMES {
+                let (k, l, atlas, _) = self.sprites.jobs.remove(0);
+                let id = self.sprites.next;
+                self.sprites.next += 1;
+                let (ax, ay) = l.anchor();
+                self.sprites.ids.insert(
+                    k,
+                    SpriteInfo {
+                        id,
+                        last: now,
+                        fw: atlas.fw,
+                        fh: atlas.fh,
+                        ax,
+                        ay,
+                    },
+                );
+                self.sprites.pending.push_back((id, atlas));
+            }
         }
         let mut gone = vec![];
         self.sprites.ids.retain(|_, v| {

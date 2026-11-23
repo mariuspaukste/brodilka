@@ -35,13 +35,15 @@ palette and scales it up with nearest-neighbour pixels. Terrain uses seamless,
 world-anchored textures generated in Rust (`src/tex.rs`), so no tile grid shows;
 terrain types meet on ragged borders. Thick ink outlines, a grim twilight
 palette with fog and ash, Voronoi flagstones, brick and timber walls, rock
-cliffs, deep blue water, braziers and giant mushrooms. People and humanoid monsters are **baked sprites**, as Pagan's were rendered
+cliffs, deep blue water, braziers and giant mushrooms. Every person and creature is a **baked sprite**, as Pagan's were rendered
 from 3D models: `src/bake.rs` builds each figure from 3D shapes on a jointed
 skeleton, poses it, lights it from the upper left, outlines the silhouette and
 renders every frame in 8 directions (5 rendered, 3 mirrored) into an atlas the
 first time that figure appears on screen. Animations follow Pagan's set: idle,
 walk, combat stance, attack, work (mining/chopping/fishing), cast, hit and die;
-corpses keep the last frame of the death fall. Wounds leave blood on the ground.
+corpses keep the last frame of the death fall. Four-legged animals, the
+mongbat, the slime and the dragon have their own rigs (gaits, wing membranes,
+squash-and-stretch). Baking is spread over several frames so play never stalls. Wounds leave blood on the ground.
 
 ## Controls
 
