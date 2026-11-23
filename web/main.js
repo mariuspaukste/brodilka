@@ -6,7 +6,14 @@ const WORLD_SEED = 1997;
 const SAVE_KEY = 'brodilka.save.v1';
 const $ = (id) => document.getElementById(id);
 const canvas = $('c');
-const ctx = canvas.getContext('2d');
+const txt = $('txt');
+const tctx = txt.getContext('2d');
+// The screen is a WebGL canvas that palette-quantizes and upscales the
+// low-resolution world buffer; 2D canvas is the fallback.
+const gl = canvas.getContext('webgl', { antialias: false, preserveDrawingBuffer: true, alpha: false });
+const ctx = gl ? null : canvas.getContext('2d');
+const low = document.createElement('canvas');
+const lctx = low.getContext('2d');
 const dec = new TextDecoder();
 const enc = new TextEncoder();
 let ex = null;
@@ -89,6 +96,12 @@ function replay(ctx, U, F, S, texts) {
         break;
       }
       case 13: inkC = col(U[i++]); inkW = F[i++]; break;
+      case 14: {
+        const p = patterns[U[i]];
+        if (p) { p.setTransform(new DOMMatrix([F[i + 1], F[i + 2], F[i + 3], F[i + 4], F[i + 5], F[i + 6]])); ctx.fillStyle = p; }
+        i += 7;
+        break;
+      }
       case 11: ctx.beginPath(); ctx.ellipse(F[i], F[i + 1], F[i + 2], F[i + 3], 0, 0, Math.PI * 2); ctx.stroke(); i += 4; break;
       case 12: {
         const x = F[i], y = F[i + 1], r = F[i + 2], c = U[i + 3];
@@ -114,35 +127,129 @@ function replay(ctx, U, F, S, texts) {
   }
   ctx.globalAlpha = 1;
 }
-function drawTexts(ctx, texts) {
-  ctx.textBaseline = 'middle';
-  ctx.lineJoin = 'round';
-  for (const [s, x, y, size, align, outline, fill, alpha] of texts) {
-    ctx.globalAlpha = alpha;
-    ctx.font = `bold ${size.toFixed(1)}px Palatino, Georgia, serif`;
-    ctx.textAlign = align === 0 ? 'center' : 'left';
-    if ((outline & 255) > 0) { ctx.strokeStyle = col(outline); ctx.lineWidth = Math.max(2.5, size / 4); ctx.strokeText(s, x, y); }
-    ctx.fillStyle = fill;
-    ctx.fillText(s, x, y);
+// ------------------------------------------------------------------ VGA look
+// Textures and the 256-colour palette come from Rust (src/tex.rs).
+const patterns = [];
+let lut = null;
+function initArt(texs, pal) {
+  patterns.length = 0;
+  for (const t of texs) {
+    const cv = document.createElement('canvas');
+    cv.width = t.w; cv.height = t.h;
+    cv.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(t.data), t.w, t.h), 0, 0);
+    patterns.push(lctx.createPattern(cv, 'repeat'));
   }
-  ctx.globalAlpha = 1;
+  // 32x32x32 lookup from RGB to the nearest palette colour, laid out 1024x32
+  lut = new Uint8Array(1024 * 32 * 4);
+  for (let r = 0; r < 32; r++) for (let g = 0; g < 32; g++) for (let b = 0; b < 32; b++) {
+    const R = r * 8 + 4, G = g * 8 + 4, B = b * 8 + 4;
+    let best = 0, bd = 1e9;
+    for (let k = 0; k < 256; k++) {
+      const dr = R - pal[k * 3], dg = G - pal[k * 3 + 1], db = B - pal[k * 3 + 2];
+      const d = dr * dr * 3 + dg * dg * 4 + db * db * 2;
+      if (d < bd) { bd = d; best = k; }
+    }
+    const o = (r * 1024 + b * 32 + g) * 4;
+    lut[o] = pal[best * 3]; lut[o + 1] = pal[best * 3 + 1]; lut[o + 2] = pal[best * 3 + 2]; lut[o + 3] = 255;
+  }
+  if (gl) glSetup();
 }
-// Low-resolution "VGA" buffer, scaled up with nearest-neighbour.
-const low = document.createElement('canvas');
-const lctx = low.getContext('2d');
-let pix = 1;
+window.brodilkaInitArt = initArt;
+let glProg = null, glSrc = null, glLut = null, glBayer = null;
+function glShader(type, src) {
+  const sh = gl.createShader(type);
+  gl.shaderSource(sh, src);
+  gl.compileShader(sh);
+  if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(sh));
+  return sh;
+}
+function glTex(filter, wrap) {
+  const t = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filter);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filter);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, wrap);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, wrap);
+  return t;
+}
+function glSetup() {
+  const vs = 'attribute vec2 p; varying vec2 uv; void main(){ uv = vec2(p.x * 0.5 + 0.5, 0.5 - p.y * 0.5); gl_Position = vec4(p, 0.0, 1.0); }';
+  // ordered dither, then snap to the 256-colour palette through the LUT
+  const fs = `precision mediump float;
+    uniform sampler2D src; uniform sampler2D lut; uniform sampler2D bay; uniform vec2 size; varying vec2 uv;
+    void main(){
+      vec2 px = floor(uv * size);
+      vec3 c = texture2D(src, (px + 0.5) / size).rgb * 255.0;
+      float o = (texture2D(bay, (px + 0.5) / 4.0).r * 255.0 / 16.0 / 16.0 - 0.47) * 18.0;
+      vec3 q = floor(clamp(c + o, 0.0, 255.0) / 8.0);
+      gl_FragColor = texture2D(lut, vec2((q.b * 32.0 + q.g + 0.5) / 1024.0, (q.r + 0.5) / 32.0));
+    }`;
+  glProg = gl.createProgram();
+  gl.attachShader(glProg, glShader(gl.VERTEX_SHADER, vs));
+  gl.attachShader(glProg, glShader(gl.FRAGMENT_SHADER, fs));
+  gl.linkProgram(glProg);
+  gl.useProgram(glProg);
+  const buf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+  const loc = gl.getAttribLocation(glProg, 'p');
+  gl.enableVertexAttribArray(loc);
+  gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+  glSrc = glTex(gl.NEAREST, gl.CLAMP_TO_EDGE);
+  glLut = glTex(gl.NEAREST, gl.CLAMP_TO_EDGE);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1024, 32, 0, gl.RGBA, gl.UNSIGNED_BYTE, lut);
+  glBayer = glTex(gl.NEAREST, gl.REPEAT);
+  const bay = new Uint8Array([0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5].map((v) => v * 16));
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, 4, 4, 0, gl.LUMINANCE, gl.UNSIGNED_BYTE, bay);
+  gl.uniform1i(gl.getUniformLocation(glProg, 'src'), 0);
+  gl.uniform1i(gl.getUniformLocation(glProg, 'lut'), 1);
+  gl.uniform1i(gl.getUniformLocation(glProg, 'bay'), 2);
+}
+function glPresent(lw, lh) {
+  gl.viewport(0, 0, canvas.width, canvas.height);
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, glSrc);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, low);
+  gl.activeTexture(gl.TEXTURE1);
+  gl.bindTexture(gl.TEXTURE_2D, glLut);
+  gl.activeTexture(gl.TEXTURE2);
+  gl.bindTexture(gl.TEXTURE_2D, glBayer);
+  gl.uniform2f(gl.getUniformLocation(glProg, 'size'), lw, lh);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+}
+// overhead text is drawn at art resolution with a small pixel-ish font
+function drawTexts(c, texts) {
+  c.setTransform(1, 0, 0, 1, 0, 0);
+  c.textBaseline = 'middle';
+  c.lineJoin = 'round';
+  for (const [s, x, y, size, align, outline, fill, alpha] of texts) {
+    const px = Math.round(Math.max(8, Math.min(10, size / pix * 0.7)));
+    c.globalAlpha = alpha;
+    c.font = `bold ${px}px "Courier New", Courier, monospace`;
+    c.textAlign = align === 0 ? 'center' : 'left';
+    const X = Math.round(x / pix), Y = Math.round(y / pix);
+    if ((outline & 255) > 0) { c.strokeStyle = col(outline); c.lineWidth = 2; c.strokeText(s, X, Y); }
+    c.fillStyle = fill;
+    c.fillText(s, X, Y);
+  }
+  c.globalAlpha = 1;
+}
+// Low-resolution "VGA" buffer (~320 pixels across), scaled up with nearest-neighbour.
+let pix = 1, artK = 1;
 function present(U, F, S) {
-  const w = window.innerWidth, h = window.innerHeight;
-  const lw = Math.ceil(w / pix), lh = Math.ceil(h / pix);
+  const lw = Math.ceil(canvas.width / artK), lh = Math.ceil(canvas.height / artK);
   if (low.width !== lw || low.height !== lh) { low.width = lw; low.height = lh; }
+  if (txt.width !== lw || txt.height !== lh) { txt.width = lw; txt.height = lh; }
   lctx.setTransform(1 / pix, 0, 0, 1 / pix, 0, 0);
+  lctx.imageSmoothingEnabled = false;
   const texts = [];
   replay(lctx, U, F, S, texts);
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.imageSmoothingEnabled = false;
-  ctx.drawImage(low, 0, 0, lw, lh, 0, 0, lw * pix * dpr, lh * pix * dpr);
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  drawTexts(ctx, texts);
+  if (gl && glProg) glPresent(lw, lh);
+  else if (ctx) { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.imageSmoothingEnabled = false; ctx.drawImage(low, 0, 0, lw, lh, 0, 0, lw * artK, lh * artK); }
+  tctx.setTransform(1, 0, 0, 1, 0, 0);
+  tctx.clearRect(0, 0, lw, lh);
+  drawTexts(tctx, texts);
 }
 window.brodilkaReplay = replay;
 window.brodilkaPresent = present;
@@ -168,8 +275,9 @@ function resize() {
   const w = window.innerWidth, h = window.innerHeight;
   canvas.width = Math.round(w * dpr);
   canvas.height = Math.round(h * dpr);
-  pix = Math.max(1, Math.round(w / 640));
-  if (ex) { ex.set_pix(pix); ex.resize(w, h); }
+  artK = Math.max(1, Math.round(canvas.width / 320));
+  pix = artK / dpr;
+  if (ex) { ex.resize(w, h); ex.set_pix(pix); }
 }
 window.addEventListener('resize', resize);
 
@@ -472,6 +580,12 @@ async function boot() {
   const { instance } = await WebAssembly.instantiate(bytes, imports);
   ex = instance.exports;
   ex.init(WORLD_SEED);
+  const texs = [];
+  for (let k = 0; k < ex.tex_count(); k++) {
+    const w = ex.tex_w(k), h = ex.tex_h(k);
+    texs.push({ w, h, data: new Uint8Array(mem(), ex.tex_ptr(k), w * h * 4).slice() });
+  }
+  initArt(texs, new Uint8Array(mem(), ex.pal_ptr(), 768).slice());
   resize();
   buildMinimap();
   $('loading').classList.add('hidden');

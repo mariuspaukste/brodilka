@@ -28,7 +28,22 @@ fn main() {
     let mut g = Game::new(1997);
     g.w = w;
     g.h = h;
+    g.pix = 4.0 / 3.0;
     g.apply_zoom();
+    let texs = brodilka::tex::textures();
+    let mut meta = String::from("[");
+    for (i, t) in texs.iter().enumerate() {
+        fs::write(format!("{dir}/tex{i}.rgba"), &t.rgba).unwrap();
+        meta.push_str(&format!(
+            "{}[{},{}]",
+            if i > 0 { "," } else { "" },
+            t.w,
+            t.h
+        ));
+    }
+    meta.push(']');
+    fs::write(format!("{dir}/tex.json"), meta).unwrap();
+    fs::write(format!("{dir}/pal.bin"), brodilka::tex::palette()).unwrap();
     dump(&mut g, &dir, "create");
     g.create("Marius", false, 0, "warrior", [0, 0, 0]);
     for _ in 0..30 {

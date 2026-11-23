@@ -29,10 +29,13 @@ canvas and renders the windows ("gumps") from JSON; all game logic is in Rust.
 
 ## Look
 
-The renderer aims for Ultima VIII: Pagan — a low-resolution buffer scaled up
-with nearest-neighbour pixels, thick ink outlines, a grim twilight palette with
-fog, ash and a dark vignette, flagstones and masonry, deep blue water, rock
-cliffs, braziers and giant mushrooms. Characters are animated procedurally
+The renderer aims for Ultima VIII: Pagan — the world is drawn into a ~320-pixel
+wide buffer, then a WebGL shader ordered-dithers it into a 256-colour VGA-style
+palette and scales it up with nearest-neighbour pixels. Terrain uses seamless,
+world-anchored textures generated in Rust (`src/tex.rs`), so no tile grid shows;
+terrain types meet on ragged borders. Thick ink outlines, a grim twilight
+palette with fog and ash, Voronoi flagstones, brick and timber walls, rock
+cliffs, deep blue water, braziers and giant mushrooms. Characters are animated procedurally
 (walk cycle, idle breathing, wind-up/slash/recover swings with trails, recoil,
 spellcasting poses, front/back facing), and wounds leave blood on the ground.
 

@@ -17,7 +17,7 @@ const fail = (m) => { console.error('SMOKE FAIL:', m); process.exit(1); };
 function checkDraw() {
   const n = ex.cmd_len();
   const U = new Uint32Array(ex.memory.buffer, ex.cmd_ptr(), n);
-  const sizes = { 1: 1, 2: 2, 6: 4, 5: 4, 7: 4, 8: 7, 9: 1, 10: 6, 11: 4, 12: 4, 13: 2 };
+  const sizes = { 1: 1, 2: 2, 6: 4, 5: 4, 7: 4, 8: 7, 9: 1, 10: 6, 11: 4, 12: 4, 13: 2, 14: 7 };
   let i = 0, ops = 0;
   while (i < n) {
     const op = U[i++];
@@ -29,7 +29,8 @@ function checkDraw() {
 }
 
 ex.init(1997);
-ex.set_pix(1);
+if (ex.tex_count() !== 13) fail('textures');
+ex.set_pix(4 / 3);
 ex.resize(390, 780);
 ex.frame(0.016);
 if (JSON.parse(out(ex.ui_json())).screen !== 'create') fail('expected create screen');

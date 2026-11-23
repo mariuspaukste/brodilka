@@ -6,6 +6,7 @@ pub mod game;
 pub mod render;
 mod rng;
 pub mod save;
+pub mod tex;
 pub mod ui;
 pub mod world;
 
@@ -74,7 +75,9 @@ pub extern "C" fn resize(w: f32, h: f32) {
 /// CSS pixels per art pixel used by the host's low-resolution buffer
 #[no_mangle]
 pub extern "C" fn set_pix(p: f32) {
-    g().pix = p.max(1.0);
+    let g = g();
+    g.pix = p.max(0.25);
+    g.apply_zoom();
 }
 #[no_mangle]
 pub extern "C" fn frame(dt: f32) {
@@ -236,4 +239,31 @@ pub extern "C" fn radar_dots() -> usize {
         s.push_str(&format!("{}{:.1},{:.1};", k, e.x, e.y));
     }
     out(s)
+}
+
+// ---------------------------------------------------------------- art assets
+static ART: std::sync::OnceLock<(Vec<tex::Texture>, Vec<u8>)> = std::sync::OnceLock::new();
+fn art() -> &'static (Vec<tex::Texture>, Vec<u8>) {
+    ART.get_or_init(|| (tex::textures(), tex::palette()))
+}
+#[no_mangle]
+pub extern "C" fn tex_count() -> usize {
+    art().0.len()
+}
+#[no_mangle]
+pub extern "C" fn tex_w(i: usize) -> usize {
+    art().0[i].w
+}
+#[no_mangle]
+pub extern "C" fn tex_h(i: usize) -> usize {
+    art().0[i].h
+}
+#[no_mangle]
+pub extern "C" fn tex_ptr(i: usize) -> *const u8 {
+    art().0[i].rgba.as_ptr()
+}
+/// 256 RGB triples
+#[no_mangle]
+pub extern "C" fn pal_ptr() -> *const u8 {
+    art().1.as_ptr()
 }

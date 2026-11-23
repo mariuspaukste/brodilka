@@ -2,6 +2,7 @@
 //! replays onto a 2D canvas (no wasm-bindgen needed).
 use crate::data::*;
 use crate::game::*;
+use crate::tex::*;
 use crate::world::*;
 
 #[derive(Default)]
@@ -113,6 +114,15 @@ impl Canvas {
         self.cmd.push(c);
         self.f(w);
     }
+    /// fill with texture `tex`, mapped by the affine matrix (a b c d e f)
+    #[allow(clippy::too_many_arguments)]
+    pub fn pattern(&mut self, tex: u32, a: f32, b: f32, c: f32, d: f32, e: f32, f: f32) {
+        self.cmd.push(14);
+        self.cmd.push(tex);
+        for v in [a, b, c, d, e, f] {
+            self.f(v);
+        }
+    }
     pub fn glow(&mut self, x: f32, y: f32, r: f32, c: u32) {
         self.cmd.push(12);
         self.f(x);
@@ -148,6 +158,32 @@ pub fn with_a(c: u32, a: f32) -> u32 {
     (c & 0xffffff00) | ((a.clamp(0.0, 1.0) * 255.0) as u32)
 }
 
+fn tex_of(t: u8) -> u32 {
+    match t {
+        T_WATER => TEX_WATER,
+        T_SAND => TEX_SAND,
+        T_DIRT => TEX_DIRT,
+        T_COBBLE => TEX_FLAG,
+        T_FLOOR => TEX_FLOOR,
+        T_MOUNT => TEX_ROCK,
+        T_BRIDGE => TEX_BRIDGE,
+        T_CAVE => TEX_CAVE,
+        _ => TEX_GRASS,
+    }
+}
+/// which terrain spills over which at borders
+fn prio(t: u8) -> i32 {
+    match t {
+        T_WATER => 0,
+        T_CAVE => 1,
+        T_SAND => 2,
+        T_DIRT => 3,
+        T_GRASS => 4,
+        _ => 10,
+    }
+}
+
+#[allow(dead_code)]
 fn tile_color(t: u8) -> u32 {
     match t {
         T_WATER => 0x101a3cff,
@@ -270,6 +306,26 @@ impl Game {
                     ((x * 31 + y * 17) & 255) as u8
                 };
                 self.ground(c, x, y, sx, sy, tl, sh, z, t);
+            }
+        }
+        // ---- pass 1b: ragged terrain borders
+        for s in s0..=s1 {
+            for d in d0..=d1 {
+                if (s + d) & 1 != 0 {
+                    continue;
+                }
+                let (x, y) = ((s + d) / 2, (s - d) / 2);
+                let tl = self.map.tile(x, y);
+                let pr = prio(tl);
+                if !(1..10).contains(&pr) {
+                    continue;
+                }
+                let (sx, sy) = scr(x, y);
+                for dir in [(1, 0), (0, 1), (-1, 0), (0, -1)] {
+                    if prio(self.map.tile(x + dir.0, y + dir.1)) < pr {
+                        self.fringe(c, x, y, sx, sy, tl, dir, z);
+                    }
+                }
             }
         }
         if let Some((dx, dy)) = self.dest {
@@ -425,14 +481,14 @@ impl Game {
             c.ell(fx, fy, 260.0 * z, 70.0 * z);
             c.ell(fx + 90.0 * z, fy + 20.0 * z, 180.0 * z, 50.0 * z);
         }
-        c.fill(0x2a120a38);
+        c.fill(0x2a120a24);
         c.rect(-10.0, -10.0, self.w + 20.0, self.h + 20.0);
         c.dark(
             self.w / 2.0,
             self.h / 2.0,
             self.w.min(self.h) * 0.28,
             self.w.max(self.h) * 0.72,
-            0.72,
+            0.5,
             0x050302ff,
         );
         // falling ash and the odd ember
@@ -565,139 +621,95 @@ impl Game {
         sx: f32,
         sy: f32,
         tl: u8,
-        sh: u8,
+        _sh: u8,
         z: f32,
-        t: f32,
+        _t: f32,
     ) {
-        let hw = 32.0 * z + 0.6;
-        let hh = 16.0 * z + 0.6;
-        let base = tile_color(tl);
-        let mut col = shade(base, 0.9 + sh as f32 / 255.0 * 0.16);
-        if tl == T_WATER {
-            col = shade(
-                col,
-                1.0 + (t * 1.3 + x as f32 * 0.6 + y as f32 * 0.4).sin() * 0.06,
-            );
-        }
-        // point inside the diamond: u runs top->right, v runs top->left
-        let pt = |u: f32, v: f32| (sx + (u - v) * 32.0 * z, sy - 16.0 * z + (u + v) * 16.0 * z);
-        let px = self.pix.max(z);
-        let speck = |c: &mut Canvas, k: i32, colr: u32, sz: f32| {
-            let (u, v) = (h2(x, y, k), h2(x, y, k + 101));
-            let (a, b) = pt(u * 0.9 + 0.05, v * 0.9 + 0.05);
-            c.fill(colr);
-            c.rect(a.floor(), b.floor(), sz * px, sz * px);
-        };
-        if tl == T_COBBLE {
-            // flagstones: dark mortar with four stones of varied tone
-            c.fill(shade(base, 0.5));
-            c.poly(&[(sx, sy - hh), (sx + hw, sy), (sx, sy + hh), (sx - hw, sy)]);
-            for i in 0..2 {
-                for j in 0..2 {
-                    let f = 0.82 + h2(x * 2 + i, y * 2 + j, 7) * 0.32;
-                    let (u0, v0) = (i as f32 * 0.5 + 0.035, j as f32 * 0.5 + 0.035);
-                    let (u1, v1) = (u0 + 0.43, v0 + 0.43);
-                    c.fill(shade(base, f));
-                    c.poly(&[pt(u0, v0), pt(u1, v0), pt(u1, v1), pt(u0, v1)]);
-                    c.fill(shade(base, f * 1.15));
-                    c.poly(&[
-                        pt(u0, v0),
-                        pt(u1, v0),
-                        pt(u1, v0 + 0.06),
-                        pt(u0 + 0.06, v0 + 0.06),
-                        pt(u0 + 0.06, v1),
-                        pt(u0, v1),
-                    ]);
-                }
-            }
-            if sh % 5 == 0 {
-                c.stroke(shade(base, 0.45), px);
-                let (a, b) = (pt(0.15, 0.3), pt(0.35, 0.4));
-                c.line(a.0, a.1, b.0, b.1);
-            }
-            return;
-        }
-        c.fill(col);
+        let hw = 32.0 * z + 0.7;
+        let hh = 16.0 * z + 0.7;
+        self.pat(c, tex_of(tl), 0.0);
         c.poly(&[(sx, sy - hh), (sx + hw, sy), (sx, sy + hh), (sx - hw, sy)]);
-        match tl {
-            T_WATER => {
-                for k in 0..3 {
-                    speck(c, k, shade(col, 0.8), 2.0);
-                }
-                if sh % 3 == 0 {
-                    let o = ((t * 0.7 + sh as f32).sin()) * 5.0 * z;
-                    c.stroke(0x6a80c070, px);
-                    c.line(sx - 8.0 * z + o, sy, sx + 4.0 * z + o, sy - 2.0 * z);
-                }
-                // foam where the shore meets the water
-                c.stroke(0xb8c8e080, 1.5 * px);
-                if self.map.tile(x - 1, y) != T_WATER && inb(x - 1, y) {
-                    let (a, b) = (pt(0.0, 0.0), pt(0.0, 1.0));
-                    c.line(a.0, a.1 + 1.0, b.0 + 1.0, b.1);
-                }
-                if self.map.tile(x, y - 1) != T_WATER && inb(x, y - 1) {
-                    let (a, b) = (pt(0.0, 0.0), pt(1.0, 0.0));
-                    c.line(a.0, a.1 + 1.0, b.0 - 1.0, b.1);
-                }
-            }
-            T_GRASS => {
-                for k in 0..5 {
-                    speck(
-                        c,
-                        k,
-                        shade(col, if k % 2 == 0 { 0.72 } else { 1.22 }),
-                        if k == 0 { 2.0 } else { 1.0 },
-                    );
-                }
-                if sh > 190 {
-                    c.stroke(shade(col, 0.6), px);
-                    let (a, _) = pt(0.5, 0.5);
-                    let ox = (sh as f32 - 220.0) * 0.3 * z;
-                    c.line(a + ox, sy, a + ox - 2.0 * z, sy - 4.0 * z);
-                    c.line(a + ox + 2.0 * z, sy, a + ox + 3.0 * z, sy - 4.0 * z);
-                }
-            }
-            T_DIRT | T_CAVE => {
-                for k in 0..5 {
-                    speck(
-                        c,
-                        k,
-                        shade(col, if k % 2 == 0 { 0.7 } else { 1.25 }),
-                        if k < 2 { 2.0 } else { 1.0 },
-                    );
-                }
-                if sh % 4 == 0 {
-                    c.stroke(shade(col, 0.55), px);
-                    let (a, b, d) = (pt(0.2, 0.5), pt(0.45, 0.42), pt(0.6, 0.62));
-                    c.poly_s(&[a, b, d]);
-                }
-            }
-            T_SAND => {
-                for k in 0..4 {
-                    speck(c, k, shade(col, if k % 2 == 0 { 0.82 } else { 1.18 }), 1.0);
-                }
-            }
-            T_FLOOR | T_BRIDGE => {
-                c.stroke(shade(col, 0.55), px);
-                for k in [-0.5f32, 0.0, 0.5] {
-                    let a = (sx - hw * 0.5 + k * hw * 0.5, sy - hh * 0.5 - k * hh * 0.5);
-                    c.line(a.0, a.1, a.0 + hw, a.1 + hh);
-                }
-                speck(c, 3, shade(col, 0.5), 1.0);
-                if tl == T_BRIDGE {
-                    c.stroke(0x2e1e10ff, 2.0 * z);
-                    c.line(sx - hw * 0.5, sy - hh * 0.5, sx + hw * 0.5, sy + hh * 0.5);
-                }
-            }
-            _ => {}
+        if tl == T_BRIDGE {
+            c.fill(0x00000050);
+            let (a, b) = (sx - hw * 0.5, sy - hh * 0.5);
+            c.poly(&[
+                (a, b),
+                (a + 3.0 * z, b - 1.5 * z),
+                (a + hw + 3.0 * z, b + hh - 1.5 * z),
+                (a + hw, b + hh),
+            ]);
         }
+        let _ = (x, y);
+    }
+
+    /// Ragged border of a tile's texture spilling into a lower-priority neighbour,
+    /// so terrain types blend instead of meeting on the diamond grid.
+    #[allow(clippy::too_many_arguments)]
+    fn fringe(
+        &self,
+        c: &mut Canvas,
+        x: i32,
+        y: i32,
+        sx: f32,
+        sy: f32,
+        tl: u8,
+        dir: (i32, i32),
+        z: f32,
+    ) {
+        let pt = |u: f32, v: f32| (sx + (u - v) * 32.0 * z, sy - 16.0 * z + (u + v) * 16.0 * z);
+        let edge = |s: f32, d: f32| match dir {
+            (1, 0) => (1.0 + d, s),
+            (-1, 0) => (-d, s),
+            (0, 1) => (s, 1.0 + d),
+            _ => (s, -d),
+        };
+        let (kx, ky) = (x * 2 + dir.0, y * 2 + dir.1);
+        let n = 7;
+        let mut pts = Vec::with_capacity(2 * n + 2);
+        for k in 0..=n {
+            let (u, v) = edge(k as f32 / n as f32, -0.02);
+            pts.push(pt(u, v));
+        }
+        for k in (0..=n).rev() {
+            let d = if k == 0 || k == n {
+                0.0
+            } else {
+                0.06 + h2(kx, ky, k as i32) * 0.3
+            };
+            let (u, v) = edge(k as f32 / n as f32, d);
+            pts.push(pt(u, v));
+        }
+        self.pat(c, tex_of(tl), 0.0);
+        c.poly(&pts);
+        if self.map.tile(x + dir.0, y + dir.1) == T_WATER {
+            c.stroke(0x9aa8c060, 1.2 * self.pix.max(z));
+            let foam: Vec<(f32, f32)> = pts[n + 1..].to_vec();
+            c.poly_s(&foam);
+        }
+    }
+
+    /// set a world-anchored texture pattern as the fill
+    fn pat(&self, c: &mut Canvas, tex: u32, lift: f32) {
+        let z = self.zoom;
+        let mut e = -self.camx * z + self.w / 2.0;
+        let f = -self.camy * z + self.h / 2.0 - lift;
+        if tex == TEX_WATER {
+            e += (self.clock * 4.0).rem_euclid(128.0) * z;
+        }
+        c.pattern(tex, z, 0.0, 0.0, z, e, f);
+    }
+    /// textured vertical face; `right` faces slope up to the right
+    fn face_pat(&self, c: &mut Canvas, tex: u32, right: bool) {
+        let z = self.zoom;
+        let e = -self.camx * z + self.w / 2.0;
+        let f = -self.camy * z + self.h / 2.0;
+        c.pattern(tex, z, if right { -0.5 * z } else { 0.5 * z }, 0.0, z, e, f);
     }
 
     #[allow(clippy::too_many_arguments)]
     fn mountain(&self, c: &mut Canvas, x: i32, y: i32, sx: f32, sy: f32, sh: u8, z: f32) {
         let hw = 32.0 * z + 0.6;
         let hh = 16.0 * z + 0.6;
-        // massifs rise towards their middle, like Pagan's rock cliffs
         let mut n = 0;
         for &(dx, dy) in DIRS.iter() {
             if self.map.tile(x + dx, y + dy) == T_MOUNT {
@@ -705,72 +717,54 @@ impl Game {
             }
         }
         let hgt = (10.0 + n as f32 * 4.0 + (sh % 7) as f32) * z;
-        let base = 0x5e5650ff;
-        let f = 0.88 + sh as f32 / 255.0 * 0.2;
-        let px = self.pix.max(z);
-        c.outline(INK, px);
-        c.fill(shade(base, 0.55 * f));
-        c.poly(&[
+        let ink = self.pix.max(z);
+        let left = [
             (sx - hw, sy),
             (sx, sy + hh),
             (sx, sy + hh - hgt),
             (sx - hw, sy - hgt),
-        ]);
-        c.fill(shade(base, 0.75 * f));
-        c.poly(&[
+        ];
+        let right = [
             (sx, sy + hh),
             (sx + hw, sy),
             (sx + hw, sy - hgt),
             (sx, sy + hh - hgt),
-        ]);
-        c.fill(shade(base, 1.0 * f));
-        c.poly(&[
+        ];
+        let top = [
             (sx, sy - hh - hgt),
             (sx + hw, sy - hgt),
             (sx, sy + hh - hgt),
             (sx - hw, sy - hgt),
-        ]);
+        ];
+        c.outline(INK, ink);
+        self.face_pat(c, TEX_CLIFF, false);
+        c.poly(&left);
+        self.face_pat(c, TEX_CLIFF, true);
+        c.poly(&right);
         c.outline(0, 0.0);
-        // strata cracks on the cliff faces
-        c.stroke(shade(base, 0.38), px);
-        for (k, fr) in [0.33f32, 0.66].iter().enumerate() {
-            let j = (h2(x, y, k as i32 + 3) - 0.5) * 4.0 * z;
-            c.poly_s(&[
-                (sx - hw, sy - hgt * fr + j),
-                (sx - hw * 0.5, sy + hh * 0.5 - hgt * fr - j),
-                (sx, sy + hh - hgt * fr + j),
-            ]);
-            c.poly_s(&[
-                (sx, sy + hh - hgt * fr - j),
-                (sx + hw * 0.5, sy + hh * 0.5 - hgt * fr + j),
-                (sx + hw, sy - hgt * fr),
-            ]);
+        c.fill(0x00000070);
+        c.poly(&left);
+        c.fill(0x00000030);
+        c.poly(&right);
+        self.pat(c, TEX_ROCK, hgt);
+        c.poly(&top);
+        // ink only where the plateau meets lower ground
+        c.stroke(INK, ink);
+        if self.map.tile(x - 1, y) != T_MOUNT {
+            c.line(top[3].0, top[3].1, top[0].0, top[0].1);
         }
-        // rock texture on top
-        let top = |u: f32, v: f32| {
-            (
-                sx + (u - v) * 32.0 * z,
-                sy - 16.0 * z + (u + v) * 16.0 * z - hgt,
-            )
-        };
-        for k in 0..4 {
-            let (a, b) = top(h2(x, y, k + 20) * 0.8 + 0.1, h2(x, y, k + 40) * 0.8 + 0.1);
-            c.fill(shade(base, if k % 2 == 0 { 0.7 } else { 1.25 }));
-            c.rect(a.floor(), b.floor(), 2.0 * px, px);
+        if self.map.tile(x, y - 1) != T_MOUNT {
+            c.line(top[0].0, top[0].1, top[1].0, top[1].1);
         }
-        if sh % 5 == 0 {
-            c.fill(0x4a5a2cff);
-            let (a, b) = top(0.3, 0.4);
-            c.ell(a, b, 7.0 * z, 3.0 * z);
+        if self.map.tile(x + 1, y) != T_MOUNT {
+            c.line(top[1].0, top[1].1, top[2].0, top[2].1);
+        }
+        if self.map.tile(x, y + 1) != T_MOUNT {
+            c.line(top[2].0, top[2].1, top[3].0, top[3].1);
         }
         if self.map.res[idx(x, y)] == 0 {
             c.fill(0x00000050);
-            c.poly(&[
-                (sx, sy - hh - hgt),
-                (sx + hw, sy - hgt),
-                (sx, sy + hh - hgt),
-                (sx - hw, sy - hgt),
-            ]);
+            c.poly(&top);
         }
     }
 
@@ -866,48 +860,59 @@ impl Game {
                 }
             }
             O_WALL => {
-                let col = WALL_COLORS[(style as usize).min(4)];
                 let hgt = 38.0 * z;
-                c.fill(shade(col, 0.62));
-                c.poly(&[
+                let tex = match style {
+                    2 => TEX_WOODWALL,
+                    3 => TEX_PLASTER,
+                    _ => TEX_BRICK,
+                };
+                let left = [
                     (sx - hw, sy),
                     (sx, sy + hh),
                     (sx, sy + hh - hgt),
                     (sx - hw, sy - hgt),
-                ]);
-                c.fill(shade(col, 0.82));
-                c.poly(&[
+                ];
+                let right = [
                     (sx, sy + hh),
                     (sx + hw, sy),
                     (sx + hw, sy - hgt),
                     (sx, sy + hh - hgt),
-                ]);
-                c.fill(shade(col, 1.05));
-                c.poly(&[
+                ];
+                let top = [
                     (sx, sy - hh - hgt),
                     (sx + hw, sy - hgt),
                     (sx, sy + hh - hgt),
                     (sx - hw, sy - hgt),
-                ]);
+                ];
+                self.face_pat(c, tex, false);
+                c.poly(&left);
+                self.face_pat(c, tex, true);
+                c.poly(&right);
                 c.outline(0, 0.0);
-                // masonry courses
-                c.stroke(shade(col, 0.45), self.pix.max(z));
-                for r in 1..5 {
-                    let k = hgt * r as f32 / 5.0;
-                    c.line(sx - hw, sy - k, sx, sy + hh - k);
-                    c.line(sx, sy + hh - k, sx + hw, sy - k);
-                    let off = if r % 2 == 0 { 0.25 } else { 0.5 };
-                    for q in [off, off + 0.5] {
-                        if q < 1.0 {
-                            let (lx, ly) = (sx - hw + hw * q, sy + hh * q - k);
-                            c.line(lx, ly, lx, ly + hgt / 5.0);
-                            let (rx, ry) = (sx + hw * q, sy + hh - hh * q - k);
-                            c.line(rx, ry, rx, ry + hgt / 5.0);
-                        }
-                    }
-                }
+                c.fill(if style == 4 { 0x000000a0 } else { 0x00000068 });
+                c.poly(&left);
+                c.fill(if style == 4 { 0x00000070 } else { 0x00000028 });
+                c.poly(&right);
+                // soot towards the ground
+                c.fill(0x0a060430);
+                c.poly(&[
+                    (sx - hw, sy),
+                    (sx, sy + hh),
+                    (sx, sy + hh - hgt * 0.3),
+                    (sx - hw, sy - hgt * 0.3),
+                ]);
+                c.poly(&[
+                    (sx, sy + hh),
+                    (sx + hw, sy),
+                    (sx + hw, sy - hgt * 0.3),
+                    (sx, sy + hh - hgt * 0.3),
+                ]);
+                c.outline(INK, self.pix.max(z));
+                c.fill(shade(WALL_COLORS[(style as usize).min(4)], 0.7));
+                c.poly(&top);
                 if (x + y) % 3 == 0 && style != 4 {
-                    c.fill(0x0e0c14ff);
+                    c.outline(0, 0.0);
+                    c.fill(0x0a080cff);
                     c.poly(&[
                         p.at(-21.0, -12.0),
                         p.at(-12.0, -7.0),
@@ -921,8 +926,8 @@ impl Game {
                         p.at(-16.5, -24.5).0,
                         p.at(-16.5, -24.5).1,
                     );
+                    c.outline(INK, self.pix.max(z));
                 }
-                c.outline(INK, self.pix.max(z));
             }
             O_DOOR => {
                 c.fill(0x4a2e18ff);
@@ -1708,8 +1713,8 @@ impl Game {
 
         // shadow (no ink)
         c.outline(0, 0.0);
-        c.fill(0x00000066);
-        c.ell(sx, sy, 11.0 * s, 4.5 * s);
+        c.fill(0x00000030);
+        c.ell(sx, sy, 9.0 * s, 3.5 * s);
         // slash trail
         if attacking && h.weapon > 0 && phase > 0.3 && phase < 0.8 {
             let mut pts = vec![];

@@ -781,12 +781,12 @@ impl Game {
     }
 
     pub fn zoom_by(&mut self, f: f32) {
-        self.zoom_mul = (self.zoom_mul * f).clamp(0.5, 2.5);
+        self.zoom_mul = (self.zoom_mul * f).clamp(0.4, 2.0);
         self.apply_zoom();
     }
     pub fn apply_zoom(&mut self) {
-        let base = (self.w.min(self.h) / 430.0).clamp(0.8, 1.6);
-        self.zoom = base * self.zoom_mul;
+        // one world unit per art pixel: a 64-pixel floor tile, Pagan's framing
+        self.zoom = self.pix.max(0.25) * self.zoom_mul;
     }
 
     fn near_npc(&self, v: usize) -> bool {
