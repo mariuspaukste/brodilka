@@ -483,6 +483,8 @@ pub struct Game {
     pub seed: u32,
     pub tab: u8,
     pub zoom_mul: f32,
+    /// CSS pixels per art pixel (the host renders at low resolution)
+    pub pix: f32,
 }
 
 const PLAYER_SPEED: f32 = 4.6;
@@ -526,6 +528,7 @@ impl Game {
             seed,
             tab: 0,
             zoom_mul: 1.0,
+            pix: 1.0,
             map,
         };
         let (sx, sy) = g.map.start;
@@ -1177,6 +1180,9 @@ impl Game {
                         path.insert(0, f);
                     }
                     self.ents[0].path = path;
+                } else {
+                    self.pl.chase = false;
+                    self.msg("Thou canst not reach that.", C_WARN);
                 }
             }
         }

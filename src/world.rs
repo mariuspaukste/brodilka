@@ -36,6 +36,10 @@ pub const O_FENCE: u8 = 14;
 pub const O_FLOWERS: u8 = 15;
 pub const O_HOARD: u8 = 16;
 pub const O_SIGN: u8 = 17;
+pub const O_MUSHROOM: u8 = 18;
+pub const O_BARREL: u8 = 19;
+pub const O_CRATE: u8 = 20;
+pub const O_BONES: u8 = 21;
 
 pub struct Building {
     pub x: i32,
@@ -112,7 +116,7 @@ fn fbm(x: f32, y: f32, seed: u32) -> f32 {
 }
 
 pub fn blocks(o: u8) -> bool {
-    !matches!(o, O_NONE | O_DOOR | O_BUSH | O_FLOWERS)
+    !matches!(o, O_NONE | O_DOOR | O_BUSH | O_FLOWERS | O_BONES)
 }
 
 #[derive(Copy, Clone, PartialEq)]
@@ -319,6 +323,9 @@ impl Map {
         self.set_o(bx + 3, by + 5, O_DOOR);
         self.set_o(bx + 4, by + 5, O_DOOR);
         self.set_o(bx + 4, by + 6, O_SIGN);
+        self.set_o(bx + 1, by + 6, O_BARREL);
+        self.set_o(bx + 6, by + 6, O_CRATE);
+        self.set_o(bx + 1, by + 1, O_CRATE);
         self.buildings.push(Building {
             x: bx,
             y: by,
@@ -401,6 +408,8 @@ pub fn generate(seed: u32) -> Map {
             let r = rng.f();
             if mo > 0.56 && r < 0.42 {
                 m.o[i] = O_TREE;
+            } else if mo > 0.5 && r > 0.965 {
+                m.o[i] = O_MUSHROOM;
             } else if r < 0.025 {
                 m.o[i] = O_TREE;
             } else if r < 0.045 {
@@ -431,6 +440,19 @@ pub fn generate(seed: u32) -> Map {
             m.set(x, y, t, o);
         }
     }
+    for y in grave.1 - 14..grave.1 + 14 {
+        for x in grave.0 - 16..grave.0 + 16 {
+            if !inb(x, y) {
+                continue;
+            }
+            let i = idx(x, y);
+            if m.o[i] == O_TREE {
+                m.style[i] = 1;
+            } else if m.o[i] == O_NONE && m.t[i] != T_WATER && m.t[i] != T_MOUNT && rng.f() < 0.05 {
+                m.o[i] = O_BONES;
+            }
+        }
+    }
     m.pois.push(("Graveyard", grave.0, grave.1));
     // --- orc camp
     for y in orcs.1 - 9..=orcs.1 + 9 {
@@ -442,6 +464,13 @@ pub fn generate(seed: u32) -> Map {
         }
     }
     m.set_o(orcs.0, orcs.1, O_FIRE);
+    for (dx, dy) in [(-2, 6), (3, -2), (-6, -1), (6, 6)] {
+        m.set_o(
+            orcs.0 + dx,
+            orcs.1 + dy,
+            if dx > 0 { O_BARREL } else { O_BONES },
+        );
+    }
     for (dx, dy) in [(-5, -3), (4, -5), (5, 3), (-3, 5), (-6, 2)] {
         m.set_o(orcs.0 + dx, orcs.1 + dy, O_TENT);
     }
@@ -463,6 +492,11 @@ pub fn generate(seed: u32) -> Map {
                 }
                 if m.o[i] == O_NONE && d > 3.0 && rng.f() < 0.07 {
                     m.o[i] = O_BOULDER;
+                } else if m.o[i] == O_NONE && d > 3.0 && rng.f() < 0.04 {
+                    m.o[i] = O_TREE;
+                    m.style[i] = 1;
+                } else if m.o[i] == O_NONE && rng.f() < 0.03 {
+                    m.o[i] = O_BONES;
                 }
             }
         }
@@ -482,6 +516,12 @@ pub fn generate(seed: u32) -> Map {
                     m.set(x, y, T_MOUNT, O_NONE);
                 }
             }
+        }
+    }
+    for _ in 0..14 {
+        let (x, y) = (lair.0 + rng.range(-5, 5), lair.1 + rng.range(-5, 5));
+        if m.tile(x, y) == T_CAVE && m.obj(x, y) == O_NONE {
+            m.set_o(x, y, O_BONES);
         }
     }
     m.set_o(lair.0 + 2, lair.1 - 2, O_HOARD);

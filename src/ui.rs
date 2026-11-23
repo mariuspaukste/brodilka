@@ -785,7 +785,7 @@ impl Game {
         self.apply_zoom();
     }
     pub fn apply_zoom(&mut self) {
-        let base = (self.w.min(self.h) / 560.0).clamp(0.62, 1.4);
+        let base = (self.w.min(self.h) / 430.0).clamp(0.8, 1.6);
         self.zoom = base * self.zoom_mul;
     }
 

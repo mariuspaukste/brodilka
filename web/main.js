@@ -24,10 +24,20 @@ function col(u) {
 }
 function rgbA(u, a) { return `rgba(${u >>> 24},${(u >>> 16) & 255},${(u >>> 8) & 255},${a})`; }
 
-function replay(ctx, U, F, S) {
+// Replays the command buffer. Text is collected into `texts` (when given) so
+// it can be drawn sharp on top of the pixelated world.
+function replay(ctx, U, F, S, texts) {
   const n = U.length;
   let i = 0;
   let baseAlpha = 1;
+  let inkW = 0, inkC = '#000';
+  const ink = () => {
+    if (inkW <= 0) return;
+    const ss = ctx.strokeStyle, lw = ctx.lineWidth;
+    ctx.strokeStyle = inkC; ctx.lineWidth = inkW;
+    ctx.stroke();
+    ctx.strokeStyle = ss; ctx.lineWidth = lw;
+  };
   ctx.globalAlpha = 1;
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
@@ -42,16 +52,17 @@ function replay(ctx, U, F, S) {
         ctx.moveTo(F[i], F[i + 1]);
         for (let j = 1; j < k; j++) ctx.lineTo(F[i + j * 2], F[i + j * 2 + 1]);
         i += k * 2;
-        if (op === 3) { ctx.closePath(); ctx.fill(); } else ctx.stroke();
+        if (op === 3) { ctx.closePath(); ctx.fill(); ink(); } else ctx.stroke();
         break;
       }
-      case 5: ctx.beginPath(); ctx.ellipse(F[i], F[i + 1], F[i + 2], F[i + 3], 0, 0, Math.PI * 2); ctx.fill(); i += 4; break;
+      case 5: ctx.beginPath(); ctx.ellipse(F[i], F[i + 1], F[i + 2], F[i + 3], 0, 0, Math.PI * 2); ctx.fill(); ink(); i += 4; break;
       case 6: ctx.fillRect(F[i], F[i + 1], F[i + 2], F[i + 3]); i += 4; break;
       case 7: ctx.beginPath(); ctx.moveTo(F[i], F[i + 1]); ctx.lineTo(F[i + 2], F[i + 3]); ctx.stroke(); i += 4; break;
       case 8: {
         const x = F[i], y = F[i + 1], size = F[i + 2], align = U[i + 3], off = U[i + 4], len = U[i + 5], outline = U[i + 6];
         i += 7;
         const s = dec.decode(S.subarray(off, off + len));
+        if (texts) { texts.push([s, x, y, size, align, outline, ctx.fillStyle, ctx.globalAlpha]); break; }
         ctx.font = `bold ${size.toFixed(1)}px Palatino, Georgia, serif`;
         ctx.textAlign = align === 0 ? 'center' : 'left';
         ctx.textBaseline = 'middle';
@@ -73,10 +84,11 @@ function replay(ctx, U, F, S) {
         g.addColorStop(1, rgbA(c, a));
         const fs = ctx.fillStyle;
         ctx.fillStyle = g;
-        ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+        ctx.fillRect(-4000, -4000, 12000, 12000);
         ctx.fillStyle = fs;
         break;
       }
+      case 13: inkC = col(U[i++]); inkW = F[i++]; break;
       case 11: ctx.beginPath(); ctx.ellipse(F[i], F[i + 1], F[i + 2], F[i + 3], 0, 0, Math.PI * 2); ctx.stroke(); i += 4; break;
       case 12: {
         const x = F[i], y = F[i + 1], r = F[i + 2], c = U[i + 3];
@@ -102,7 +114,38 @@ function replay(ctx, U, F, S) {
   }
   ctx.globalAlpha = 1;
 }
+function drawTexts(ctx, texts) {
+  ctx.textBaseline = 'middle';
+  ctx.lineJoin = 'round';
+  for (const [s, x, y, size, align, outline, fill, alpha] of texts) {
+    ctx.globalAlpha = alpha;
+    ctx.font = `bold ${size.toFixed(1)}px Palatino, Georgia, serif`;
+    ctx.textAlign = align === 0 ? 'center' : 'left';
+    if ((outline & 255) > 0) { ctx.strokeStyle = col(outline); ctx.lineWidth = Math.max(2.5, size / 4); ctx.strokeText(s, x, y); }
+    ctx.fillStyle = fill;
+    ctx.fillText(s, x, y);
+  }
+  ctx.globalAlpha = 1;
+}
+// Low-resolution "VGA" buffer, scaled up with nearest-neighbour.
+const low = document.createElement('canvas');
+const lctx = low.getContext('2d');
+let pix = 1;
+function present(U, F, S) {
+  const w = window.innerWidth, h = window.innerHeight;
+  const lw = Math.ceil(w / pix), lh = Math.ceil(h / pix);
+  if (low.width !== lw || low.height !== lh) { low.width = lw; low.height = lh; }
+  lctx.setTransform(1 / pix, 0, 0, 1 / pix, 0, 0);
+  const texts = [];
+  replay(lctx, U, F, S, texts);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(low, 0, 0, lw, lh, 0, 0, lw * pix * dpr, lh * pix * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  drawTexts(ctx, texts);
+}
 window.brodilkaReplay = replay;
+window.brodilkaPresent = present;
 
 // ------------------------------------------------------------------ wasm bridge
 function mem() { return ex.memory.buffer; }
@@ -125,7 +168,8 @@ function resize() {
   const w = window.innerWidth, h = window.innerHeight;
   canvas.width = Math.round(w * dpr);
   canvas.height = Math.round(h * dpr);
-  if (ex) ex.resize(w, h);
+  pix = Math.max(1, Math.round(w / 640));
+  if (ex) { ex.set_pix(pix); ex.resize(w, h); }
 }
 window.addEventListener('resize', resize);
 
@@ -415,8 +459,7 @@ function loop(now) {
   const U = new Uint32Array(mem(), ex.cmd_ptr(), ex.cmd_len());
   const F = new Float32Array(mem(), ex.cmd_ptr(), ex.cmd_len());
   const S = new Uint8Array(mem(), ex.str_ptr(), ex.str_len());
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  replay(ctx, U, F, S);
+  present(U, F, S);
   if (created && (frameNo++ % 3 === 0)) drawRadar();
   refreshUI();
   requestAnimationFrame(loop);

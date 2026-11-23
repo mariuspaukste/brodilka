@@ -8,6 +8,8 @@ use crate::world::*;
 pub struct Canvas {
     pub cmd: Vec<u32>,
     pub strs: Vec<u8>,
+    /// width of ink borders in CSS px (one "art pixel")
+    pub ink: f32,
 }
 
 impl Canvas {
@@ -78,6 +80,13 @@ impl Canvas {
         self.cmd.push(s.len() as u32);
         self.cmd.push(outline);
     }
+    /// a line with a dark ink border, for limbs and weapons
+    pub fn ink_line(&mut self, a: (f32, f32), b: (f32, f32), col: u32, w: f32) {
+        self.stroke(INK, w + 2.0 * self.ink.max(1.0));
+        self.line(a.0, a.1, b.0, b.1);
+        self.stroke(col, w);
+        self.line(a.0, a.1, b.0, b.1);
+    }
     pub fn alpha(&mut self, a: f32) {
         self.cmd.push(9);
         self.f(a);
@@ -98,6 +107,12 @@ impl Canvas {
         self.f(rx.max(0.1));
         self.f(ry.max(0.1));
     }
+    /// While width > 0, every fill (poly/ellipse/rect) also gets an ink outline.
+    pub fn outline(&mut self, c: u32, w: f32) {
+        self.cmd.push(13);
+        self.cmd.push(c);
+        self.f(w);
+    }
     pub fn glow(&mut self, x: f32, y: f32, r: f32, c: u32) {
         self.cmd.push(12);
         self.f(x);
@@ -113,26 +128,35 @@ pub fn shade(c: u32, f: f32) -> u32 {
     let b = (((c >> 8) & 255) as f32 * f).clamp(0.0, 255.0) as u32;
     (r << 24) | (g << 16) | (b << 8) | (c & 255)
 }
+pub fn h2(x: i32, y: i32, k: i32) -> f32 {
+    let mut h = (x as u32).wrapping_mul(0x27d4_eb2d)
+        ^ (y as u32).wrapping_mul(0x1656_67b1)
+        ^ (k as u32).wrapping_mul(0x9e37_79b9);
+    h = (h ^ (h >> 15)).wrapping_mul(0x85eb_ca6b);
+    h ^= h >> 13;
+    (h & 0xffff) as f32 / 65536.0
+}
 pub fn with_a(c: u32, a: f32) -> u32 {
     (c & 0xffffff00) | ((a.clamp(0.0, 1.0) * 255.0) as u32)
 }
 
 fn tile_color(t: u8) -> u32 {
     match t {
-        T_WATER => 0x2f5d8aff,
-        T_SAND => 0xd6c38bff,
-        T_GRASS => 0x5d8b3aff,
-        T_DIRT => 0x8b6b47ff,
-        T_COBBLE => 0x8e887cff,
-        T_FLOOR => 0x9b6d3fff,
-        T_MOUNT => 0x6d6558ff,
-        T_BRIDGE => 0x8a5a2bff,
-        T_CAVE => 0x4a4038ff,
+        T_WATER => 0x18265aff,
+        T_SAND => 0x9c8a5eff,
+        T_GRASS => 0x4f5f2cff,
+        T_DIRT => 0x6e5236ff,
+        T_COBBLE => 0x6c6a66ff,
+        T_FLOOR => 0x6e4a2aff,
+        T_MOUNT => 0x5e5650ff,
+        T_BRIDGE => 0x5e3e20ff,
+        T_CAVE => 0x2e2620ff,
         _ => 0x000000ff,
     }
 }
 
-const WALL_COLORS: [u32; 5] = [0x9a9a92ff, 0x9a9a92ff, 0x8a6238ff, 0xd8d0bcff, 0x6a6560ff];
+const WALL_COLORS: [u32; 5] = [0x807a70ff, 0x807a70ff, 0x7a5a3aff, 0x9a8e78ff, 0x5a5550ff];
+const INK: u32 = 0x120c08ff;
 
 /// Small helper for drawing in "model units" around a screen anchor.
 struct P {
@@ -183,6 +207,7 @@ impl Game {
     pub fn render(&mut self) {
         let mut c = std::mem::take(&mut self.cmds);
         c.clear();
+        c.ink = self.pix.max(1.0);
         self.draw(&mut c);
         self.cmds = c;
     }
@@ -304,6 +329,7 @@ impl Game {
                     if occl {
                         c.alpha(0.35);
                     }
+                    c.outline(INK, self.pix.max(z));
                     self.object(
                         c,
                         o,
@@ -317,6 +343,7 @@ impl Game {
                         t,
                         &mut lights,
                     );
+                    c.outline(0, 0.0);
                     if occl {
                         c.alpha(1.0);
                     }
@@ -330,7 +357,9 @@ impl Game {
                 let e = &self.ents[order[oi].1];
                 let (sx, sy) = self.to_screen(e.x, e.y);
                 if sx > -150.0 && sx < self.w + 150.0 && sy > -150.0 && sy < self.h + 250.0 {
+                    c.outline(INK, self.pix.max(z));
                     self.entity(c, e, sx, sy, z, t);
+                    c.outline(0, 0.0);
                 }
                 oi += 1;
             }
@@ -343,6 +372,18 @@ impl Game {
         for f in self.fx.iter() {
             self.effect(c, f, z, t);
         }
+
+        // ---- Pagan-style perpetual twilight: violet haze and a dark vignette
+        c.fill(0x1c144030);
+        c.rect(-10.0, -10.0, self.w + 20.0, self.h + 20.0);
+        c.dark(
+            self.w / 2.0,
+            self.h / 2.0,
+            self.w.min(self.h) * 0.3,
+            self.w.max(self.h) * 0.75,
+            0.55,
+            0x000000ff,
+        );
 
         // ---- night
         let dk = self.darkness();
@@ -465,58 +506,122 @@ impl Game {
     ) {
         let hw = 32.0 * z + 0.6;
         let hh = 16.0 * z + 0.6;
-        let mut col = shade(tile_color(tl), 0.92 + sh as f32 / 255.0 * 0.14);
+        let base = tile_color(tl);
+        let mut col = shade(base, 0.9 + sh as f32 / 255.0 * 0.16);
         if tl == T_WATER {
-            let w = ((t * 1.6 + x as f32 * 0.7 + y as f32 * 0.45).sin() * 0.05) + 1.0;
-            col = shade(col, w);
+            col = shade(
+                col,
+                1.0 + (t * 1.3 + x as f32 * 0.6 + y as f32 * 0.4).sin() * 0.06,
+            );
+        }
+        // point inside the diamond: u runs top->right, v runs top->left
+        let pt = |u: f32, v: f32| (sx + (u - v) * 32.0 * z, sy - 16.0 * z + (u + v) * 16.0 * z);
+        let px = self.pix.max(z);
+        let speck = |c: &mut Canvas, k: i32, colr: u32, sz: f32| {
+            let (u, v) = (h2(x, y, k), h2(x, y, k + 101));
+            let (a, b) = pt(u * 0.9 + 0.05, v * 0.9 + 0.05);
+            c.fill(colr);
+            c.rect(a.floor(), b.floor(), sz * px, sz * px);
+        };
+        if tl == T_COBBLE {
+            // flagstones: dark mortar with four stones of varied tone
+            c.fill(shade(base, 0.5));
+            c.poly(&[(sx, sy - hh), (sx + hw, sy), (sx, sy + hh), (sx - hw, sy)]);
+            for i in 0..2 {
+                for j in 0..2 {
+                    let f = 0.82 + h2(x * 2 + i, y * 2 + j, 7) * 0.32;
+                    let (u0, v0) = (i as f32 * 0.5 + 0.035, j as f32 * 0.5 + 0.035);
+                    let (u1, v1) = (u0 + 0.43, v0 + 0.43);
+                    c.fill(shade(base, f));
+                    c.poly(&[pt(u0, v0), pt(u1, v0), pt(u1, v1), pt(u0, v1)]);
+                    c.fill(shade(base, f * 1.15));
+                    c.poly(&[
+                        pt(u0, v0),
+                        pt(u1, v0),
+                        pt(u1, v0 + 0.06),
+                        pt(u0 + 0.06, v0 + 0.06),
+                        pt(u0 + 0.06, v1),
+                        pt(u0, v1),
+                    ]);
+                }
+            }
+            if sh % 5 == 0 {
+                c.stroke(shade(base, 0.45), px);
+                let (a, b) = (pt(0.15, 0.3), pt(0.35, 0.4));
+                c.line(a.0, a.1, b.0, b.1);
+            }
+            return;
         }
         c.fill(col);
         c.poly(&[(sx, sy - hh), (sx + hw, sy), (sx, sy + hh), (sx - hw, sy)]);
         match tl {
             T_WATER => {
-                if sh % 4 == 0 {
-                    let o = ((t * 0.8 + sh as f32).sin()) * 6.0 * z;
-                    c.stroke(0xbcd8f060, 1.2);
-                    c.line(sx - 10.0 * z + o, sy, sx + 6.0 * z + o, sy - 2.0 * z);
+                for k in 0..3 {
+                    speck(c, k, shade(col, 0.8), 2.0);
+                }
+                if sh % 3 == 0 {
+                    let o = ((t * 0.7 + sh as f32).sin()) * 5.0 * z;
+                    c.stroke(0x6a80c070, px);
+                    c.line(sx - 8.0 * z + o, sy, sx + 4.0 * z + o, sy - 2.0 * z);
+                }
+                // foam where the shore meets the water
+                c.stroke(0xb8c8e080, 1.5 * px);
+                if self.map.tile(x - 1, y) != T_WATER && inb(x - 1, y) {
+                    let (a, b) = (pt(0.0, 0.0), pt(0.0, 1.0));
+                    c.line(a.0, a.1 + 1.0, b.0 + 1.0, b.1);
+                }
+                if self.map.tile(x, y - 1) != T_WATER && inb(x, y - 1) {
+                    let (a, b) = (pt(0.0, 0.0), pt(1.0, 0.0));
+                    c.line(a.0, a.1 + 1.0, b.0 - 1.0, b.1);
                 }
             }
             T_GRASS => {
-                if sh > 170 {
-                    c.stroke(shade(col, 0.75), 1.0 * z.max(0.7));
-                    let ox = (sh as f32 - 210.0) * 0.4 * z;
-                    c.line(sx + ox, sy, sx + ox - 2.0 * z, sy - 5.0 * z);
-                    c.line(
-                        sx + ox + 3.0 * z,
-                        sy + 1.0 * z,
-                        sx + ox + 4.0 * z,
-                        sy - 4.0 * z,
+                for k in 0..5 {
+                    speck(
+                        c,
+                        k,
+                        shade(col, if k % 2 == 0 { 0.72 } else { 1.22 }),
+                        if k == 0 { 2.0 } else { 1.0 },
                     );
                 }
+                if sh > 190 {
+                    c.stroke(shade(col, 0.6), px);
+                    let (a, _) = pt(0.5, 0.5);
+                    let ox = (sh as f32 - 220.0) * 0.3 * z;
+                    c.line(a + ox, sy, a + ox - 2.0 * z, sy - 4.0 * z);
+                    c.line(a + ox + 2.0 * z, sy, a + ox + 3.0 * z, sy - 4.0 * z);
+                }
             }
-            T_COBBLE => {
-                c.stroke(shade(col, 0.82), 1.0);
-                c.poly_s(&[
-                    (sx, sy - hh * 0.55),
-                    (sx + hw * 0.55, sy),
-                    (sx, sy + hh * 0.55),
-                    (sx - hw * 0.55, sy),
-                ]);
+            T_DIRT | T_CAVE => {
+                for k in 0..5 {
+                    speck(
+                        c,
+                        k,
+                        shade(col, if k % 2 == 0 { 0.7 } else { 1.25 }),
+                        if k < 2 { 2.0 } else { 1.0 },
+                    );
+                }
+                if sh % 4 == 0 {
+                    c.stroke(shade(col, 0.55), px);
+                    let (a, b, d) = (pt(0.2, 0.5), pt(0.45, 0.42), pt(0.6, 0.62));
+                    c.poly_s(&[a, b, d]);
+                }
+            }
+            T_SAND => {
+                for k in 0..4 {
+                    speck(c, k, shade(col, if k % 2 == 0 { 0.82 } else { 1.18 }), 1.0);
+                }
             }
             T_FLOOR | T_BRIDGE => {
-                c.stroke(shade(col, 0.75), 1.0);
+                c.stroke(shade(col, 0.55), px);
                 for k in [-0.5f32, 0.0, 0.5] {
                     let a = (sx - hw * 0.5 + k * hw * 0.5, sy - hh * 0.5 - k * hh * 0.5);
                     c.line(a.0, a.1, a.0 + hw, a.1 + hh);
                 }
+                speck(c, 3, shade(col, 0.5), 1.0);
                 if tl == T_BRIDGE {
-                    c.stroke(0x5a3a1aff, 2.0 * z);
+                    c.stroke(0x2e1e10ff, 2.0 * z);
                     c.line(sx - hw * 0.5, sy - hh * 0.5, sx + hw * 0.5, sy + hh * 0.5);
-                }
-            }
-            T_SAND => {
-                if sh % 3 == 0 {
-                    c.fill(shade(col, 0.85));
-                    c.ell(sx + (sh as f32 - 128.0) * 0.1 * z, sy, 1.5 * z, 0.8 * z);
                 }
             }
             _ => {}
@@ -527,49 +632,74 @@ impl Game {
     fn mountain(&self, c: &mut Canvas, x: i32, y: i32, sx: f32, sy: f32, sh: u8, z: f32) {
         let hw = 32.0 * z + 0.6;
         let hh = 16.0 * z + 0.6;
-        let hgt = (14.0 + (sh % 18) as f32) * z;
-        let near_cave = self.map.tile(x - 1, y) == T_CAVE || self.map.tile(x, y - 1) == T_CAVE;
-        let base = if near_cave { 0x5e554aff } else { 0x76705fff };
-        let f = 0.9 + sh as f32 / 255.0 * 0.2;
-        c.fill(shade(base, 0.62 * f));
+        // massifs rise towards their middle, like Pagan's rock cliffs
+        let mut n = 0;
+        for &(dx, dy) in DIRS.iter() {
+            if self.map.tile(x + dx, y + dy) == T_MOUNT {
+                n += 1;
+            }
+        }
+        let hgt = (10.0 + n as f32 * 4.0 + (sh % 7) as f32) * z;
+        let base = 0x5e5650ff;
+        let f = 0.88 + sh as f32 / 255.0 * 0.2;
+        let px = self.pix.max(z);
+        c.outline(INK, px);
+        c.fill(shade(base, 0.55 * f));
         c.poly(&[
             (sx - hw, sy),
             (sx, sy + hh),
             (sx, sy + hh - hgt),
             (sx - hw, sy - hgt),
         ]);
-        c.fill(shade(base, 0.8 * f));
+        c.fill(shade(base, 0.75 * f));
         c.poly(&[
             (sx, sy + hh),
             (sx + hw, sy),
             (sx + hw, sy - hgt),
             (sx, sy + hh - hgt),
         ]);
-        c.fill(shade(base, 1.08 * f));
+        c.fill(shade(base, 1.0 * f));
         c.poly(&[
             (sx, sy - hh - hgt),
             (sx + hw, sy - hgt),
             (sx, sy + hh - hgt),
             (sx - hw, sy - hgt),
         ]);
-        // rocky bumps
-        c.fill(shade(base, 1.2 * f));
-        let o = (sh as f32 - 128.0) / 128.0 * 10.0 * z;
-        c.poly(&[
-            (sx - 12.0 * z + o, sy - hgt + 2.0 * z),
-            (sx - 4.0 * z + o, sy - hgt - 9.0 * z),
-            (sx + 6.0 * z + o, sy - hgt + 2.0 * z),
-        ]);
-        if sh > 225 {
-            c.fill(0xf0f4f8ff);
-            c.poly(&[
-                (sx - 7.0 * z + o, sy - hgt - 3.0 * z),
-                (sx - 4.0 * z + o, sy - hgt - 9.0 * z),
-                (sx - 1.0 * z + o, sy - hgt - 3.0 * z),
+        c.outline(0, 0.0);
+        // strata cracks on the cliff faces
+        c.stroke(shade(base, 0.38), px);
+        for (k, fr) in [0.33f32, 0.66].iter().enumerate() {
+            let j = (h2(x, y, k as i32 + 3) - 0.5) * 4.0 * z;
+            c.poly_s(&[
+                (sx - hw, sy - hgt * fr + j),
+                (sx - hw * 0.5, sy + hh * 0.5 - hgt * fr - j),
+                (sx, sy + hh - hgt * fr + j),
+            ]);
+            c.poly_s(&[
+                (sx, sy + hh - hgt * fr - j),
+                (sx + hw * 0.5, sy + hh * 0.5 - hgt * fr + j),
+                (sx + hw, sy - hgt * fr),
             ]);
         }
+        // rock texture on top
+        let top = |u: f32, v: f32| {
+            (
+                sx + (u - v) * 32.0 * z,
+                sy - 16.0 * z + (u + v) * 16.0 * z - hgt,
+            )
+        };
+        for k in 0..4 {
+            let (a, b) = top(h2(x, y, k + 20) * 0.8 + 0.1, h2(x, y, k + 40) * 0.8 + 0.1);
+            c.fill(shade(base, if k % 2 == 0 { 0.7 } else { 1.25 }));
+            c.rect(a.floor(), b.floor(), 2.0 * px, px);
+        }
+        if sh % 5 == 0 {
+            c.fill(0x4a5a2cff);
+            let (a, b) = top(0.3, 0.4);
+            c.ell(a, b, 7.0 * z, 3.0 * z);
+        }
         if self.map.res[idx(x, y)] == 0 {
-            c.fill(0x00000040);
+            c.fill(0x00000050);
             c.poly(&[
                 (sx, sy - hh - hgt),
                 (sx + hw, sy - hgt),
@@ -606,35 +736,68 @@ impl Game {
             O_TREE => {
                 let depleted = self.map.res[idx(x, y)] == 0;
                 c.fill(0x00000040);
-                c.ell(sx, sy, 18.0 * z, 8.0 * z);
-                c.fill(0x5a3a20ff);
-                c.rect(sx - 3.0 * z, sy - 24.0 * z, 6.0 * z, 24.0 * z);
-                let g = if depleted { 0x6a7a3aff } else { 0x2f6a24ff };
+                c.ell(sx, sy, 16.0 * z, 7.0 * z);
+                c.fill(0x3e2a18ff);
+                c.poly(&[
+                    p.at(-4.0, 0.0),
+                    p.at(4.0, 0.0),
+                    p.at(2.5, -26.0),
+                    p.at(-2.5, -26.0),
+                ]);
+                if style == 1 {
+                    // dead, gnarled tree
+                    c.outline(0, 0.0);
+                    c.stroke(INK, 4.5 * z);
+                    let br = [
+                        (-2.0, -18.0, -14.0, -34.0),
+                        (1.0, -24.0, 12.0, -40.0),
+                        (0.0, -26.0, -3.0, -48.0),
+                        (-8.0, -28.0, -16.0, -30.0),
+                        (6.0, -32.0, 15.0, -30.0),
+                    ];
+                    for &(ax, ay, bx, by) in br.iter() {
+                        let (a, b) = (p.at(ax, ay), p.at(bx, by));
+                        c.line(a.0, a.1, b.0, b.1);
+                    }
+                    c.stroke(0x4a3826ff, 2.5 * z);
+                    for &(ax, ay, bx, by) in br.iter() {
+                        let (a, b) = (p.at(ax, ay), p.at(bx, by));
+                        c.line(a.0, a.1, b.0, b.1);
+                    }
+                    c.outline(INK, self.pix.max(z));
+                    return;
+                }
+                let g = if depleted { 0x58602cff } else { 0x2c4a1eff };
                 let f = 0.85 + sh as f32 / 255.0 * 0.3;
                 if sh % 3 == 0 {
-                    // pine
                     for k in 0..3 {
                         let kf = k as f32;
-                        c.fill(shade(g, f * (0.85 + kf * 0.1)));
-                        let (a, b) = (
-                            p.at(-16.0 + kf * 4.0, -16.0 - kf * 12.0),
-                            p.at(16.0 - kf * 4.0, -16.0 - kf * 12.0),
-                        );
-                        let top = p.at(0.0, -38.0 - kf * 12.0);
-                        c.poly(&[a, b, top]);
+                        c.fill(shade(g, f * (0.8 + kf * 0.12)));
+                        c.poly(&[
+                            p.at(-15.0 + kf * 4.0, -16.0 - kf * 12.0),
+                            p.at(15.0 - kf * 4.0, -16.0 - kf * 12.0),
+                            p.at(0.0, -38.0 - kf * 12.0),
+                        ]);
                     }
                 } else {
-                    c.fill(shade(g, f * 0.8));
-                    c.ell(sx, sy - 34.0 * z, 21.0 * z, 16.0 * z);
+                    c.fill(shade(g, f * 0.75));
+                    c.ell(sx, sy - 34.0 * z, 21.0 * z, 15.0 * z);
                     c.fill(shade(g, f));
-                    c.ell(sx - 6.0 * z, sy - 41.0 * z, 14.0 * z, 11.0 * z);
-                    c.fill(shade(g, f * 1.15));
-                    c.ell(sx + 5.0 * z, sy - 46.0 * z, 10.0 * z, 8.0 * z);
-                    if sh % 7 == 1 && !depleted {
-                        c.fill(0xd03030ff);
-                        c.ell(sx + 8.0 * z, sy - 32.0 * z, 2.0 * z, 2.0 * z);
-                        c.ell(sx - 9.0 * z, sy - 37.0 * z, 2.0 * z, 2.0 * z);
+                    c.ell(sx - 7.0 * z, sy - 41.0 * z, 13.0 * z, 10.0 * z);
+                    c.fill(shade(g, f * 1.25));
+                    c.ell(sx + 5.0 * z, sy - 46.0 * z, 9.0 * z, 7.0 * z);
+                    c.outline(0, 0.0);
+                    for k in 0..5 {
+                        let (u, v) = (h2(x, y, k) * 34.0 - 17.0, h2(x, y, k + 9) * 22.0 - 48.0);
+                        c.fill(shade(g, if k % 2 == 0 { 0.6 } else { 1.45 }));
+                        c.rect(
+                            sx + u * z,
+                            sy + v * z,
+                            2.0 * self.pix.max(z),
+                            self.pix.max(z),
+                        );
                     }
+                    c.outline(INK, self.pix.max(z));
                 }
             }
             O_WALL => {
@@ -661,18 +824,40 @@ impl Game {
                     (sx, sy + hh - hgt),
                     (sx - hw, sy - hgt),
                 ]);
-                // window on some faces
-                if (x + y) % 3 == 0 {
-                    c.fill(0x2a3040ff);
-                    c.poly(&[
-                        p.at(-20.0, -10.0),
-                        p.at(-12.0, -6.0),
-                        p.at(-12.0, -20.0),
-                        p.at(-20.0, -24.0),
-                    ]);
+                c.outline(0, 0.0);
+                // masonry courses
+                c.stroke(shade(col, 0.45), self.pix.max(z));
+                for r in 1..5 {
+                    let k = hgt * r as f32 / 5.0;
+                    c.line(sx - hw, sy - k, sx, sy + hh - k);
+                    c.line(sx, sy + hh - k, sx + hw, sy - k);
+                    let off = if r % 2 == 0 { 0.25 } else { 0.5 };
+                    for q in [off, off + 0.5] {
+                        if q < 1.0 {
+                            let (lx, ly) = (sx - hw + hw * q, sy + hh * q - k);
+                            c.line(lx, ly, lx, ly + hgt / 5.0);
+                            let (rx, ry) = (sx + hw * q, sy + hh - hh * q - k);
+                            c.line(rx, ry, rx, ry + hgt / 5.0);
+                        }
+                    }
                 }
-                c.stroke(shade(col, 0.5), 1.0);
-                c.line(sx - hw, sy - hgt * 0.5, sx, sy + hh - hgt * 0.5);
+                if (x + y) % 3 == 0 && style != 4 {
+                    c.fill(0x0e0c14ff);
+                    c.poly(&[
+                        p.at(-21.0, -12.0),
+                        p.at(-12.0, -7.0),
+                        p.at(-12.0, -22.0),
+                        p.at(-21.0, -27.0),
+                    ]);
+                    c.stroke(0xc89a40a0, self.pix.max(z));
+                    c.line(
+                        p.at(-16.5, -9.5).0,
+                        p.at(-16.5, -9.5).1,
+                        p.at(-16.5, -24.5).0,
+                        p.at(-16.5, -24.5).1,
+                    );
+                }
+                c.outline(INK, self.pix.max(z));
             }
             O_DOOR => {
                 c.fill(0x4a2e18ff);
@@ -781,14 +966,127 @@ impl Game {
                 lights.push((sx, sy - 25.0 * z, 110.0, 0xffe090ff));
             }
             O_LAMP => {
-                c.stroke(0x2a2a2aff, 2.5 * z);
-                c.line(sx, sy, sx, sy - 36.0 * z);
-                c.fill(0x2a2a2aff);
-                c.rect(sx - 4.0 * z, sy - 44.0 * z, 8.0 * z, 9.0 * z);
-                let night = self.is_night();
-                c.fill(if night { 0xffe8a0ff } else { 0xb8b098ff });
-                c.rect(sx - 2.5 * z, sy - 42.5 * z, 5.0 * z, 6.0 * z);
-                lights.push((sx, sy - 40.0 * z, 150.0, 0xffd890ff));
+                // stone pedestal with an iron fire bowl
+                c.fill(0x5a5650ff);
+                c.poly(&[
+                    p.at(-6.0, 0.0),
+                    p.at(6.0, 0.0),
+                    p.at(4.0, -20.0),
+                    p.at(-4.0, -20.0),
+                ]);
+                c.fill(0x2a2420ff);
+                c.ell(sx, sy - 22.0 * z, 10.0 * z, 4.5 * z);
+                c.outline(0, 0.0);
+                for k in 0..3 {
+                    let kf = k as f32;
+                    let fl = (t * 11.0 + kf * 2.3 + x as f32).sin() * 2.5 * z;
+                    c.fill(if k == 2 { 0xffe070ff } else { 0xff6a18e0 });
+                    c.ell(
+                        sx + (kf - 1.0) * 3.5 * z,
+                        sy - 27.0 * z - fl.abs(),
+                        (5.0 - kf) * z,
+                        (8.0 - kf * 1.5) * z + fl,
+                    );
+                }
+                c.outline(INK, self.pix.max(z));
+                lights.push((sx, sy - 26.0 * z, 150.0, 0xffa050ff));
+            }
+            O_MUSHROOM => {
+                let big = 0.8 + h2(x, y, 5) * 0.6;
+                let cap = if sh % 2 == 0 { 0x8a3a2aff } else { 0x6a5a8aff };
+                c.fill(0xc8bca0ff);
+                c.poly(&[
+                    p.at(-4.0 * big, 0.0),
+                    p.at(4.0 * big, 0.0),
+                    p.at(3.0 * big, -26.0 * big),
+                    p.at(-3.0 * big, -26.0 * big),
+                ]);
+                c.fill(cap);
+                c.ell(sx, sy - 28.0 * z * big, 18.0 * z * big, 9.0 * z * big);
+                c.fill(shade(cap, 1.3));
+                c.ell(
+                    sx - 4.0 * z * big,
+                    sy - 31.0 * z * big,
+                    8.0 * z * big,
+                    4.0 * z * big,
+                );
+                c.outline(0, 0.0);
+                c.fill(0xe8dcc0ff);
+                for k in 0..4 {
+                    let (u, v) = (h2(x, y, k) * 24.0 - 12.0, h2(x, y, k + 7) * 6.0 - 32.0);
+                    c.rect(sx + u * z * big, sy + v * z * big, 2.0 * z, 1.5 * z);
+                }
+                c.outline(INK, self.pix.max(z));
+            }
+            O_BARREL => {
+                c.fill(0x6a4424ff);
+                c.rect(sx - 7.0 * z, sy - 18.0 * z, 14.0 * z, 16.0 * z);
+                c.ell(sx, sy - 2.0 * z, 7.0 * z, 3.0 * z);
+                c.fill(0x8a5a30ff);
+                c.ell(sx, sy - 18.0 * z, 7.0 * z, 3.0 * z);
+                c.outline(0, 0.0);
+                c.stroke(0x2a2420ff, 1.5 * z);
+                c.line(sx - 7.0 * z, sy - 7.0 * z, sx + 7.0 * z, sy - 7.0 * z);
+                c.line(sx - 7.0 * z, sy - 14.0 * z, sx + 7.0 * z, sy - 14.0 * z);
+                c.outline(INK, self.pix.max(z));
+            }
+            O_CRATE => {
+                let hgt = 14.0 * z;
+                let (w2, h2_) = (13.0 * z, 6.5 * z);
+                c.fill(0x5a4026ff);
+                c.poly(&[
+                    (sx - w2, sy),
+                    (sx, sy + h2_),
+                    (sx, sy + h2_ - hgt),
+                    (sx - w2, sy - hgt),
+                ]);
+                c.fill(0x7a5632ff);
+                c.poly(&[
+                    (sx, sy + h2_),
+                    (sx + w2, sy),
+                    (sx + w2, sy - hgt),
+                    (sx, sy + h2_ - hgt),
+                ]);
+                c.fill(0x92683cff);
+                c.poly(&[
+                    (sx, sy - h2_ - hgt),
+                    (sx + w2, sy - hgt),
+                    (sx, sy + h2_ - hgt),
+                    (sx - w2, sy - hgt),
+                ]);
+                c.outline(0, 0.0);
+                c.stroke(0x3a2814ff, self.pix.max(z));
+                c.line(sx - w2, sy - hgt, sx, sy + h2_);
+                c.line(sx, sy + h2_ - hgt, sx + w2, sy);
+                c.outline(INK, self.pix.max(z));
+            }
+            O_BONES => {
+                c.outline(0, 0.0);
+                c.stroke(0xd8d0b8ff, 2.0 * z);
+                let a = h2(x, y, 1) * 6.0;
+                c.line(sx - 8.0 * z, sy + a * z * 0.3, sx + 6.0 * z, sy - 3.0 * z);
+                c.line(
+                    sx - 3.0 * z,
+                    sy + 4.0 * z,
+                    sx + 2.0 * z,
+                    sy - 4.0 * z + a * 0.3,
+                );
+                c.fill(0xe0d8c0ff);
+                c.ell(sx + 9.0 * z, sy + 1.0 * z, 4.0 * z, 3.5 * z);
+                c.fill(0x1a1410ff);
+                c.rect(
+                    sx + 7.5 * z,
+                    sy,
+                    1.2 * self.pix.max(z),
+                    1.2 * self.pix.max(z),
+                );
+                c.rect(
+                    sx + 10.0 * z,
+                    sy,
+                    1.2 * self.pix.max(z),
+                    1.2 * self.pix.max(z),
+                );
+                c.outline(INK, self.pix.max(z));
             }
             O_FOUNTAIN => {
                 c.fill(0x9a9a98ff);
@@ -1225,7 +1523,7 @@ impl Game {
         let p = P {
             x: sx,
             y: sy,
-            s: z * scale,
+            s: z * scale * 1.12,
             f: e.face,
         };
         let s = p.s;
@@ -1242,11 +1540,10 @@ impl Game {
                 p.at(-9.5 + wk, -1.0),
             ]);
         } else {
-            c.stroke(tint(h.legs), 3.4 * s);
             let (a, b) = (p.at(-3.0, -14.0), p.at(-3.0 + wk * 4.0, -0.5));
-            c.line(a.0, a.1, b.0, b.1);
+            c.ink_line(a, b, tint(h.legs), 3.4 * s);
             let (a, b) = (p.at(3.0, -14.0), p.at(3.0 - wk * 4.0, -0.5));
-            c.line(a.0, a.1, b.0, b.1);
+            c.ink_line(a, b, tint(h.legs), 3.4 * s);
         }
         // torso
         c.fill(tint(h.body));
@@ -1269,9 +1566,8 @@ impl Game {
         c.poly(&[a, b, (b.0, b.1 + 2.0 * s), (a.0, a.1 + 2.0 * s)]);
         // back arm + shield
         let bh = p.at(-8.0, -16.0 - wk.abs() * 1.0);
-        c.stroke(tint(h.skin), 2.6 * s);
         let sh = p.at(-6.5, -27.0);
-        c.line(sh.0, sh.1, bh.0, bh.1);
+        c.ink_line(sh, bh, tint(h.skin), 2.6 * s);
         if let Some(scol) = h.shield {
             c.fill(scol);
             let (x, y) = p.at(-9.0, -19.0);
@@ -1283,8 +1579,7 @@ impl Game {
         let atk = e.atk;
         let hand = p.at(8.0 + atk * 4.0, -17.0 - atk * 9.0);
         let sh2 = p.at(6.5, -27.0);
-        c.stroke(tint(h.skin), 2.6 * s);
-        c.line(sh2.0, sh2.1, hand.0, hand.1);
+        c.ink_line(sh2, hand, tint(h.skin), 2.6 * s);
         if h.weapon > 0 {
             // blade direction: raised when attacking, lowered otherwise
             let (dx, dy) = (0.9 - atk * 0.6, 0.5 - atk * 1.5);
@@ -1299,8 +1594,12 @@ impl Game {
                 5 => 0x8a8f96ff,
                 _ => 0xd8dde4ff,
             };
-            c.stroke(wcol, if h.weapon == 6 { 4.0 * s } else { 2.0 * s });
-            c.line(hand.0, hand.1, tip.0, tip.1);
+            c.ink_line(
+                hand,
+                tip,
+                wcol,
+                if h.weapon == 6 { 4.0 * s } else { 2.0 * s },
+            );
             match h.weapon {
                 2 | 5 => {
                     c.fill(0xc0c6ceff);
@@ -1388,6 +1687,11 @@ impl Game {
         c.fill(0x00000050);
         c.ell(sx, sy, 13.0 * s, 5.0 * s);
         let leg = shade(col, 0.7);
+        c.stroke(INK, 3.6 * s);
+        for (lx, ph) in [(-7.0, 1.0), (-4.0, -1.0), (5.0, -1.0), (8.0, 1.0)] {
+            let (a, b) = (p.at(lx, -6.0), p.at(lx + wk * ph * 3.0, 0.0));
+            c.line(a.0, a.1, b.0, b.1);
+        }
         c.stroke(leg, 2.2 * s);
         for (lx, ph) in [(-7.0, 1.0), (-4.0, -1.0), (5.0, -1.0), (8.0, 1.0)] {
             let (a, b) = (p.at(lx, -6.0), p.at(lx + wk * ph * 3.0, 0.0));

@@ -48,16 +48,17 @@ pub fn log(s: &str) {
 #[no_mangle]
 pub extern "C" fn init(seed: u32) {
     std::panic::set_hook(Box::new(|i| log(&format!("panic: {i}"))));
-    let (w, h, zm) = unsafe {
+    let (w, h, zm, pix) = unsafe {
         (&*(&raw const GAME))
             .as_ref()
-            .map(|g| (g.w, g.h, g.zoom_mul))
-            .unwrap_or((800.0, 600.0, 1.0))
+            .map(|g| (g.w, g.h, g.zoom_mul, g.pix))
+            .unwrap_or((800.0, 600.0, 1.0, 1.0))
     };
     let mut game = Game::new(seed);
     game.w = w;
     game.h = h;
     game.zoom_mul = zm;
+    game.pix = pix;
     game.apply_zoom();
     unsafe {
         *(&raw mut GAME) = Some(game);
@@ -69,6 +70,11 @@ pub extern "C" fn resize(w: f32, h: f32) {
     g.w = w;
     g.h = h;
     g.apply_zoom();
+}
+/// CSS pixels per art pixel used by the host's low-resolution buffer
+#[no_mangle]
+pub extern "C" fn set_pix(p: f32) {
+    g().pix = p.max(1.0);
 }
 #[no_mangle]
 pub extern "C" fn frame(dt: f32) {
