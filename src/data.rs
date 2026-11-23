@@ -993,6 +993,8 @@ pub const V_PROV: usize = 2;
 pub const V_HEALER: usize = 3;
 pub const V_BANKER: usize = 4;
 pub const V_GUARD: usize = 5;
+/// townsfolk with no trade, wandering the streets
+pub const V_FOLK: usize = 6;
 
 pub struct VendorDef {
     pub title: &'static str,
@@ -1125,6 +1127,35 @@ pub static VENDORS: &[VendorDef] = &[
             "Orcs have made camp in the south-west.",
             "Trolls roam the rocky hills to the north-west.",
             "They say a dragon sleeps in the south-east.",
+        ],
+    },
+    VendorDef {
+        title: "",
+        names: &[
+            "Old Tam",
+            "Mirela",
+            "Joss",
+            "Widow Agna",
+            "Pell",
+            "Hanne",
+            "Corwin",
+            "Ilse",
+            "Brother Aldo",
+            "Fen",
+        ],
+        sells: &[],
+        buys: &[],
+        buys_ids: &[],
+        robe: 0x5a4a38ff,
+        chatter: &[
+            "The bell tolls for another burial today.",
+            "Bar thy door after dark, stranger.",
+            "My son went to the hills. He has not come back.",
+            "The well water tastes of iron of late.",
+            "Bread costs twice what it did last winter.",
+            "The dead walk in the graveyard. I have seen them.",
+            "Stay off the roads at night.",
+            "Pray, and keep thy coin close.",
         ],
     },
 ];

@@ -67,7 +67,7 @@ fn main() {
     g.apply_zoom();
     tp(&mut g, 91, 68);
     dump(&mut g, &dir, "inside");
-    tp(&mut g, 79, 82);
+    tp(&mut g, 91, 83);
     dump(&mut g, &dir, "inside_inn");
     let (x, y) = g.map.start;
     tp(&mut g, x, y);
@@ -153,6 +153,28 @@ fn main() {
         g.update(1.0 / 30.0);
     }
     dump(&mut g, &dir, "lair_zoom");
+    tp(&mut g, x0 + 13, y0 + 26);
+    for _ in 0..10 {
+        g.update(1.0 / 30.0);
+    }
+    dump(&mut g, &dir, "cart");
+    // the townsfolk lined up
+    tp(&mut g, x0 + 18, y0 + 14);
+    let mut k = 0.0;
+    for e in g.ents.iter_mut() {
+        if matches!(e.k, brodilka::game::EK::Npc(_)) {
+            e.x = x0 as f32 + 14.0 + k;
+            e.y = y0 as f32 + 11.0 + k * 0.3;
+            e.path.clear();
+            k += 1.0;
+        }
+    }
+    g.zoom_mul = 1.3;
+    g.apply_zoom();
+    for _ in 0..3 {
+        g.update(1.0 / 30.0);
+    }
+    dump(&mut g, &dir, "folk");
     g.zoom_mul = 1.0;
     g.apply_zoom();
     // night in town

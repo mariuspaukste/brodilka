@@ -199,6 +199,8 @@ pub struct Look {
     pub long_hair: bool,
     pub helm: u32,
     pub hat: u32,
+    /// a cloth hood over the head and shoulders
+    pub hood: u32,
     pub weapon: Weapon,
     pub shield: u32,
     pub heads: u8,
@@ -227,6 +229,7 @@ impl Look {
             long_hair: false,
             helm: 0,
             hat: 0,
+            hood: 0,
             weapon: Weapon::None,
             shield: 0,
             heads: 1,
@@ -932,6 +935,18 @@ fn build(look: &Look, q: &Pose) -> Vec<Prim> {
                 Mat::Metal,
             );
         }
+        if look.hood != 0 {
+            let c = add(hc, add(mul(fwd, -0.035), [0.0, 0.0, 0.02]));
+            p(c, c, 0.128, 0.128, look.hood, Mat::Matte);
+            p(
+                add(hc, add(mul(fwd, -0.05), [0.0, 0.0, -0.04])),
+                add(hc, add(mul(fwd, -0.06), [0.0, 0.0, -0.2])),
+                0.12,
+                0.16,
+                look.hood,
+                Mat::Matte,
+            );
+        }
         if look.hat != 0 {
             let base = add(hc, [0.0, 0.0, 0.07]);
             p(base, base, 0.06, 0.06, look.hat, Mat::Matte);
@@ -1498,7 +1513,9 @@ pub const P_BANNER: usize = 21; // red, green
 pub const P_STATUE: usize = 23;
 pub const P_WELL: usize = 24;
 pub const P_CRAG: usize = 25; // 3 low, then 3 tall
-pub const N_PROPS: usize = 31;
+pub const P_LONGTABLE: usize = 31;
+pub const P_CART: usize = 32;
+pub const N_PROPS: usize = 33;
 pub const PROP_FW: usize = 96;
 pub const PROP_FH: usize = 128;
 pub const PROP_ANCHOR: (f32, f32) = (48.0, 116.0);
@@ -2368,6 +2385,154 @@ fn prop(kind: usize) -> Figure {
                 0x2e2e30ff,
                 Mat::Metal,
             );
+        }
+        P_LONGTABLE => {
+            // a trestle table two tiles long (along y), benches either side
+            bx(
+                &mut b,
+                [0.0, 0.0, 0.74],
+                [0.42, 1.25, 0.035],
+                wood,
+                Mat::Matte,
+            );
+            for y in [-1.0f32, 1.0] {
+                bx(&mut b, [0.0, y, 0.37], [0.3, 0.04, 0.37], dark, Mat::Matte);
+                bx(&mut b, [0.0, y, 0.05], [0.36, 0.06, 0.05], dark, Mat::Matte);
+            }
+            bx(&mut b, [0.0, 0.0, 0.3], [0.03, 1.0, 0.03], dark, Mat::Matte);
+            for x in [-0.68f32, 0.68] {
+                bx(&mut b, [x, 0.0, 0.44], [0.12, 1.15, 0.03], wood, Mat::Matte);
+                for y in [-0.95f32, 0.95] {
+                    bx(&mut b, [x, y, 0.21], [0.03, 0.03, 0.21], dark, Mat::Matte);
+                }
+            }
+            // supper: tankards, a loaf, a candle
+            for (i, y) in [-0.8f32, -0.2, 0.5].iter().enumerate() {
+                let x = if i % 2 == 0 { 0.2 } else { -0.2 };
+                prim(
+                    &mut p,
+                    [x, *y, 0.79],
+                    [x, *y, 0.9],
+                    0.045,
+                    0.045,
+                    0x8a8e94ff,
+                    Mat::Metal,
+                );
+            }
+            prim(
+                &mut p,
+                [-0.1, 0.9, 0.8],
+                [0.05, 1.05, 0.82],
+                0.08,
+                0.07,
+                0x9a6a30ff,
+                Mat::Matte,
+            );
+            prim(
+                &mut p,
+                [0.0, 0.1, 0.78],
+                [0.0, 0.1, 0.9],
+                0.025,
+                0.025,
+                0xe8e0c0ff,
+                Mat::Matte,
+            );
+            prim(
+                &mut p,
+                [0.0, 0.1, 0.93],
+                [0.0, 0.1, 0.93],
+                0.018,
+                0.018,
+                0xffc040ff,
+                Mat::Glow,
+            );
+        }
+        P_CART => {
+            // a hand cart two tiles long (along y): bed, sides, two wheels, shafts
+            bx(
+                &mut b,
+                [0.0, -0.2, 0.7],
+                [0.55, 0.9, 0.05],
+                wood,
+                Mat::Matte,
+            );
+            for x in [-0.53f32, 0.53] {
+                bx(&mut b, [x, -0.2, 0.88], [0.03, 0.9, 0.15], dark, Mat::Matte);
+            }
+            bx(
+                &mut b,
+                [0.0, -1.08, 0.88],
+                [0.55, 0.03, 0.15],
+                dark,
+                Mat::Matte,
+            );
+            prim(
+                &mut p,
+                [-0.7, -0.1, 0.42],
+                [0.7, -0.1, 0.42],
+                0.04,
+                0.04,
+                dark,
+                Mat::Matte,
+            );
+            for x in [-0.66f32, 0.66] {
+                for k in 0..16 {
+                    let a = k as f32 / 16.0 * std::f32::consts::TAU;
+                    let a2 = (k + 1) as f32 / 16.0 * std::f32::consts::TAU;
+                    prim(
+                        &mut p,
+                        [x, -0.1 + a.cos() * 0.4, 0.42 + a.sin() * 0.4],
+                        [x, -0.1 + a2.cos() * 0.4, 0.42 + a2.sin() * 0.4],
+                        0.045,
+                        0.045,
+                        dark,
+                        Mat::Matte,
+                    );
+                }
+                for k in 0..4 {
+                    let a = k as f32 / 4.0 * std::f32::consts::PI;
+                    prim(
+                        &mut p,
+                        [x, -0.1 + a.cos() * 0.38, 0.42 + a.sin() * 0.38],
+                        [x, -0.1 - a.cos() * 0.38, 0.42 - a.sin() * 0.38],
+                        0.02,
+                        0.02,
+                        wood,
+                        Mat::Matte,
+                    );
+                }
+                prim(
+                    &mut p,
+                    [x * 0.55, 0.7, 0.72],
+                    [x * 0.45, 1.3, 0.05],
+                    0.035,
+                    0.03,
+                    wood,
+                    Mat::Matte,
+                );
+            }
+            // a load of sacks and a barrel
+            for (y, col) in [(-0.7f32, 0x8a7450ffu32), (-0.25, 0x7a6644ff)] {
+                prim(
+                    &mut p,
+                    [0.1, y, 0.85],
+                    [0.0, y, 1.0],
+                    0.24,
+                    0.18,
+                    col,
+                    Mat::Matte,
+                );
+            }
+            for k in 0..8 {
+                let yaw = k as f32 / 8.0 * std::f32::consts::PI;
+                b.push(BoxP {
+                    c: [0.0, 0.35, 1.03],
+                    h: [0.24, 0.1, 0.3],
+                    yaw,
+                    color: if k % 2 == 0 { wood } else { 0x5e3e22ff },
+                    mat: Mat::Matte,
+                });
+            }
         }
         k if (P_CRAG..P_CRAG + 6).contains(&k) => {
             // a mass of broken rock filling its tile

@@ -392,11 +392,26 @@ impl Game {
             }
             EK::Npc(v) => {
                 let vd = &VENDORS[v];
-                let mut l = Look::human(skin, vd.robe, 0x3a3028ff);
+                // every townsperson dressed a little differently, from their look seed
+                let r = |k: u32| (e.look.wrapping_mul(0x9e37_79b9).rotate_left(k * 5) >> 8) % 1000;
+                const SKINS: [u32; 4] = [0xe0b090ff, 0xd09a74ff, 0xb07850ff, 0xe8c4a8ff];
+                const CLOTH: [u32; 8] = [
+                    0x5a4a38ff, 0x3e4a3aff, 0x6a3a2aff, 0x4a4652ff, 0x7a6a4aff, 0x3a3a44ff,
+                    0x5a2a30ff, 0x6a5e50ff,
+                ];
+                const LEGS: [u32; 4] = [0x3a3028ff, 0x2a2a30ff, 0x4a3a28ff, 0x3a3a2aff];
+                let mut l = Look::human(
+                    SKINS[(r(1) % 4) as usize],
+                    vd.robe,
+                    LEGS[(r(2) % 4) as usize],
+                );
                 l.role = 1;
-                l.hair = HAIR[(e.look % 3) as usize];
+                l.hair = HAIR[(r(3) % 5) as usize];
                 l.female = e.look % 2 == 0;
-                l.long_hair = l.female;
+                l.long_hair = l.female && r(4) % 3 != 0;
+                l.boots = [0x3a2a1aff, 0x2a1e14ff, 0x4a3a2aff][(r(5) % 3) as usize];
+                l.bulk = (r(6) % 18) as u8;
+                l.scale = 94 + (r(7) % 10) as u16;
                 match v {
                     V_GUARD => {
                         l.metal_body = true;
@@ -408,6 +423,7 @@ impl Game {
                         l.hair = 0;
                         l.female = false;
                         l.long_hair = false;
+                        l.scale = 102;
                     }
                     V_MAGE => {
                         l.robe = true;
@@ -421,6 +437,29 @@ impl Game {
                     V_SMITH => {
                         l.weapon = Weapon::Mace;
                         l.skin = 0xd8a070ff;
+                        l.bulk = 18;
+                    }
+                    V_FOLK => {
+                        l.body = CLOTH[(r(8) % 8) as usize];
+                        match r(9) % 6 {
+                            // a long dress or a monk's habit
+                            0 | 1 => {
+                                l.robe = true;
+                                l.legs = l.body;
+                            }
+                            // a hooded traveller with a walking stick
+                            2 => {
+                                l.hood = shade(l.body, 0.8);
+                                l.weapon = Weapon::Staff;
+                            }
+                            // an old one: grey and bent
+                            3 => {
+                                l.hair = 0xb0aca4ff;
+                                l.hunch = 18;
+                                l.weapon = Weapon::Staff;
+                            }
+                            _ => {}
+                        }
                     }
                     _ => {}
                 }
@@ -859,10 +898,15 @@ impl Game {
                 }
                 let o = self.map.o[i];
                 if o != O_NONE {
+                    // anything tall enough to hide you turns see-through
+                    let tall = size(o).1;
                     let occl = match o {
                         O_WALL => near_front,
-                        O_TREE => {
-                            near_front && (d as f32 - pd).abs() < 2.5 && (s as f32 - ps) < 4.0
+                        O_PART => false,
+                        _ if tall >= 1.4 => {
+                            near_front
+                                && (d as f32 - pd).abs() < 1.0 + tall * 0.4
+                                && (s as f32 - ps) < 1.0 + tall * 0.75
                         }
                         _ => false,
                     };
@@ -1440,6 +1484,8 @@ impl Game {
                 O_SKULLS => Some((bake::P_SKULLS, flip_v)),
                 O_STATUE => Some((bake::P_STATUE, false)),
                 O_WELL => Some((bake::P_WELL, false)),
+                O_LONGTABLE => Some((bake::P_LONGTABLE, style & FACE_S != 0)),
+                O_CART => Some((bake::P_CART, style & FACE_S != 0)),
                 _ => None,
             };
             if let Some((k, flip)) = pick {
@@ -1452,6 +1498,14 @@ impl Game {
                     lights.push((sx, sy - 10.0 * z, 130.0, 0xff9040ff));
                 }
                 let (ax, ay) = bake::PROP_ANCHOR;
+                // larger objects are drawn from their front tile at the middle of their footprint
+                let (len, _) = size(o);
+                let back = (len - 1) as f32 * 0.5;
+                let (sx, sy) = if style & FACE_S != 0 {
+                    (sx - back * 32.0 * z, sy - back * 16.0 * z)
+                } else {
+                    (sx + back * 32.0 * z, sy - back * 16.0 * z)
+                };
                 c.sprite(
                     pid,
                     k,

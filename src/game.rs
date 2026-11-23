@@ -586,7 +586,11 @@ impl Game {
         for (v, x, y) in npcs {
             let id = g.nid();
             let vd = &VENDORS[v];
-            let nm = format!("{} {}", g.rng.pick(vd.names), vd.title);
+            let nm = if vd.title.is_empty() {
+                g.rng.pick(vd.names).to_string()
+            } else {
+                format!("{} {}", g.rng.pick(vd.names), vd.title)
+            };
             let mut e = Ent::new(id, EK::Npc(v), nm, x, y, 500);
             e.look = g.rng.next_u32();
             e.ai_t = g.rng.f() * 5.0;
@@ -658,7 +662,7 @@ impl Game {
         for _ in 0..30 {
             let x = sx + self.rng.range(-r, r);
             let y = sy + self.rng.range(-r, r);
-            if !self.map.passable(x, y) || self.map.in_town(x, y) {
+            if !self.map.passable(x, y) || self.map.in_town(x, y) || !self.map.reach[idx(x, y)] {
                 continue;
             }
             if self.created && self.ents[0].dist(x as f32, y as f32) < 9.0 {
@@ -1290,6 +1294,7 @@ impl Game {
                     self.ents[0].path = path;
                 } else {
                     self.pl.chase = false;
+                    self.ents[0].target = 0;
                     self.msg("Thou canst not reach that.", C_WARN);
                 }
             }
@@ -1756,7 +1761,11 @@ impl Game {
         }
         // wander a little around home
         let (hx, hy) = self.ents[i].home;
-        let r = if v == V_GUARD { 4 } else { 1 };
+        let r = match v {
+            V_GUARD => 4,
+            V_FOLK => 6,
+            _ => 1,
+        };
         let (tx, ty) = (hx + self.rng.range(-r, r), hy + self.rng.range(-r, r));
         let (sx, sy) = self.ents[i].tile();
         if self.map.passable(tx, ty) && self.ents[i].path.is_empty() {
@@ -2930,7 +2939,12 @@ mod tests {
                 g.update(1.0 / 30.0);
             }
             assert!(g.pl.kills > 0, "seed {seed}: no kills");
-            assert!(g.pl.skills[SWORDS] > 500);
+            assert!(
+                g.pl.skills[SWORDS] > 500,
+                "seed {seed}: swords {} kills {}",
+                g.pl.skills[SWORDS],
+                g.pl.kills
+            );
         }
     }
 

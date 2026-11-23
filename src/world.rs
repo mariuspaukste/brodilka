@@ -50,6 +50,28 @@ pub const O_SACKS: u8 = 28;
 pub const O_SKULLS: u8 = 29;
 pub const O_STATUE: u8 = 30;
 pub const O_WELL: u8 = 31;
+/// a tile covered by the larger object in front of it (drawn there, blocks here)
+pub const O_PART: u8 = 32;
+pub const O_LONGTABLE: u8 = 33;
+pub const O_CART: u8 = 34;
+
+/// An object's footprint in tiles (along y unless mirrored with FACE_S, then
+/// along x) and its height in metres, for blocking, drawing and see-through.
+pub fn size(o: u8) -> (i32, f32) {
+    match o {
+        O_LONGTABLE => (2, 0.8),
+        O_CART => (2, 1.4),
+        O_TREE => (1, 4.0),
+        O_STATUE => (1, 2.4),
+        O_WELL => (1, 1.8),
+        O_WALL => (1, 1.3),
+        O_TENT => (1, 1.6),
+        O_HEARTH => (1, 1.8),
+        O_SHELF => (1, 1.9),
+        O_LAMP => (1, 2.0),
+        _ => (1, 0.6),
+    }
+}
 /// style bit: furniture faces down-left (mirrored) instead of down-right
 pub const FACE_S: u8 = 0x80;
 
@@ -72,6 +94,8 @@ pub struct Map {
     /// a slope: walkable up to the next level on any side
     pub ramp: Vec<bool>,
     pub road: Vec<bool>,
+    /// walkable from the town
+    pub reach: Vec<bool>,
     pub town: (i32, i32, i32, i32),
     pub start: (i32, i32),
     pub npcs: Vec<(usize, i32, i32)>,
@@ -192,6 +216,26 @@ impl Map {
             self.lv[idx(x, y)]
         } else {
             0
+        }
+    }
+    /// Place a (possibly multi-tile) object with its anchor on the front tile;
+    /// along x when `mirrored`, otherwise along y.
+    pub fn place(&mut self, x: i32, y: i32, o: u8, mirrored: bool) {
+        let (len, _) = size(o);
+        for k in 1..len {
+            let (px, py) = if mirrored { (x - k, y) } else { (x, y - k) };
+            if inb(px, py) {
+                self.o[idx(px, py)] = O_PART;
+            }
+        }
+        if inb(x, y) {
+            let i = idx(x, y);
+            self.o[i] = o;
+            if mirrored {
+                self.style[i] |= FACE_S;
+            } else {
+                self.style[i] &= !FACE_S;
+            }
         }
     }
     pub fn is_ramp(&self, x: i32, y: i32) -> bool {
@@ -428,9 +472,9 @@ impl Map {
                 (back(bx + 5), O_HEARTH),
                 (side(by + 1), O_BED),
                 (side(by + 2), O_BED),
-                ((bx + 6, by + 3, false), O_TABLE),
+                ((bx + 5, by + 4, false), O_LONGTABLE),
                 ((bx + 6, by + 4, true), O_CHAIR),
-                ((bx + 5, by + 3, false), O_CHAIR),
+                ((bx + 6, by + 3, true), O_CHAIR),
             ],
             _ => vec![
                 (back(bx + 1), O_SHELF),
@@ -441,7 +485,9 @@ impl Map {
             ],
         };
         for ((x, y, south), o) in items {
-            if inb(x, y) {
+            if size(o).0 > 1 {
+                self.place(x, y, o, south);
+            } else if inb(x, y) {
                 let i = idx(x, y);
                 self.o[i] = o;
                 if south {
@@ -596,6 +642,7 @@ impl Map {
                     }
                 }
             }
+            self.reach = seen;
             if !fixed {
                 break;
             }
@@ -626,6 +673,7 @@ pub fn generate(seed: u32) -> Map {
         lv: vec![0; N],
         ramp: vec![false; N],
         road: vec![false; N],
+        reach: vec![false; N],
     };
     let town_c = (80, 78);
     let grave = (124, 32);
@@ -873,7 +921,12 @@ pub fn generate(seed: u32) -> Map {
     m.set_o(x0 + 25, y0 + 11, O_STATUE);
     m.set_o(x0 + 30, y0 + 13, O_WELL);
     m.set_o(x0 + 5, y0 + 13, O_WELL);
+    m.place(x0 + 11, y0 + 25, O_CART, true);
+    m.place(x0 + 24, y0 + 25, O_CART, false);
     m.npcs.push((V_GUARD, x0 + 15, y0 + 11));
+    for (dx, dy) in [(8, 12), (27, 14), (20, 26), (4, 27)] {
+        m.npcs.push((V_FOLK, x0 + dx, y0 + dy));
+    }
     m.npcs.push((V_GUARD, x0 + 1, y0 + 13));
     m.npcs.push((V_GUARD, x1 - 1, y0 + 14));
     m.start = (x0 + 18, y0 + 15);
@@ -909,6 +962,7 @@ pub fn generate(seed: u32) -> Map {
 pub fn mini_color(m: &Map, i: usize) -> [u8; 4] {
     let c: u32 = match (m.t[i], m.o[i]) {
         (_, O_WALL) => 0x5a4a3aff,
+        (_, O_CART) | (_, O_PART) => 0x5a4028ff,
         (_, O_TREE) => 0x2e5a22ff,
         (T_WATER, _) => 0x2a5582ff,
         (T_SAND, _) => 0xcdb882ff,
