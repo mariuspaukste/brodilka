@@ -27,6 +27,11 @@ jobs:
         run: cargo test --release
       - name: Build wasm
         run: cargo build --release --target wasm32-unknown-unknown --lib
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Smoke-test the wasm
+        run: node tools/smoke.mjs target/wasm32-unknown-unknown/release/brodilka.wasm
       - name: Assemble site
         run: |
           mkdir -p dist

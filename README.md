@@ -27,6 +27,15 @@ canvas and renders the windows ("gumps") from JSON; all game logic is in Rust.
   troll hills and a dragon's lair. Karma, fame and a day/night cycle.
 - Autosaves to the browser's localStorage.
 
+## Look
+
+The renderer aims for Ultima VIII: Pagan — a low-resolution buffer scaled up
+with nearest-neighbour pixels, thick ink outlines, a grim twilight palette with
+fog, ash and a dark vignette, flagstones and masonry, deep blue water, rock
+cliffs, braziers and giant mushrooms. Characters are animated procedurally
+(walk cycle, idle breathing, wind-up/slash/recover swings with trails, recoil,
+spellcasting poses, front/back facing), and wounds leave blood on the ground.
+
 ## Controls
 
 Tap the ground to walk, hold and drag to steer. Tap a creature to attack,
@@ -44,7 +53,8 @@ cp target/wasm32-unknown-unknown/release/brodilka.wasm web/
 python3 -m http.server -d web   # open http://localhost:8000
 ```
 
-`cargo test` runs world, combat, magic and save tests natively.
+`cargo test` runs world, combat, magic and save tests natively, and CI runs
+`tools/smoke.mjs` against the built `.wasm` in Node before deploying.
 `cargo run --example dump -- /tmp/dump` dumps draw commands for inspection.
 
 Pushes to `main` are built and deployed to GitHub Pages by

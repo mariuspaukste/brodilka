@@ -111,6 +111,8 @@ pub struct Ent {
     pub dead: bool,
     pub provoked: bool,
     pub look: u32,
+    /// facing away from the viewer
+    pub back: bool,
 }
 
 impl Ent {
@@ -144,6 +146,7 @@ impl Ent {
             dead: false,
             provoked: false,
             look: 0,
+            back: false,
         }
     }
     pub fn tile(&self) -> (i32, i32) {
@@ -244,6 +247,14 @@ pub struct Float {
     pub text: String,
     pub color: u32,
     pub t: f32,
+}
+
+pub struct Decal {
+    pub x: f32,
+    pub y: f32,
+    pub r: f32,
+    pub t: f32,
+    pub color: u32,
 }
 
 pub struct Spawner {
@@ -454,6 +465,7 @@ pub struct Game {
     pub corpses: Vec<Corpse>,
     pub fx: Vec<Fx>,
     pub floats: Vec<Float>,
+    pub decals: Vec<Decal>,
     pub spawners: Vec<Spawner>,
     pub journal: VecDeque<(u32, String, u32)>,
     pub jid: u32,
@@ -499,6 +511,7 @@ impl Game {
             corpses: vec![],
             fx: vec![],
             floats: vec![],
+            decals: vec![],
             spawners: vec![],
             journal: VecDeque::new(),
             jid: 0,
@@ -901,6 +914,10 @@ impl Game {
             f.t += dt;
         }
         self.floats.retain(|f| f.t < 1.2);
+        for d in self.decals.iter_mut() {
+            d.t += dt;
+        }
+        self.decals.retain(|d| d.t < 90.0);
         let before = self.corpses.len();
         for c in self.corpses.iter_mut() {
             c.t -= dt;
@@ -949,6 +966,10 @@ impl Game {
         let sdx = dx - dy;
         if sdx.abs() > 0.01 {
             e.face = sdx.signum();
+        }
+        let sdy = dx + dy;
+        if sdy.abs() > 0.01 {
+            e.back = sdy < 0.0;
         }
         e.walk += dt * speed * 2.4;
         if d <= step {
@@ -1162,6 +1183,10 @@ impl Game {
             if sdx.abs() > 0.05 {
                 self.ents[0].face = sdx.signum();
             }
+            let sdy = (tx + ty) - (self.ents[0].x + self.ents[0].y);
+            if sdy.abs() > 0.05 {
+                self.ents[0].back = sdy < 0.0;
+            }
             if self.ents[0].swing <= 0.0 && !matches!(self.pl.action, Action::Cast { .. }) {
                 self.player_swing(ti);
             }
@@ -1221,6 +1246,38 @@ impl Game {
         self.damage(ti, dmg.round().max(1.0) as i32, true);
     }
 
+    /// blood spray and a splat on the ground
+    pub fn bleed(&mut self, i: usize, dmg: i32) {
+        let (x, y) = (self.ents[i].x, self.ents[i].y);
+        let col = blood_color(&self.ents[i]);
+        let dir = self.ents[i].face;
+        self.fx.push(Fx {
+            kind: FX_BLOOD,
+            x0: x,
+            y0: y,
+            x1: x + dir * 0.6,
+            y1: y - dir * 0.6,
+            tgt: col,
+            t: 0.0,
+            dur: 0.55,
+            dmg: 0,
+            by_player: false,
+        });
+        let r = (0.08 + dmg as f32 * 0.012).min(0.3);
+        let (ox, oy) = (self.rng.f() - 0.5, self.rng.f() - 0.5);
+        self.decals.push(Decal {
+            x: x + ox * 0.7,
+            y: y + oy * 0.7,
+            r,
+            t: 0.0,
+            color: col,
+        });
+        if self.decals.len() > 160 {
+            self.decals.remove(0);
+        }
+        self.ents[i].hurt = 1.0;
+    }
+
     pub fn float(&mut self, x: f32, y: f32, s: &str, col: u32) {
         self.floats.push(Float {
             x,
@@ -1242,6 +1299,7 @@ impl Game {
         }
         let (x, y) = (self.ents[i].x, self.ents[i].y);
         self.float(x, y, &dmg.to_string(), 0xffe060ff);
+        self.bleed(i, dmg);
         let pid = self.ents[0].id;
         let e = &mut self.ents[i];
         e.hp -= dmg;
@@ -1286,6 +1344,9 @@ impl Game {
         }
         let (x, y) = (self.ents[0].x, self.ents[0].y);
         self.float(x, y, &dmg.to_string(), 0xff5040ff);
+        if dmg > 0 {
+            self.bleed(0, dmg);
+        }
         let p = self.pm();
         p.hp -= dmg;
         p.hurt = 1.0;
@@ -1335,6 +1396,14 @@ impl Game {
         if d.id == "rabbit" && self.rng.chance(0.5) {
             items.push(Item::new(item_idx("fish"), 1)); // "meat" placeholder: edible
         }
+        let bc = blood_color(&self.ents[i]);
+        self.decals.push(Decal {
+            x: x as f32,
+            y: y as f32,
+            r: 0.35 + d.size * 0.25,
+            t: -1.5,
+            color: bc,
+        });
         let cid = self.nid();
         self.corpses.push(Corpse {
             id: cid,
@@ -1582,6 +1651,10 @@ impl Game {
         let sdx = (px - py) - (self.ents[i].x - self.ents[i].y);
         if sdx.abs() > 0.05 {
             self.ents[i].face = sdx.signum();
+        }
+        let sdy = (px + py) - (self.ents[i].x + self.ents[i].y);
+        if sdy.abs() > 0.05 {
+            self.ents[i].back = sdy < 0.0;
         }
         // dragon breath
         if d.breath && pd < 6.0 && self.ents[i].breath_t <= 0.0 {
@@ -2501,6 +2574,15 @@ impl Game {
             self.pl.chase = false;
         }
         self.touch_ui();
+    }
+}
+
+pub fn blood_color(e: &Ent) -> u32 {
+    match e.mon().map(|m| m.id) {
+        Some("slime") => 0x4a8a2aff,
+        Some("skeleton") | Some("lich") => 0x9a9480ff,
+        Some("zombie") => 0x3a3a1aff,
+        _ => 0x6a0a08ff,
     }
 }
 

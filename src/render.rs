@@ -128,6 +128,14 @@ pub fn shade(c: u32, f: f32) -> u32 {
     let b = (((c >> 8) & 255) as f32 * f).clamp(0.0, 255.0) as u32;
     (r << 24) | (g << 16) | (b << 8) | (c & 255)
 }
+fn fi32(i: i32) -> f32 {
+    i as f32
+}
+pub fn mix(a: u32, b: u32, k: f32) -> u32 {
+    let ch = |c: u32, sh: u32| ((c >> sh) & 255) as f32;
+    let m = |sh: u32| ((ch(a, sh) * (1.0 - k) + ch(b, sh) * k).clamp(0.0, 255.0) as u32) << sh;
+    m(24) | m(16) | m(8) | (a & 255)
+}
 pub fn h2(x: i32, y: i32, k: i32) -> f32 {
     let mut h = (x as u32).wrapping_mul(0x27d4_eb2d)
         ^ (y as u32).wrapping_mul(0x1656_67b1)
@@ -142,20 +150,20 @@ pub fn with_a(c: u32, a: f32) -> u32 {
 
 fn tile_color(t: u8) -> u32 {
     match t {
-        T_WATER => 0x18265aff,
-        T_SAND => 0x9c8a5eff,
-        T_GRASS => 0x4f5f2cff,
-        T_DIRT => 0x6e5236ff,
-        T_COBBLE => 0x6c6a66ff,
-        T_FLOOR => 0x6e4a2aff,
+        T_WATER => 0x101a3cff,
+        T_SAND => 0x7a6a4cff,
+        T_GRASS => 0x434826ff,
+        T_DIRT => 0x58402eff,
+        T_COBBLE => 0x5a5856ff,
+        T_FLOOR => 0x583a22ff,
         T_MOUNT => 0x5e5650ff,
-        T_BRIDGE => 0x5e3e20ff,
-        T_CAVE => 0x2e2620ff,
+        T_BRIDGE => 0x4a321eff,
+        T_CAVE => 0x221a16ff,
         _ => 0x000000ff,
     }
 }
 
-const WALL_COLORS: [u32; 5] = [0x807a70ff, 0x807a70ff, 0x7a5a3aff, 0x9a8e78ff, 0x5a5550ff];
+const WALL_COLORS: [u32; 5] = [0x6a6660ff, 0x6a6660ff, 0x664830ff, 0x7a7060ff, 0x4a4642ff];
 const INK: u32 = 0x120c08ff;
 
 /// Small helper for drawing in "model units" around a screen anchor.
@@ -276,6 +284,39 @@ impl Game {
             ]);
         }
 
+        // ---- blood and gore on the ground
+        for d in self.decals.iter() {
+            let (dx, dy) = self.to_screen(d.x, d.y);
+            if dx < -60.0 || dx > self.w + 60.0 || dy < -60.0 || dy > self.h + 60.0 {
+                continue;
+            }
+            let k = if d.t < 0.0 {
+                ((d.t + 1.5) / 1.5).clamp(0.15, 1.0)
+            } else {
+                1.0
+            };
+            let a = ((90.0 - d.t) / 25.0).clamp(0.0, 1.0) * 0.85;
+            let (rx, ry) = (d.r * 32.0 * z * k, d.r * 16.0 * z * k);
+            c.fill(with_a(d.color, a));
+            c.ell(dx, dy, rx, ry);
+            c.fill(with_a(shade(d.color, 0.6), a));
+            c.ell(dx - rx * 0.2, dy + ry * 0.1, rx * 0.55, ry * 0.5);
+            let j = (d.x * 13.0).sin();
+            c.fill(with_a(d.color, a));
+            c.ell(
+                dx + rx * (1.1 + j * 0.2),
+                dy - ry * 0.4,
+                rx * 0.18,
+                ry * 0.18,
+            );
+            c.ell(
+                dx - rx * 1.05,
+                dy + ry * (0.3 + j * 0.2),
+                rx * 0.12,
+                ry * 0.12,
+            );
+        }
+
         // ---- entity buckets
         let mut order: Vec<(i32, usize)> = self
             .ents
@@ -374,16 +415,40 @@ impl Game {
         }
 
         // ---- Pagan-style perpetual twilight: violet haze and a dark vignette
-        c.fill(0x1c144030);
+        c.outline(0, 0.0);
+        // drifting fog banks
+        for i in 0..6 {
+            let fi = i as f32;
+            let fx = (h2(i, 3, 1) * (self.w + 500.0) + t * (5.0 + fi)) % (self.w + 500.0) - 250.0;
+            let fy = h2(i, 5, 2) * self.h;
+            c.fill(0xa8a09010);
+            c.ell(fx, fy, 260.0 * z, 70.0 * z);
+            c.ell(fx + 90.0 * z, fy + 20.0 * z, 180.0 * z, 50.0 * z);
+        }
+        c.fill(0x2a120a38);
         c.rect(-10.0, -10.0, self.w + 20.0, self.h + 20.0);
         c.dark(
             self.w / 2.0,
             self.h / 2.0,
-            self.w.min(self.h) * 0.3,
-            self.w.max(self.h) * 0.75,
-            0.55,
-            0x000000ff,
+            self.w.min(self.h) * 0.28,
+            self.w.max(self.h) * 0.72,
+            0.72,
+            0x050302ff,
         );
+        // falling ash and the odd ember
+        let px1 = self.pix.max(1.0);
+        for i in 0..44 {
+            let (a, b) = (h2(i, 11, 3), h2(i, 13, 4));
+            let ax = (a * self.w + t * (6.0 + b * 10.0) + (t * 0.7 + fi32(i)).sin() * 12.0)
+                .rem_euclid(self.w);
+            let ay = (b * self.h + t * (10.0 + a * 14.0)).rem_euclid(self.h);
+            c.fill(if i % 9 == 0 {
+                with_a(0xff7a30ff, 0.5 + (t * 6.0 + fi32(i)).sin() * 0.3)
+            } else {
+                0x9a948870
+            });
+            c.rect(ax, ay, 1.5 * px1, 1.5 * px1);
+        }
 
         // ---- night
         let dk = self.darkness();
@@ -767,7 +832,7 @@ impl Game {
                     c.outline(INK, self.pix.max(z));
                     return;
                 }
-                let g = if depleted { 0x58602cff } else { 0x2c4a1eff };
+                let g = if depleted { 0x4e5028ff } else { 0x263c18ff };
                 let f = 0.85 + sh as f32 / 255.0 * 0.3;
                 if sh % 3 == 0 {
                     for k in 0..3 {
@@ -1227,7 +1292,7 @@ impl Game {
                     .armor
                     .as_ref()
                     .map(|a| a.def().color)
-                    .unwrap_or(0xb8a078ff);
+                    .unwrap_or(0x8a6a4aff);
                 let robe = pl
                     .armor
                     .as_ref()
@@ -1357,7 +1422,11 @@ impl Game {
             EK::Mon(m) => {
                 let d = &MONS[m];
                 let s = d.size;
-                let col = if flash { 0xffffffff } else { d.color };
+                let col = if flash {
+                    mix(d.color, 0xc02010ff, 0.5)
+                } else {
+                    d.color
+                };
                 match d.id {
                     "rabbit" | "rat" | "wolf" => self.quad(c, e, sx, sy, z * s, col, d.id, wk, t),
                     "mongbat" => self.mongbat(c, e, sx, sy, z * s, col, t),
@@ -1520,6 +1589,22 @@ impl Game {
         wk: f32,
         flash: bool,
     ) {
+        let t = self.clock;
+        let ink = self.pix.max(z);
+        let moving = !e.path.is_empty();
+        let recoil = e.hurt * e.hurt * 3.0;
+        let sx = sx - e.face * recoil * z;
+        let breathe = if moving {
+            0.0
+        } else {
+            (t * 2.2 + e.id as f32 * 0.7).sin() * 0.7
+        };
+        let bob = if moving {
+            -(e.walk.sin()).abs() * 1.8
+        } else {
+            0.0
+        };
+        let up = bob + breathe * 0.5;
         let p = P {
             x: sx,
             y: sy,
@@ -1527,139 +1612,238 @@ impl Game {
             f: e.face,
         };
         let s = p.s;
-        let tint = |col: u32| if flash { shade(col, 1.6) } else { col };
-        c.fill(0x00000050);
+        let tint = |col: u32| {
+            if flash {
+                mix(col, 0xc02010ff, 0.5)
+            } else {
+                col
+            }
+        };
+        let casting = e.k == EK::Player && matches!(self.pl.action, Action::Cast { .. });
+
+        // ---- arm & weapon kinematics (model units, facing right)
+        let shoulder = (6.5, -27.0 + up);
+        let rest = (8.5 - wk * 3.0, -17.0 + up);
+        let windup = (1.5, -39.0 + up);
+        let strike = (15.0, -12.0 + up);
+        let lerp =
+            |a: (f32, f32), b: (f32, f32), k: f32| (a.0 + (b.0 - a.0) * k, a.1 + (b.1 - a.1) * k);
+        let hand_at = |ph: f32| {
+            if ph < 0.3 {
+                lerp(rest, windup, ph / 0.3)
+            } else if ph < 0.62 {
+                lerp(windup, strike, (ph - 0.3) / 0.32)
+            } else {
+                lerp(strike, rest, (ph - 0.62) / 0.38)
+            }
+        };
+        let blade_len = match h.weapon {
+            4 => 22.0,
+            5 => 28.0,
+            _ => 15.0,
+        };
+        let tip_of = |hand: (f32, f32)| {
+            let (dx, dy) = (
+                (hand.0 - shoulder.0) * 0.6 + 0.8,
+                (hand.1 - shoulder.1) * 0.6 - 0.6,
+            );
+            let l = (dx * dx + dy * dy).sqrt().max(0.01);
+            (hand.0 + dx / l * blade_len, hand.1 + dy / l * blade_len)
+        };
+        let attacking = e.atk > 0.0 && !casting;
+        let phase = 1.0 - e.atk;
+        let hand = if casting {
+            (7.0, -41.0 + up)
+        } else if attacking {
+            hand_at(phase)
+        } else {
+            rest
+        };
+        let back_hand = if casting {
+            (-7.0, -41.0 + up)
+        } else {
+            (-8.0 + wk * 3.0, -16.0 + up)
+        };
+
+        let draw_weapon_arm = |c: &mut Canvas| {
+            let (a, b) = (p.at(shoulder.0, shoulder.1), p.at(hand.0, hand.1));
+            c.ink_line(a, b, tint(h.skin), 2.7 * s);
+            if h.weapon > 0 && !casting {
+                let tip = tip_of(hand);
+                let wcol = match h.weapon {
+                    4 | 6 => 0x5a3e22ff,
+                    5 => 0x7a7e84ff,
+                    _ => 0xc8ccd0ff,
+                };
+                let (a, b) = (p.at(hand.0, hand.1), p.at(tip.0, tip.1));
+                c.ink_line(a, b, wcol, if h.weapon == 6 { 4.0 * s } else { 2.0 * s });
+                match h.weapon {
+                    2 | 5 => {
+                        c.fill(0x9aa0a8ff);
+                        c.ell(b.0, b.1, 4.0 * s, 3.0 * s);
+                    }
+                    3 => {
+                        c.fill(0x4a5058ff);
+                        c.rect(b.0 - 3.5 * s, b.1 - 3.0 * s, 7.0 * s, 6.0 * s);
+                    }
+                    4 => {
+                        c.fill(0x60a0e0ff);
+                        c.ell(b.0, b.1, 2.8 * s, 2.8 * s);
+                    }
+                    6 => {
+                        c.fill(0x4a3018ff);
+                        c.ell(b.0, b.1, 4.0 * s, 4.0 * s);
+                    }
+                    _ => {}
+                }
+            }
+            if casting {
+                for hp in [hand, back_hand] {
+                    let (x, y) = p.at(hp.0, hp.1);
+                    c.fill(with_a(0x80b0ffff, 0.5 + (t * 14.0).sin() * 0.25));
+                    c.ell(x, y, 4.0 * s, 4.0 * s);
+                }
+            }
+        };
+
+        // shadow (no ink)
+        c.outline(0, 0.0);
+        c.fill(0x00000066);
         c.ell(sx, sy, 11.0 * s, 4.5 * s);
+        // slash trail
+        if attacking && h.weapon > 0 && phase > 0.3 && phase < 0.8 {
+            let mut pts = vec![];
+            let end = phase.min(0.62);
+            for k in 0..7 {
+                let ph = 0.3 + (end - 0.3) * k as f32 / 6.0;
+                let tp = tip_of(hand_at(ph));
+                pts.push(p.at(tp.0, tp.1));
+            }
+            c.stroke(
+                with_a(0xe8e0d0ff, 0.45 * (1.0 - (phase - 0.3) / 0.5)),
+                3.0 * s,
+            );
+            c.poly_s(&pts);
+        }
+        c.outline(INK, ink);
+
+        if e.back {
+            draw_weapon_arm(c);
+        }
         // legs / robe
         if h.robe {
-            c.fill(tint(shade(h.body, 0.85)));
+            c.fill(tint(shade(h.body, 0.8)));
             c.poly(&[
-                p.at(-7.0, -27.0),
-                p.at(7.0, -27.0),
+                p.at(-7.0, -27.0 + up),
+                p.at(7.0, -27.0 + up),
                 p.at(9.5 + wk, -1.0),
                 p.at(-9.5 + wk, -1.0),
             ]);
         } else {
-            let (a, b) = (p.at(-3.0, -14.0), p.at(-3.0 + wk * 4.0, -0.5));
+            let (a, b) = (p.at(-3.0, -14.0 + up), p.at(-3.0 + wk * 4.5, -0.5));
             c.ink_line(a, b, tint(h.legs), 3.4 * s);
-            let (a, b) = (p.at(3.0, -14.0), p.at(3.0 - wk * 4.0, -0.5));
+            let (a, b) = (p.at(3.0, -14.0 + up), p.at(3.0 - wk * 4.5, -0.5));
             c.ink_line(a, b, tint(h.legs), 3.4 * s);
         }
-        // torso
+        // torso, lit from the upper left
+        let torso = [
+            p.at(-7.0, -13.0 + up),
+            p.at(7.0, -13.0 + up),
+            p.at(6.5, -29.0 + up),
+            p.at(-6.5, -29.0 + up),
+        ];
         c.fill(tint(h.body));
+        c.poly(&torso);
+        c.outline(0, 0.0);
+        c.fill(0x00000048);
         c.poly(&[
-            p.at(-7.0, -13.0),
-            p.at(7.0, -13.0),
-            p.at(6.5, -29.0),
-            p.at(-6.5, -29.0),
+            (sx + 1.0 * s, sy + (-13.0 + up) * s),
+            (sx + 7.0 * s, sy + (-13.0 + up) * s),
+            (sx + 6.5 * s, sy + (-29.0 + up) * s),
+            (sx + 1.5 * s, sy + (-29.0 + up) * s),
         ]);
         if h.skull {
             c.stroke(0x00000080, 1.0 * s);
             for k in 0..3 {
-                let yy = -25.0 + k as f32 * 4.0;
+                let yy = -25.0 + up + k as f32 * 4.0;
                 let (a, b) = (p.at(-5.0, yy), p.at(5.0, yy));
                 c.line(a.0, a.1, b.0, b.1);
             }
         }
-        c.fill(shade(h.body, 0.6));
-        let (a, b) = (p.at(-7.0, -15.0), p.at(7.0, -15.0));
+        c.fill(shade(h.body, 0.5));
+        let (a, b) = (p.at(-7.0, -15.0 + up), p.at(7.0, -15.0 + up));
         c.poly(&[a, b, (b.0, b.1 + 2.0 * s), (a.0, a.1 + 2.0 * s)]);
-        // back arm + shield
-        let bh = p.at(-8.0, -16.0 - wk.abs() * 1.0);
-        let sh = p.at(-6.5, -27.0);
-        c.ink_line(sh, bh, tint(h.skin), 2.6 * s);
+        c.outline(INK, ink);
+        // shield arm
+        let sh = p.at(-6.5, -27.0 + up);
+        c.ink_line(sh, p.at(back_hand.0, back_hand.1), tint(h.skin), 2.7 * s);
         if let Some(scol) = h.shield {
-            c.fill(scol);
-            let (x, y) = p.at(-9.0, -19.0);
-            c.ell(x, y, 4.5 * s, 7.0 * s);
-            c.fill(shade(scol, 1.3));
-            c.ell(x, y, 1.5 * s, 2.0 * s);
-        }
-        // weapon arm
-        let atk = e.atk;
-        let hand = p.at(8.0 + atk * 4.0, -17.0 - atk * 9.0);
-        let sh2 = p.at(6.5, -27.0);
-        c.ink_line(sh2, hand, tint(h.skin), 2.6 * s);
-        if h.weapon > 0 {
-            // blade direction: raised when attacking, lowered otherwise
-            let (dx, dy) = (0.9 - atk * 0.6, 0.5 - atk * 1.5);
-            let len = match h.weapon {
-                4 => 22.0,
-                5 => 28.0,
-                _ => 15.0,
-            };
-            let tip = (hand.0 + dx * len * s * e.face, hand.1 + dy * len * s);
-            let wcol = match h.weapon {
-                4 | 6 => 0x6a4a2aff,
-                5 => 0x8a8f96ff,
-                _ => 0xd8dde4ff,
-            };
-            c.ink_line(
-                hand,
-                tip,
-                wcol,
-                if h.weapon == 6 { 4.0 * s } else { 2.0 * s },
-            );
-            match h.weapon {
-                2 | 5 => {
-                    c.fill(0xc0c6ceff);
-                    c.ell(tip.0, tip.1, 4.0 * s, 3.0 * s);
-                }
-                3 => {
-                    c.fill(0x6a7078ff);
-                    c.rect(tip.0 - 3.5 * s, tip.1 - 3.0 * s, 7.0 * s, 6.0 * s);
-                }
-                4 => {
-                    c.fill(0x80c0ffff);
-                    c.ell(tip.0, tip.1, 2.8 * s, 2.8 * s);
-                }
-                6 => {
-                    c.fill(0x5a3a20ff);
-                    c.ell(tip.0, tip.1, 4.0 * s, 4.0 * s);
-                }
-                _ => {}
+            if !casting {
+                c.fill(scol);
+                let (x, y) = p.at(-9.0, -19.0 + up);
+                c.ell(x, y, 4.5 * s, 7.0 * s);
+                c.fill(shade(scol, 1.4));
+                c.ell(x, y, 1.5 * s, 2.0 * s);
             }
+        }
+        if !e.back {
+            draw_weapon_arm(c);
         }
         // heads
         let offs: &[f32] = if h.heads == 2 { &[-4.5, 4.5] } else { &[0.0] };
         for &ox in offs {
-            let (hx, hy) = p.at(ox, -34.0);
+            let (hx, hy) = p.at(ox, -34.0 + up);
             if h.long_hair {
                 if let Some(hc) = h.hair {
                     c.fill(hc);
-                    let (a, b) = (p.at(ox - 5.5, -36.0), p.at(ox + 5.5, -36.0));
-                    let (cc, dd) = (p.at(ox + 5.0, -26.0), p.at(ox - 6.0, -25.0));
-                    c.poly(&[a, b, cc, dd]);
+                    c.poly(&[
+                        p.at(ox - 5.5, -36.0 + up),
+                        p.at(ox + 5.5, -36.0 + up),
+                        p.at(ox + 5.0, -26.0 + up),
+                        p.at(ox - 6.0, -25.0 + up),
+                    ]);
                 }
             }
             c.fill(tint(h.skin));
             c.ell(hx, hy, 5.2 * s, 5.4 * s);
-            if let Some(ec) = h.eyes {
-                c.fill(ec);
-                let (ex, ey) = p.at(ox + 2.5, -34.5);
-                c.ell(ex, ey, 1.1 * s, 1.1 * s);
-                let (ex, ey) = p.at(ox - 0.5, -34.5);
-                c.ell(ex, ey, 1.1 * s, 1.1 * s);
+            c.outline(0, 0.0);
+            c.fill(0x00000040);
+            c.ell(hx + 2.0 * s, hy + 1.0 * s, 3.0 * s, 4.0 * s);
+            if !e.back {
+                if let Some(ec) = h.eyes {
+                    c.fill(ec);
+                    let (ex, ey) = p.at(ox + 2.5, -34.5 + up);
+                    c.ell(ex, ey, 1.1 * s, 1.1 * s);
+                    let (ex, ey) = p.at(ox - 0.5, -34.5 + up);
+                    c.ell(ex, ey, 1.1 * s, 1.1 * s);
+                }
             }
+            c.outline(INK, ink);
             if let Some(hc) = h.hair {
                 c.fill(hc);
-                let (x, y) = p.at(ox - 0.5, -37.5);
-                c.ell(x, y, 5.6 * s, 3.2 * s);
+                if e.back {
+                    c.ell(hx, hy - 0.5 * s, 5.5 * s, 5.2 * s);
+                } else {
+                    let (x, y) = p.at(ox - 0.5, -37.5 + up);
+                    c.ell(x, y, 5.6 * s, 3.2 * s);
+                }
             }
             if let Some(hc) = h.helm {
                 c.fill(hc);
-                let (x, y) = p.at(ox, -36.5);
+                let (x, y) = p.at(ox, -36.5 + up);
                 c.ell(x, y, 6.0 * s, 4.5 * s);
-                c.stroke(shade(hc, 0.6), 1.2 * s);
-                let (a, b) = (p.at(ox + 2.5, -37.0), p.at(ox + 2.5, -32.0));
-                c.line(a.0, a.1, b.0, b.1);
+                if !e.back {
+                    c.stroke(shade(hc, 0.5), 1.2 * s);
+                    let (a, b) = (p.at(ox + 2.5, -37.0 + up), p.at(ox + 2.5, -32.0 + up));
+                    c.line(a.0, a.1, b.0, b.1);
+                }
             }
             if let Some(hc) = h.hat {
                 c.fill(hc);
                 c.poly(&[
-                    p.at(ox - 8.0, -37.0),
-                    p.at(ox + 8.0, -37.0),
-                    p.at(ox - 2.0, -52.0),
+                    p.at(ox - 8.0, -37.0 + up),
+                    p.at(ox + 8.0, -37.0 + up),
+                    p.at(ox - 2.0, -52.0 + up),
                 ]);
             }
         }
@@ -1989,6 +2173,23 @@ impl Game {
                 if f.kind == FX_RES {
                     c.fill(with_a(0xfff0b0ff, 0.35 * (1.0 - k)));
                     c.rect(x0 - 14.0 * z, y0 - 200.0 * z, 28.0 * z, 230.0 * z);
+                }
+            }
+            FX_BLOOD => {
+                let (bx, by) = self.to_screen(f.x0, f.y0);
+                let col = f.tgt;
+                for j in 0..8 {
+                    let jf = j as f32;
+                    let ang = jf * 0.8 + f.x0 * 3.0;
+                    let (vx, vy) = (
+                        ang.cos() * (10.0 + jf * 2.0),
+                        -14.0 - (jf * 1.7).sin().abs() * 10.0,
+                    );
+                    let x = bx + vx * k * z;
+                    let y = by - 22.0 * z + (vy * k + 46.0 * k * k) * z;
+                    c.fill(with_a(col, 1.0 - k * 0.6));
+                    let r = (2.2 - k) * z.max(0.8);
+                    c.rect(x, y, r, r);
                 }
             }
             FX_FIZZLE => {

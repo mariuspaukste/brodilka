@@ -597,6 +597,7 @@ pub const FX_FIZZLE: u8 = 8;
 pub const FX_BREATH: u8 = 9;
 pub const FX_RES: u8 = 10;
 pub const FX_SPARK: u8 = 11;
+pub const FX_BLOOD: u8 = 12;
 
 pub struct SpellDef {
     pub id: &'static str,
