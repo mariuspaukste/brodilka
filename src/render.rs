@@ -926,18 +926,18 @@ impl Game {
             let fi = i as f32;
             let fx = (h2(i, 3, 1) * (self.w + 500.0) + t * (5.0 + fi)) % (self.w + 500.0) - 250.0;
             let fy = h2(i, 5, 2) * self.h;
-            c.fill(0xa8a09010);
+            c.fill(0xa8a0900a);
             c.ell(fx, fy, 260.0 * z, 70.0 * z);
             c.ell(fx + 90.0 * z, fy + 20.0 * z, 180.0 * z, 50.0 * z);
         }
-        c.fill(0x2a120a24);
+        c.fill(0x2a120a16);
         c.rect(-10.0, -10.0, self.w + 20.0, self.h + 20.0);
         c.dark(
             self.w / 2.0,
             self.h / 2.0,
-            self.w.min(self.h) * 0.28,
-            self.w.max(self.h) * 0.72,
-            0.5,
+            self.w.min(self.h) * 0.34,
+            self.w.max(self.h) * 0.75,
+            0.38,
             0x050302ff,
         );
         // falling ash and the odd ember
@@ -1240,6 +1240,26 @@ impl Game {
                 n += 1;
             }
         }
+        if let Some(pid) = self.sprites.props {
+            let tall = n >= 6;
+            let k = bake::P_CRAG + (sh as usize % 3) + if tall { 3 } else { 0 };
+            let (ax, ay) = bake::PROP_ANCHOR;
+            c.outline(0, 0.0);
+            c.sprite(
+                pid,
+                k,
+                bake::PROP_FW,
+                bake::PROP_FH,
+                ax,
+                ay,
+                sx,
+                sy,
+                z,
+                (sh & 8 != 0) as u32,
+            );
+            c.outline(INK, self.pix.max(z));
+            return;
+        }
         let hgt = (10.0 + n as f32 * 4.0 + (sh % 7) as f32) * z;
         let ink = self.pix.max(z);
         let left = [
@@ -1292,6 +1312,83 @@ impl Game {
         }
     }
 
+    /// Torches and banners hung on the outside faces of a wall.
+    #[allow(clippy::too_many_arguments)]
+    fn wall_deco(
+        &self,
+        c: &mut Canvas,
+        x: i32,
+        y: i32,
+        sx: f32,
+        sy: f32,
+        style: u8,
+        z: f32,
+        t: f32,
+        lights: &mut Vec<(f32, f32, f32, u32)>,
+    ) {
+        let Some(pid) = self.sprites.props else {
+            return;
+        };
+        if style == 4 && (x + y) % 2 == 0 {
+            return;
+        }
+        let hw = 32.0 * z;
+        let hh = 16.0 * z;
+        // right face looks toward x+1, left face toward y+1 (drawn mirrored)
+        for (nx, ny, flip, fx) in [(x + 1, y, false, 0.5f32), (x, y + 1, true, -0.5)] {
+            let nt = self.map.tile(nx, ny);
+            let no = self.map.obj(nx, ny);
+            if nt == T_FLOOR || no == O_WALL || no == O_DOOR || no == O_SIGN {
+                continue;
+            }
+            if flip && (x + y) % 3 == 0 {
+                continue; // a window already
+            }
+            let k = ((x * 7 + y * 13) as u32).wrapping_mul(2654435761) >> 28;
+            let (cx, cy) = (sx + hw * fx, sy + hh * 0.5);
+            let (ax, ay) = bake::PROP_ANCHOR;
+            if k < 3 {
+                let (tx, ty) = (cx, cy - 18.0 * z);
+                c.sprite(
+                    pid,
+                    bake::P_TORCH,
+                    bake::PROP_FW,
+                    bake::PROP_FH,
+                    ax,
+                    ay,
+                    tx,
+                    ty,
+                    z,
+                    flip as u32,
+                );
+                let fl = 0.85
+                    + (t * 11.0 + (x * 3 + y) as f32).sin() * 0.1
+                    + (t * 23.0 + x as f32).sin() * 0.05;
+                let fxo = if flip { -4.0 } else { 4.0 } * z;
+                c.outline(0, 0.0);
+                c.alpha(0.5);
+                c.glow(tx + fxo, ty - 14.0 * z, 16.0 * z * fl, 0xff8a30ff);
+                c.alpha(1.0);
+                c.outline(INK, self.pix.max(z));
+                lights.push((tx + fxo, ty - 14.0 * z, 110.0, 0xff9040ff));
+            } else if k < 5 && style != 4 {
+                let v = bake::P_BANNER + ((x + y) as usize & 1);
+                c.sprite(
+                    pid,
+                    v,
+                    bake::PROP_FW,
+                    bake::PROP_FH,
+                    ax,
+                    ay,
+                    cx,
+                    cy - 4.0 * z,
+                    z,
+                    flip as u32,
+                );
+            }
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn object(
         &self,
@@ -1339,10 +1436,14 @@ impl Game {
                 O_SHELF => Some((bake::P_SHELF, style & FACE_S != 0)),
                 O_HEARTH => Some((bake::P_HEARTH, style & FACE_S != 0)),
                 O_CHEST => Some((bake::P_CHEST, style & FACE_S != 0)),
+                O_SACKS => Some((bake::P_SACKS, flip_v)),
+                O_SKULLS => Some((bake::P_SKULLS, flip_v)),
+                O_STATUE => Some((bake::P_STATUE, false)),
+                O_WELL => Some((bake::P_WELL, false)),
                 _ => None,
             };
             if let Some((k, flip)) = pick {
-                if o == O_TREE || o == O_MUSHROOM {
+                if matches!(o, O_TREE | O_MUSHROOM | O_STATUE | O_WELL) {
                     c.outline(0, 0.0);
                     c.fill(0x00000030);
                     c.ell(sx, sy, 16.0 * z, 6.0 * z);
@@ -1503,6 +1604,7 @@ impl Game {
                     );
                     c.outline(INK, self.pix.max(z));
                 }
+                self.wall_deco(c, x, y, sx, sy, style, z, t, lights);
             }
             O_DOOR => {
                 c.fill(0x4a2e18ff);

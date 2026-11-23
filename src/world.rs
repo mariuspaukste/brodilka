@@ -46,6 +46,10 @@ pub const O_CHAIR: u8 = 24;
 pub const O_SHELF: u8 = 25;
 pub const O_HEARTH: u8 = 26;
 pub const O_CHEST: u8 = 27;
+pub const O_SACKS: u8 = 28;
+pub const O_SKULLS: u8 = 29;
+pub const O_STATUE: u8 = 30;
+pub const O_WELL: u8 = 31;
 /// style bit: furniture faces down-left (mirrored) instead of down-right
 pub const FACE_S: u8 = 0x80;
 
@@ -129,7 +133,7 @@ fn fbm(x: f32, y: f32, seed: u32) -> f32 {
 }
 
 pub fn blocks(o: u8) -> bool {
-    !matches!(o, O_NONE | O_DOOR | O_BUSH | O_FLOWERS | O_BONES)
+    !matches!(o, O_NONE | O_DOOR | O_BUSH | O_FLOWERS | O_BONES | O_SKULLS)
 }
 
 #[derive(Copy, Clone, PartialEq)]
@@ -385,6 +389,9 @@ impl Map {
         self.set_o(bx + 4, by + 6, O_SIGN);
         self.set_o(bx + 1, by + 6, O_BARREL);
         self.set_o(bx + 6, by + 6, O_CRATE);
+        if vendor == V_PROV {
+            self.set_o(bx + 2, by + 6, O_SACKS);
+        }
         // furniture: along the back wall it faces the door (down-left),
         // along the left wall it faces into the room (down-right)
         let back = |x: i32| (x, by + 1, true);
@@ -716,6 +723,10 @@ pub fn generate(seed: u32) -> Map {
             }
         }
     }
+    for (dx, dy) in [(-7, -5), (6, 4), (-4, 5)] {
+        m.set_o(grave.0 + dx, grave.1 + dy, O_SKULLS);
+    }
+    m.set_o(grave.0 + 3, grave.1 - 4, O_STATUE);
     m.pois.push(("Graveyard", grave.0, grave.1));
     // --- orc camp
     for y in orcs.1 - 9..=orcs.1 + 9 {
@@ -731,12 +742,20 @@ pub fn generate(seed: u32) -> Map {
         m.set_o(
             orcs.0 + dx,
             orcs.1 + dy,
-            if dx > 0 { O_BARREL } else { O_BONES },
+            if dx > 0 {
+                O_BARREL
+            } else if dy > 0 {
+                O_SKULLS
+            } else {
+                O_BONES
+            },
         );
     }
     for (dx, dy) in [(-5, -3), (4, -5), (5, 3), (-3, 5), (-6, 2)] {
         m.set_o(orcs.0 + dx, orcs.1 + dy, O_TENT);
     }
+    m.set_o(orcs.0 + 2, orcs.1 + 2, O_SACKS);
+    m.set_o(orcs.0 - 3, orcs.1 - 4, O_SKULLS);
     m.pois.push(("Orc Camp", orcs.0, orcs.1));
     // --- rocky hills
     for y in hills.1 - 13..=hills.1 + 13 {
@@ -786,6 +805,9 @@ pub fn generate(seed: u32) -> Map {
         if m.tile(x, y) == T_CAVE && m.obj(x, y) == O_NONE {
             m.set_o(x, y, O_BONES);
         }
+    }
+    for (dx, dy) in [(-3, 3), (1, 4), (4, 1), (-1, -4)] {
+        m.set_o(lair.0 + dx, lair.1 + dy, O_SKULLS);
     }
     m.set_o(lair.0 + 2, lair.1 - 2, O_HOARD);
     m.set_o(lair.0 + 3, lair.1 - 1, O_HOARD);
@@ -847,6 +869,10 @@ pub fn generate(seed: u32) -> Map {
     for dx in [4, 8, 16, 20, 28, 32] {
         m.set_o(x0 + dx, y0 + 9, O_FLOWERS);
     }
+    m.set_o(x0 + 10, y0 + 11, O_STATUE);
+    m.set_o(x0 + 25, y0 + 11, O_STATUE);
+    m.set_o(x0 + 30, y0 + 13, O_WELL);
+    m.set_o(x0 + 5, y0 + 13, O_WELL);
     m.npcs.push((V_GUARD, x0 + 15, y0 + 11));
     m.npcs.push((V_GUARD, x0 + 1, y0 + 13));
     m.npcs.push((V_GUARD, x1 - 1, y0 + 14));

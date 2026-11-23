@@ -49,8 +49,9 @@ mongbat, the slime and the dragon have their own rigs (gaits, wing membranes,
 squash-and-stretch). Baking is spread over several frames so play never stalls.
 
 The same baker renders the props — oaks, pines, dead trees, stumps, giant
-mushrooms, barrels, crates, beds, tables, chairs, bookshelves, hearths and
-chests — so the world shares one lighting. Shops and the inn are furnished,
+mushrooms, barrels, crates, sacks, skull piles, statues, wells, wall torches,
+banners, beds, tables, chairs, bookshelves, hearths, chests and the broken
+rock of the mountains — so the world shares one lighting. Shops and the inn are furnished,
 and buildings wear hipped roofs (slate, shingle or tile, with smoking
 chimneys) that lift away when you walk inside. Figures also run, glance
 around, draw their weapon when combat starts, step in a fighting stance near

@@ -1491,7 +1491,14 @@ pub const P_PINE: usize = 11; // 2 variants
 pub const P_DEAD: usize = 13; // 2 variants
 pub const P_SHROOM: usize = 15; // red, violet
 pub const P_STUMP: usize = 17;
-pub const N_PROPS: usize = 18;
+pub const P_SACKS: usize = 18;
+pub const P_SKULLS: usize = 19;
+pub const P_TORCH: usize = 20;
+pub const P_BANNER: usize = 21; // red, green
+pub const P_STATUE: usize = 23;
+pub const P_WELL: usize = 24;
+pub const P_CRAG: usize = 25; // 3 low, then 3 tall
+pub const N_PROPS: usize = 31;
 pub const PROP_FW: usize = 96;
 pub const PROP_FH: usize = 128;
 pub const PROP_ANCHOR: (f32, f32) = (48.0, 116.0);
@@ -1925,6 +1932,480 @@ fn prop(kind: usize) -> Figure {
                 prim(&mut p, c, c, 0.045, 0.045, 0xe8e0c8ff, Mat::Matte);
             }
         }
+
+        P_SACKS => {
+            let burlap = [0x8a7450ffu32, 0x7a6644ff, 0x948058ff];
+            for (k, &(x, y, lean)) in [
+                (-0.12f32, -0.2f32, 0.1f32),
+                (0.18, 0.12, -0.12),
+                (-0.25, 0.3, 0.05),
+            ]
+            .iter()
+            .enumerate()
+            {
+                let col = burlap[k];
+                let s = if k == 2 { 0.8 } else { 1.0 };
+                prim(
+                    &mut p,
+                    [x, y, 0.2 * s],
+                    [x + lean, y, 0.45 * s],
+                    0.26 * s,
+                    0.2 * s,
+                    col,
+                    Mat::Matte,
+                );
+                prim(
+                    &mut p,
+                    [x + lean, y, 0.5 * s],
+                    [x + lean * 1.3, y, 0.6 * s],
+                    0.08 * s,
+                    0.06 * s,
+                    shade_col(col, 0.8),
+                    Mat::Matte,
+                );
+                prim(
+                    &mut p,
+                    [x + lean * 1.2, y, 0.55 * s],
+                    [x + lean * 1.2, y, 0.55 * s],
+                    0.075 * s,
+                    0.075 * s,
+                    0x3a2a18ff,
+                    Mat::Matte,
+                );
+                prim(
+                    &mut p,
+                    [x + lean * 1.4, y, 0.63 * s],
+                    [x + lean * 1.4, y, 0.63 * s],
+                    0.09 * s,
+                    0.09 * s,
+                    shade_col(col, 0.85),
+                    Mat::Matte,
+                );
+            }
+        }
+        P_SKULLS => {
+            let bone = 0xcfc4a4ff;
+            let pile: [(f32, f32, f32); 10] = [
+                (0.0, 0.0, 0.1),
+                (0.22, 0.05, 0.1),
+                (-0.2, 0.12, 0.1),
+                (0.05, -0.22, 0.1),
+                (-0.15, -0.18, 0.1),
+                (0.2, -0.2, 0.09),
+                (0.08, 0.0, 0.28),
+                (-0.1, -0.05, 0.27),
+                (0.0, -0.12, 0.27),
+                (0.0, -0.05, 0.44),
+            ];
+            for (i, &(x, y, zc)) in pile.iter().enumerate() {
+                let a = (hsh(i, 90) - 0.5) * 2.4; // mostly glaring at the viewer
+                let (dx, dy) = (a.cos(), a.sin());
+                prim(&mut p, [x, y, zc], [x, y, zc], 0.1, 0.1, bone, Mat::Bone);
+                let j = [x + dx * 0.07, y + dy * 0.07, zc - 0.06];
+                prim(&mut p, j, j, 0.06, 0.06, shade_col(bone, 0.9), Mat::Bone);
+                for side in [-1.0f32, 1.0] {
+                    let e = [
+                        x + dx * 0.085 - dy * side * 0.04,
+                        y + dy * 0.085 + dx * side * 0.04,
+                        zc + 0.0,
+                    ];
+                    prim(&mut p, e, e, 0.03, 0.03, 0x120c08ff, Mat::Matte);
+                }
+            }
+            // a few long bones
+            prim(
+                &mut p,
+                [-0.35, 0.1, 0.03],
+                [0.1, 0.38, 0.03],
+                0.03,
+                0.03,
+                bone,
+                Mat::Bone,
+            );
+            prim(
+                &mut p,
+                [0.3, -0.35, 0.03],
+                [0.4, 0.1, 0.05],
+                0.028,
+                0.028,
+                bone,
+                Mat::Bone,
+            );
+        }
+        P_TORCH => {
+            // an iron bracket on the wall (behind is -x), the torch leaning out
+            prim(
+                &mut p,
+                [-0.12, 0.0, 0.0],
+                [0.06, 0.0, 0.04],
+                0.025,
+                0.02,
+                0x2e2e30ff,
+                Mat::Metal,
+            );
+            prim(
+                &mut p,
+                [-0.12, 0.0, -0.06],
+                [-0.12, 0.0, 0.08],
+                0.03,
+                0.03,
+                0x2e2e30ff,
+                Mat::Metal,
+            );
+            prim(
+                &mut p,
+                [0.04, 0.0, -0.08],
+                [0.12, 0.0, 0.32],
+                0.03,
+                0.035,
+                0x4a3220ff,
+                Mat::Matte,
+            );
+            prim(
+                &mut p,
+                [0.11, 0.0, 0.28],
+                [0.13, 0.0, 0.36],
+                0.055,
+                0.05,
+                0x2a1a10ff,
+                Mat::Matte,
+            );
+            prim(
+                &mut p,
+                [0.13, 0.0, 0.38],
+                [0.16, 0.0, 0.6],
+                0.075,
+                0.01,
+                0xff8a20ff,
+                Mat::Glow,
+            );
+            prim(
+                &mut p,
+                [0.13, 0.0, 0.38],
+                [0.14, 0.0, 0.5],
+                0.045,
+                0.01,
+                0xffe070ff,
+                Mat::Glow,
+            );
+        }
+        k if k == P_BANNER || k == P_BANNER + 1 => {
+            // cloth hanging flat against a wall that faces +x
+            let (cloth, mark) = if k == P_BANNER {
+                (0x6a1a18ffu32, 0xc8a040ffu32)
+            } else {
+                (0x1e3a22ff, 0xb8b0a0ff)
+            };
+            prim(
+                &mut p,
+                [0.04, -0.3, 0.95],
+                [0.04, 0.3, 0.95],
+                0.025,
+                0.025,
+                0x3e2816ff,
+                Mat::Matte,
+            );
+            bx(
+                &mut b,
+                [0.03, 0.0, 0.55],
+                [0.012, 0.24, 0.38],
+                cloth,
+                Mat::Matte,
+            );
+            // swallow-tail: two narrower strips below
+            bx(
+                &mut b,
+                [0.03, -0.14, 0.1],
+                [0.012, 0.1, 0.08],
+                cloth,
+                Mat::Matte,
+            );
+            bx(
+                &mut b,
+                [0.03, 0.14, 0.1],
+                [0.012, 0.1, 0.08],
+                cloth,
+                Mat::Matte,
+            );
+            bx(
+                &mut b,
+                [0.045, 0.0, 0.62],
+                [0.008, 0.13, 0.02],
+                mark,
+                Mat::Metal,
+            );
+            bx(
+                &mut b,
+                [0.045, 0.0, 0.6],
+                [0.008, 0.02, 0.2],
+                mark,
+                Mat::Metal,
+            );
+            bx(
+                &mut b,
+                [0.045, 0.0, 0.9],
+                [0.008, 0.24, 0.02],
+                mark,
+                Mat::Metal,
+            );
+        }
+        P_STATUE => {
+            let stone = 0x7e7a72ff;
+            let moss = 0x5a6248ff;
+            bx(
+                &mut b,
+                [0.0, 0.0, 0.28],
+                [0.42, 0.42, 0.28],
+                shade_col(stone, 0.85),
+                Mat::Matte,
+            );
+            bx(
+                &mut b,
+                [0.0, 0.0, 0.6],
+                [0.36, 0.36, 0.04],
+                stone,
+                Mat::Matte,
+            );
+            // a hooded knight resting both hands on a greatsword
+            prim(
+                &mut p,
+                [0.0, 0.0, 0.64],
+                [0.0, 0.0, 1.62],
+                0.3,
+                0.17,
+                stone,
+                Mat::Matte,
+            );
+            prim(
+                &mut p,
+                [0.0, -0.17, 1.6],
+                [0.0, 0.17, 1.6],
+                0.1,
+                0.1,
+                stone,
+                Mat::Matte,
+            );
+            prim(
+                &mut p,
+                [0.0, 0.0, 1.72],
+                [0.0, 0.0, 1.86],
+                0.12,
+                0.13,
+                stone,
+                Mat::Matte,
+            );
+            prim(
+                &mut p,
+                [-0.03, 0.0, 1.9],
+                [-0.03, 0.0, 1.9],
+                0.13,
+                0.13,
+                shade_col(stone, 0.9),
+                Mat::Matte,
+            );
+            for side in [-1.0f32, 1.0] {
+                prim(
+                    &mut p,
+                    [0.0, side * 0.19, 1.58],
+                    [0.18, side * 0.1, 1.3],
+                    0.06,
+                    0.05,
+                    stone,
+                    Mat::Matte,
+                );
+                prim(
+                    &mut p,
+                    [0.18, side * 0.1, 1.3],
+                    [0.26, side * 0.03, 1.26],
+                    0.05,
+                    0.045,
+                    stone,
+                    Mat::Matte,
+                );
+            }
+            prim(
+                &mut p,
+                [0.28, 0.0, 0.66],
+                [0.28, 0.0, 1.22],
+                0.035,
+                0.02,
+                stone,
+                Mat::Matte,
+            );
+            prim(
+                &mut p,
+                [0.28, -0.12, 1.22],
+                [0.28, 0.12, 1.22],
+                0.025,
+                0.025,
+                stone,
+                Mat::Matte,
+            );
+            prim(
+                &mut p,
+                [0.28, 0.0, 1.22],
+                [0.28, 0.0, 1.38],
+                0.025,
+                0.025,
+                stone,
+                Mat::Matte,
+            );
+            // weathering
+            for i in 0..7 {
+                let c = [
+                    hsh(i, 80) * 0.5 - 0.25,
+                    hsh(i, 81) * 0.5 - 0.25,
+                    0.55 + hsh(i, 82) * 0.15,
+                ];
+                prim(&mut p, c, c, 0.05, 0.05, moss, Mat::Matte);
+            }
+        }
+        P_WELL => {
+            let stone = 0x6e6a62ff;
+            for k in 0..8 {
+                let yaw = k as f32 / 8.0 * std::f32::consts::PI;
+                b.push(BoxP {
+                    c: [0.0, 0.0, 0.3],
+                    h: [0.55, 0.23, 0.3],
+                    yaw,
+                    color: if k % 2 == 0 {
+                        stone
+                    } else {
+                        shade_col(stone, 0.9)
+                    },
+                    mat: Mat::Matte,
+                });
+            }
+            b.push(BoxP {
+                c: [0.0, 0.0, 0.605],
+                h: [0.42, 0.17, 0.01],
+                yaw: 0.0,
+                color: 0x0a0c10ff,
+                mat: Mat::Matte,
+            });
+            b.push(BoxP {
+                c: [0.0, 0.0, 0.605],
+                h: [0.42, 0.17, 0.01],
+                yaw: std::f32::consts::FRAC_PI_2,
+                color: 0x0a0c10ff,
+                mat: Mat::Matte,
+            });
+            b.push(BoxP {
+                c: [0.0, 0.0, 0.605],
+                h: [0.3, 0.3, 0.01],
+                yaw: std::f32::consts::FRAC_PI_4,
+                color: 0x0a0c10ff,
+                mat: Mat::Matte,
+            });
+            for side in [-1.0f32, 1.0] {
+                bx(
+                    &mut b,
+                    [0.0, side * 0.5, 1.05],
+                    [0.05, 0.05, 0.45],
+                    wood,
+                    Mat::Matte,
+                );
+                // a little gabled roof
+                b.push(BoxP {
+                    c: [side * 0.2, 0.0, 1.62],
+                    h: [0.26, 0.62, 0.02],
+                    yaw: 0.0,
+                    color: dark,
+                    mat: Mat::Matte,
+                });
+            }
+            prim(
+                &mut p,
+                [-0.38, 0.0, 1.55],
+                [0.38, 0.0, 1.55],
+                0.02,
+                0.02,
+                dark,
+                Mat::Matte,
+            );
+            prim(
+                &mut p,
+                [-0.45, 0.0, 1.62],
+                [0.0, 0.0, 1.78],
+                0.03,
+                0.03,
+                dark,
+                Mat::Matte,
+            );
+            prim(
+                &mut p,
+                [0.45, 0.0, 1.62],
+                [0.0, 0.0, 1.78],
+                0.03,
+                0.03,
+                dark,
+                Mat::Matte,
+            );
+            prim(
+                &mut p,
+                [0.0, 0.0, 1.5],
+                [0.0, 0.0, 1.1],
+                0.012,
+                0.012,
+                0x8a7a5aff,
+                Mat::Matte,
+            );
+            prim(
+                &mut p,
+                [0.0, 0.0, 0.98],
+                [0.0, 0.0, 1.1],
+                0.09,
+                0.1,
+                wood,
+                Mat::Matte,
+            );
+            prim(
+                &mut p,
+                [-0.1, 0.0, 1.03],
+                [0.1, 0.0, 1.03],
+                0.105,
+                0.105,
+                0x2e2e30ff,
+                Mat::Metal,
+            );
+        }
+        k if (P_CRAG..P_CRAG + 6).contains(&k) => {
+            // a mass of broken rock filling its tile
+            let v = k - P_CRAG;
+            let tall = v >= 3;
+            let hgt = if tall { 1.25 } else { 0.7 };
+            let rock = [0x4c463effu32, 0x423c36ff, 0x544c42ff, 0x3a3530ff];
+            bx(
+                &mut b,
+                [0.0, 0.0, hgt * 0.5],
+                [0.72, 0.72, hgt * 0.5],
+                rock[0],
+                Mat::Matte,
+            );
+            for i in 0..(if tall { 9 } else { 7 }) {
+                let (u, w) = (
+                    hsh(i, v * 13 + 1) * 1.1 - 0.55,
+                    hsh(i, v * 13 + 2) * 1.1 - 0.55,
+                );
+                let sz = 0.22 + hsh(i, v * 13 + 3) * 0.25;
+                let top = hgt + hsh(i, v * 13 + 4) * (if tall { 0.75 } else { 0.4 });
+                b.push(BoxP {
+                    c: [u, w, top * 0.5],
+                    h: [sz, sz * (0.6 + hsh(i, v * 13 + 5) * 0.5), top * 0.5],
+                    yaw: hsh(i, v * 13 + 6) * std::f32::consts::PI,
+                    color: rock[(hsh(i, v * 13 + 7) * 4.0) as usize % 4],
+                    mat: Mat::Matte,
+                });
+            }
+            for i in 0..4 {
+                let c = [
+                    hsh(i, v * 13 + 8) * 1.2 - 0.6,
+                    hsh(i, v * 13 + 9) * 1.2 - 0.6,
+                    hgt + 0.02,
+                ];
+                prim(&mut p, c, c, 0.12, 0.12, 0x3e4a30ff, Mat::Matte);
+            }
+        }
         _ => {
             // stump
             prim(
@@ -1945,6 +2426,14 @@ fn prop(kind: usize) -> Figure {
                 0x9a7a50ff,
                 Mat::Matte,
             );
+        }
+    }
+    if kind == P_SKULLS {
+        for q in p.iter_mut() {
+            q.a = q.a.map(|v| v * 1.7);
+            q.b = q.b.map(|v| v * 1.7);
+            q.ra *= 1.7;
+            q.rb *= 1.7;
         }
     }
     Figure {

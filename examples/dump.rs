@@ -138,6 +138,23 @@ fn main() {
         g.update(1.0 / 30.0);
     }
     dump(&mut g, &dir, "lair");
+    // new props up close: town square statue and well, lair skulls
+    let (x0, y0, _, _) = g.map.town;
+    tp(&mut g, x0 + 28, y0 + 11);
+    g.pl.war = false;
+    g.zoom_mul = 1.6;
+    g.apply_zoom();
+    for _ in 0..10 {
+        g.update(1.0 / 30.0);
+    }
+    dump(&mut g, &dir, "props");
+    tp(&mut g, 124, 131);
+    for _ in 0..10 {
+        g.update(1.0 / 30.0);
+    }
+    dump(&mut g, &dir, "lair_zoom");
+    g.zoom_mul = 1.0;
+    g.apply_zoom();
     // night in town
     let (x, y) = g.map.start;
     tp(&mut g, x, y);
