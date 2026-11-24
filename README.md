@@ -64,7 +64,14 @@ mane and a tail that streams at speed, grazing, and saddle and bridle; a
 rider is baked sitting astride the horse with the reins in hand, and the
 whole figure is baked again for each coat. Four-legged animals, the
 mongbat, the slime and the dragon have their own rigs (gaits, wing membranes,
-squash-and-stretch). Baking is spread over several frames so play never stalls.
+squash-and-stretch). Baking is spread over several frames, a few milliseconds
+each and nearest figures first, so play never stalls.
+
+The ground under it all is drawn once into 256-pixel chunks that the browser
+keeps as canvases and puts down each frame, with the water left as holes and
+drawn live beneath so it still flows; the view scrolls in whole art pixels so
+the chunks meet exactly. Zoomed out, that is the difference between a few
+dozen images and thousands of textured polygons a frame.
 
 The same baker renders the props — oaks, pines, dead trees, stumps, giant
 mushrooms, barrels, crates, sacks, skull piles, statues, wells, wall torches,

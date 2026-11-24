@@ -11,6 +11,7 @@ fn dump_nofx_update(g: &mut Game, dir: &str, name: &str) {
 }
 fn dump(g: &mut Game, dir: &str, name: &str) {
     g.sprites.budget = 100000;
+    g.sprites.bake_ms = f64::INFINITY;
     for _ in 0..8 {
         g.render();
     }
@@ -285,6 +286,7 @@ fn main() {
     }
     let n = g.fx.len();
     g.sprites.budget = 100000;
+    g.sprites.bake_ms = f64::INFINITY;
     g.render();
     g.fx.truncate(n);
     dump_nofx_update(&mut g, &dir, "spells");

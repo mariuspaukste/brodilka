@@ -27,6 +27,8 @@ pub struct SpriteCache {
     pub next: u32,
     /// frames baked per game frame, shared by all jobs in progress
     pub budget: usize,
+    /// and the milliseconds a game frame may spend baking them
+    pub bake_ms: f64,
     pub jobs: Vec<(u64, Look, bake::Atlas, usize)>,
     /// the shared atlas of baked props (furniture, trees, mushrooms...)
     pub props: Option<u32>,
@@ -40,11 +42,55 @@ impl Default for SpriteCache {
             evicted: VecDeque::new(),
             next: 1,
             budget: 24,
+            bake_ms: 5.0,
             jobs: vec![],
             props: None,
         }
     }
 }
+
+/// The ground (terrain, borders, rock faces) is the same every frame, but
+/// zoomed out it is thousands of textured polygons, which the host's canvas
+/// fills slowly. So it is drawn once into square chunks of art pixels that the
+/// host keeps as canvases, and each frame only puts those down. Water is left
+/// as holes in the chunks and drawn live underneath, so it still flows.
+pub struct GroundCache {
+    pub enabled: bool,
+    /// (zoom, pix) the chunks were drawn at; any change redraws them all
+    key: (u32, u32),
+    /// chunk (column, row) -> (host id, frame last on screen)
+    chunks: HashMap<(i32, i32), (u32, u32)>,
+    frame: u32,
+    /// frame the zoom last changed on
+    zoomed: u32,
+}
+impl Default for GroundCache {
+    fn default() -> Self {
+        GroundCache {
+            enabled: true,
+            key: (0, 0),
+            chunks: HashMap::new(),
+            frame: 0,
+            zoomed: 0,
+        }
+    }
+}
+/// side of a ground chunk, in art pixels
+const CHUNK: i32 = 256;
+/// chunks a frame may draw ahead of need, just outside the screen
+const CHUNK_AHEAD: usize = 1;
+/// chunks a frame may draw while it still draws the ground the slow way
+const CHUNK_FILL: usize = 1;
+/// frames the zoom must hold still before chunks are drawn at it: while a
+/// pinch is going on they'd be thrown away every frame
+const CHUNK_SETTLE: u32 = 10;
+/// Host canvas ids for chunks, unique even across a new game.
+fn chunk_id() -> u32 {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static NEXT: AtomicU32 = AtomicU32::new(1);
+    NEXT.fetch_add(1, Ordering::Relaxed)
+}
+const BG: u32 = 0x1d3a57ff;
 
 fn weapon_of(id: Option<&str>) -> Weapon {
     match id {
@@ -203,6 +249,30 @@ impl Canvas {
             self.f(v);
         }
     }
+    /// start drawing into the host's chunk canvas `id` (w x h art pixels);
+    /// coordinates are CSS pixels from its top-left corner
+    pub fn chunk_begin(&mut self, id: u32, w: u32, h: u32) {
+        self.cmd.extend_from_slice(&[16, id, w, h]);
+    }
+    pub fn chunk_end(&mut self) {
+        self.cmd.push(17);
+    }
+    /// put chunk `id` down with its top-left at x,y
+    pub fn chunk_draw(&mut self, id: u32, x: f32, y: f32) {
+        self.cmd.push(18);
+        self.cmd.push(id);
+        self.f(x);
+        self.f(y);
+    }
+    pub fn chunk_free(&mut self, id: u32) {
+        self.cmd.push(19);
+        self.cmd.push(id);
+    }
+    /// while on, fills cut holes instead of painting
+    pub fn erase(&mut self, on: bool) {
+        self.cmd.push(20);
+        self.cmd.push(on as u32);
+    }
     pub fn glow(&mut self, x: f32, y: f32, r: f32, c: u32) {
         self.cmd.push(12);
         self.f(x);
@@ -337,8 +407,226 @@ impl Game {
         let mut c = std::mem::take(&mut self.cmds);
         c.clear();
         c.ink = self.pix.max(1.0);
-        self.draw(&mut c);
+        // the view moves in whole art pixels, so the ground chunks fit together
+        // exactly; the camera itself keeps its smooth position
+        let (camx, camy) = (self.camx, self.camy);
+        let a = self.zoom / self.pix;
+        let (hw, hh) = (self.w / (2.0 * self.pix), self.h / (2.0 * self.pix));
+        self.camx = ((self.camx * a - hw).round() + hw) / a;
+        self.camy = ((self.camy * a - hh).round() + hh) / a;
+        let chunks = self.ground_chunks(&mut c);
+        self.draw(&mut c, chunks.as_deref());
+        self.camx = camx;
+        self.camy = camy;
         self.cmds = c;
+    }
+
+    /// Bring the ground chunks on screen up to date, drawing any that are
+    /// missing, and say where each goes. None when the cache is off.
+    fn ground_chunks(&mut self, c: &mut Canvas) -> Option<Vec<(u32, f32, f32)>> {
+        self.ground.frame = self.ground.frame.wrapping_add(1);
+        let frame = self.ground.frame;
+        let key = (self.zoom.to_bits(), self.pix.to_bits());
+        if !self.ground.enabled || key != self.ground.key {
+            for (_, (id, _)) in self.ground.chunks.drain() {
+                c.chunk_free(id);
+            }
+            self.ground.key = key;
+            self.ground.zoomed = frame;
+        }
+        if !self.ground.enabled || frame.wrapping_sub(self.ground.zoomed) < CHUNK_SETTLE {
+            return None;
+        }
+        let (pix, a) = (self.pix, self.zoom / self.pix);
+        // art-pixel position of the screen's top-left corner, a whole number
+        let ox = (self.camx * a - self.w / (2.0 * pix)).round();
+        let oy = (self.camy * a - self.h / (2.0 * pix)).round();
+        let k = CHUNK as f32;
+        let (i0, i1) = (
+            (ox / k).floor() as i32,
+            ((ox + self.w / pix) / k).floor() as i32,
+        );
+        let (j0, j1) = (
+            (oy / k).floor() as i32,
+            ((oy + self.h / pix) / k).floor() as i32,
+        );
+        // Too many missing (just zoomed, or a long way at once)? Draw a few
+        // and the ground the slow way this frame, rather than stall.
+        let missing = (j0..=j1)
+            .flat_map(|j| (i0..=i1).map(move |i| (i, j)))
+            .filter(|ij| !self.ground.chunks.contains_key(ij))
+            .collect::<Vec<_>>();
+        if missing.len() > CHUNK_FILL {
+            for &(i, j) in missing.iter().take(CHUNK_FILL) {
+                self.build_chunk(c, i, j);
+            }
+            for j in j0..=j1 {
+                for i in i0..=i1 {
+                    if let Some(e) = self.ground.chunks.get_mut(&(i, j)) {
+                        e.1 = frame;
+                    }
+                }
+            }
+            return None;
+        }
+        let mut out = vec![];
+        for j in j0..=j1 {
+            for i in i0..=i1 {
+                let id = match self.ground.chunks.get_mut(&(i, j)) {
+                    Some(e) => {
+                        e.1 = frame;
+                        e.0
+                    }
+                    None => self.build_chunk(c, i, j),
+                };
+                out.push((
+                    id,
+                    (i as f32 * k - ox) * pix,
+                    (j as f32 * k - oy) * pix,
+                ));
+            }
+        }
+        // the ring just off screen, a few a frame, so walking rarely waits
+        let mut ahead = 0;
+        'ring: for j in j0 - 1..=j1 + 1 {
+            for i in i0 - 1..=i1 + 1 {
+                if ahead >= CHUNK_AHEAD {
+                    break 'ring;
+                }
+                if let Some(e) = self.ground.chunks.get_mut(&(i, j)) {
+                    e.1 = frame;
+                } else {
+                    self.build_chunk(c, i, j);
+                    ahead += 1;
+                }
+            }
+        }
+        // forget chunks well away from the screen
+        let mut gone = vec![];
+        self.ground.chunks.retain(|&(i, j), &mut (id, last)| {
+            let keep = frame.wrapping_sub(last) < 90
+                || (i >= i0 - 2 && i <= i1 + 2 && j >= j0 - 2 && j <= j1 + 2);
+            if !keep {
+                gone.push(id);
+            }
+            keep
+        });
+        for id in gone {
+            c.chunk_free(id);
+        }
+        Some(out)
+    }
+
+    /// Draw ground chunk (i, j) into a new host canvas.
+    fn build_chunk(&mut self, c: &mut Canvas, i: i32, j: i32) -> u32 {
+        let id = chunk_id();
+        self.ground
+            .chunks
+            .insert((i, j), (id, self.ground.frame));
+        let a = self.zoom / self.pix;
+        let (gx, gy) = ((i * CHUNK) as f32, (j * CHUNK) as f32);
+        let saved = (self.camx, self.camy, self.w, self.h);
+        // a camera that puts the chunk's corner at the origin
+        self.camx = gx / a;
+        self.camy = gy / a;
+        self.w = 0.0;
+        self.h = 0.0;
+        c.chunk_begin(id, CHUNK as u32, CHUNK as u32);
+        let side = CHUNK as f32 * self.pix;
+        c.fill(BG);
+        c.rect(0.0, 0.0, side, side);
+        let k = CHUNK as f32 / a;
+        let (d0, d1) = (
+            (self.camx / 32.0).floor() as i32 - 2,
+            ((self.camx + k) / 32.0).ceil() as i32 + 2,
+        );
+        // raised ground reaches up from rows further down; rock faces hang
+        // down from rows above
+        let (s0, s1) = (
+            (self.camy / 16.0).floor() as i32 - 5,
+            ((self.camy + k) / 16.0).ceil() as i32 + 6,
+        );
+        self.ground_pass(c, s0, s1, d0, d1, true);
+        c.chunk_end();
+        (self.camx, self.camy, self.w, self.h) = saved;
+        id
+    }
+
+    /// Terrain, rock faces and ragged borders for rows s0..=s1, d0..=d1.
+    /// With `holes`, water is cut out rather than drawn (it is drawn live).
+    #[allow(clippy::too_many_arguments)]
+    fn ground_pass(&self, c: &mut Canvas, s0: i32, s1: i32, d0: i32, d1: i32, holes: bool) {
+        let z = self.zoom;
+        let t = self.clock;
+        let scr = |x: i32, y: i32| self.to_screen(x as f32, y as f32);
+        // ---- flat ground
+        let mut erasing = false;
+        for s in s0..=s1 {
+            for d in d0..=d1 {
+                if (s + d) & 1 != 0 {
+                    continue;
+                }
+                let (x, y) = ((s + d) / 2, (s - d) / 2);
+                let (sx, sy) = scr(x, y);
+                let tl = self.map.tile(x, y);
+                if holes && tl == T_WATER {
+                    if !erasing {
+                        c.erase(true);
+                        c.fill(0xffffffff);
+                        erasing = true;
+                    }
+                    let cn = self.map.corners(x, y);
+                    c.poly(&self.diamond(sx, sy, &cn));
+                    if self.has_ledges(x, y, &cn) {
+                        c.erase(false);
+                        erasing = false;
+                        self.ledges(c, x, y, sx, sy, &cn, z);
+                    }
+                    continue;
+                }
+                if erasing {
+                    c.erase(false);
+                    erasing = false;
+                }
+                let sh = if inb(x, y) {
+                    self.map.shade[idx(x, y)]
+                } else {
+                    ((x * 31 + y * 17) & 255) as u8
+                };
+                self.ground(c, x, y, sx, sy, tl, sh, z, t);
+            }
+        }
+        if erasing {
+            c.erase(false);
+        }
+        // ---- ragged terrain borders
+        for s in s0..=s1 {
+            for d in d0..=d1 {
+                if (s + d) & 1 != 0 {
+                    continue;
+                }
+                let (x, y) = ((s + d) / 2, (s - d) / 2);
+                let tl = self.map.tile(x, y);
+                let pr = prio(tl);
+                if !(1..10).contains(&pr) {
+                    continue;
+                }
+                let (sx, sy) = scr(x, y);
+                if self.map.is_ramp(x, y) {
+                    continue;
+                }
+                let lvl = self.map.level(x, y);
+                for dir in [(1, 0), (0, 1), (-1, 0), (0, -1)] {
+                    let (nx, ny) = (x + dir.0, y + dir.1);
+                    if prio(self.map.tile(nx, ny)) < pr
+                        && self.map.level(nx, ny) == lvl
+                        && !self.map.is_ramp(nx, ny)
+                    {
+                        self.fringe(c, x, y, sx, sy, tl, dir, z);
+                    }
+                }
+            }
+        }
     }
 
     /// How big an entity stands, for tapping and for what floats over it:
@@ -596,7 +884,7 @@ impl Game {
 
     /// Bake atlases for figures on screen that have none yet (a few per frame).
     fn prebake(&mut self) {
-        let mut want: Vec<Look> = vec![];
+        let mut want: Vec<(f32, Look)> = vec![];
         let onscreen = |g: &Game, x: f32, y: f32| {
             let (sx, sy) = g.to_screen(x, y);
             sx > -200.0 && sx < g.w + 200.0 && sy > -200.0 && sy < g.h + 300.0
@@ -607,13 +895,14 @@ impl Game {
                 continue;
             }
             if let Some(l) = self.look_for(i) {
-                want.push(l);
+                want.push((e.dist(self.ents[0].x, self.ents[0].y), l));
             }
         }
         for c in self.corpses.iter() {
             if let Some(l) = &c.look {
                 if onscreen(self, c.x as f32, c.y as f32) {
-                    want.push(l.clone());
+                    let (dx, dy) = (c.x as f32 - self.ents[0].x, c.y as f32 - self.ents[0].y);
+                    want.push(((dx * dx + dy * dy).sqrt(), l.clone()));
                 }
             }
         }
@@ -624,8 +913,10 @@ impl Game {
             self.sprites.props = Some(id);
             self.sprites.pending.push_back((id, atlas));
         }
+        // the nearest first: they're the ones looked at
+        want.sort_by(|a, b| a.0.total_cmp(&b.0));
         let now = self.clock;
-        for l in want {
+        for (_, l) in want {
             let k = l.key();
             if let Some(info) = self.sprites.ids.get_mut(&k) {
                 info.last = now;
@@ -637,9 +928,15 @@ impl Game {
             let atlas = bake::new_atlas(&l);
             self.sprites.jobs.push((k, l, atlas, 0));
         }
-        // bake a slice of frames per game frame so play never stalls
+        // bake a slice of frames per game frame so play never stalls: so many
+        // frames, and no longer than so long (zoomed out, many new figures
+        // come into view at once and a slow device would stutter for seconds)
         let mut left = self.sprites.budget;
-        while left > 0 && !self.sprites.jobs.is_empty() {
+        let t0 = crate::now_ms();
+        while left > 0
+            && !self.sprites.jobs.is_empty()
+            && (left == self.sprites.budget || crate::now_ms() - t0 < self.sprites.bake_ms)
+        {
             let job = &mut self.sprites.jobs[0];
             let cost = if job.1.scale > 130 {
                 4
@@ -817,10 +1114,10 @@ impl Game {
         P[(((self.time / 480.0).fract() * 6.0) as usize).min(5)]
     }
 
-    fn draw(&self, c: &mut Canvas) {
+    fn draw(&self, c: &mut Canvas, chunks: Option<&[(u32, f32, f32)]>) {
         let z = self.zoom;
         let t = self.clock;
-        c.fill(0x1d3a57ff);
+        c.fill(BG);
         c.rect(0.0, 0.0, self.w, self.h);
         let cd = self.camx / 32.0;
         let cs = self.camy / 16.0;
@@ -830,52 +1127,17 @@ impl Game {
         let (d0, d1) = (cd.floor() as i32 - dr, cd.ceil() as i32 + dr);
         let p = &self.ents[0];
         let (ps, pd) = (p.x + p.y, p.x - p.y);
-        let scr = |x: i32, y: i32| self.to_screen(x as f32, y as f32);
 
-        // ---- pass 1: flat ground
-        for s in s0..=s1 {
-            for d in d0..=d1 {
-                if (s + d) & 1 != 0 {
-                    continue;
-                }
-                let (x, y) = ((s + d) / 2, (s - d) / 2);
-                let (sx, sy) = scr(x, y);
-                let tl = self.map.tile(x, y);
-                let sh = if inb(x, y) {
-                    self.map.shade[idx(x, y)]
-                } else {
-                    ((x * 31 + y * 17) & 255) as u8
-                };
-                self.ground(c, x, y, sx, sy, tl, sh, z, t);
-            }
-        }
-        // ---- pass 1b: ragged terrain borders
-        for s in s0..=s1 {
-            for d in d0..=d1 {
-                if (s + d) & 1 != 0 {
-                    continue;
-                }
-                let (x, y) = ((s + d) / 2, (s - d) / 2);
-                let tl = self.map.tile(x, y);
-                let pr = prio(tl);
-                if !(1..10).contains(&pr) {
-                    continue;
-                }
-                let (sx, sy) = scr(x, y);
-                if self.map.is_ramp(x, y) {
-                    continue;
-                }
-                let lvl = self.map.level(x, y);
-                for dir in [(1, 0), (0, 1), (-1, 0), (0, -1)] {
-                    let (nx, ny) = (x + dir.0, y + dir.1);
-                    if prio(self.map.tile(nx, ny)) < pr
-                        && self.map.level(nx, ny) == lvl
-                        && !self.map.is_ramp(nx, ny)
-                    {
-                        self.fringe(c, x, y, sx, sy, tl, dir, z);
-                    }
+        // ---- the ground: live water under the cached chunks, or all of it
+        match chunks {
+            Some(list) => {
+                self.pat(c, TEX_WATER, 0.0);
+                c.rect(0.0, 0.0, self.w, self.h);
+                for &(id, x, y) in list {
+                    c.chunk_draw(id, x, y);
                 }
             }
+            None => self.ground_pass(c, s0, s1, d0, d1, false),
         }
         if let Some((dx, dy)) = self.dest {
             let (sx, sy) = self.scr_h(dx as f32, dy as f32, self.map.surface(dx, dy));
@@ -1196,12 +1458,7 @@ impl Game {
         let cn = self.map.corners(x, y);
         let base = self.map.level(x, y) as f32;
         if tl != T_MOUNT {
-            let pts = [
-                (sx, sy - hh - cn[0] * lz),
-                (sx + hw, sy - cn[1] * lz),
-                (sx, sy + hh - cn[2] * lz),
-                (sx - hw, sy - cn[3] * lz),
-            ];
+            let pts = self.diamond(sx, sy, &cn);
             self.pat(c, tex_of(tl), base * lz);
             c.poly(&pts);
             if tl == T_BRIDGE {
@@ -1217,6 +1474,24 @@ impl Game {
             }
         }
         self.ledges(c, x, y, sx, sy, &cn, z);
+    }
+
+    /// A tile's top, its corners raised to their levels.
+    fn diamond(&self, sx: f32, sy: f32, cn: &[f32; 4]) -> [(f32, f32); 4] {
+        let z = self.zoom;
+        let (hw, hh, lz) = (32.0 * z + 0.7, 16.0 * z + 0.7, LH * z);
+        [
+            (sx, sy - hh - cn[0] * lz),
+            (sx + hw, sy - cn[1] * lz),
+            (sx, sy + hh - cn[2] * lz),
+            (sx - hw, sy - cn[3] * lz),
+        ]
+    }
+    /// whether `ledges` would draw anything for this tile
+    fn has_ledges(&self, x: i32, y: i32, cn: &[f32; 4]) -> bool {
+        let n1 = self.map.corners(x + 1, y);
+        let n2 = self.map.corners(x, y + 1);
+        cn[1] > n1[0] + 0.01 || cn[2] > n1[3] + 0.01 || cn[3] > n2[0] + 0.01 || cn[2] > n2[1] + 0.01
     }
 
     /// Rock faces where this tile stands above its front neighbours.

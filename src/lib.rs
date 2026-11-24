@@ -38,6 +38,21 @@ fn input(len: usize) -> String {
 #[link(wasm_import_module = "env")]
 extern "C" {
     fn js_log(p: *const u8, l: usize);
+    fn js_now() -> f64;
+}
+/// a clock in milliseconds, for keeping work inside a frame
+pub fn now_ms() -> f64 {
+    #[cfg(target_arch = "wasm32")]
+    unsafe {
+        js_now()
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        use std::sync::OnceLock;
+        use std::time::Instant;
+        static T0: OnceLock<Instant> = OnceLock::new();
+        T0.get_or_init(Instant::now).elapsed().as_secs_f64() * 1000.0
+    }
 }
 pub fn log(s: &str) {
     #[cfg(target_arch = "wasm32")]

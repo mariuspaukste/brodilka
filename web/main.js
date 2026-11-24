@@ -36,11 +36,25 @@ function rgbA(u, a) { return `rgba(${u >>> 24},${(u >>> 16) & 255},${(u >>> 8) &
 
 // Replays the command buffer. Text is collected into `texts` (when given) so
 // it can be drawn sharp on top of the pixelated world.
+//
+// Zoomed out, a frame holds thousands of ground diamonds and fringes, so runs
+// of opaque, un-inked polygons that share one fill are gathered into a single
+// path and filled once; a pattern fill that is already set isn't set again.
+const patM = new DOMMatrix();
+// ground chunks drawn by Rust once and put down every frame (id -> canvas),
+// and freed ones kept for reuse
+const chunks = new Map();
+const spareChunks = [];
 function replay(ctx, U, F, S, texts) {
   const n = U.length;
   let i = 0;
   let baseAlpha = 1;
   let inkW = 0, inkC = '#000';
+  // fill batching: is the current fill opaque, is a path being gathered
+  let opaque = false, batch = false;
+  // the pattern fill last set, so a repeat can be skipped
+  let pTex = -1, pA = 0, pB = 0, pC = 0, pD = 0, pE = 0, pF = 0;
+  const flush = () => { ctx.fill(); batch = false; };
   const ink = () => {
     if (inkW <= 0) return;
     const ss = ctx.strokeStyle, lw = ctx.lineWidth;
@@ -48,21 +62,54 @@ function replay(ctx, U, F, S, texts) {
     ctx.stroke();
     ctx.strokeStyle = ss; ctx.lineWidth = lw;
   };
+  const base = ctx.getTransform();
+  const outer = []; // while drawing into a chunk: the frame's own state
   ctx.globalAlpha = 1;
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
   while (i < n) {
     const op = U[i++];
+    if (batch && op !== 3 && op !== 14) flush();
     switch (op) {
-      case 1: ctx.fillStyle = col(U[i++]); break;
+      case 1: ctx.fillStyle = col(U[i]); opaque = (U[i++] & 255) === 255; pTex = -1; break;
       case 2: ctx.strokeStyle = col(U[i++]); ctx.lineWidth = F[i++]; break;
-      case 3: case 4: {
+      case 3: {
+        const k = U[i++];
+        if (inkW <= 0 && opaque && baseAlpha >= 1) {
+          // one subpath of a shared fill; every subpath wound the same way, so
+          // where they overlap the nonzero rule fills rather than cuts a hole
+          if (!batch) { ctx.beginPath(); batch = true; }
+          let a2 = 0;
+          for (let j = 0; j < k; j++) {
+            const q = i + j * 2, r = i + ((j + 1) % k) * 2;
+            a2 += F[q] * F[r + 1] - F[r] * F[q + 1];
+          }
+          if (a2 >= 0) {
+            ctx.moveTo(F[i], F[i + 1]);
+            for (let j = 1; j < k; j++) ctx.lineTo(F[i + j * 2], F[i + j * 2 + 1]);
+          } else {
+            ctx.moveTo(F[i + (k - 1) * 2], F[i + (k - 1) * 2 + 1]);
+            for (let j = k - 2; j >= 0; j--) ctx.lineTo(F[i + j * 2], F[i + j * 2 + 1]);
+          }
+          ctx.closePath();
+          i += k * 2;
+          break;
+        }
+        if (batch) flush();
+        ctx.beginPath();
+        ctx.moveTo(F[i], F[i + 1]);
+        for (let j = 1; j < k; j++) ctx.lineTo(F[i + j * 2], F[i + j * 2 + 1]);
+        i += k * 2;
+        ctx.closePath(); ctx.fill(); ink();
+        break;
+      }
+      case 4: {
         const k = U[i++];
         ctx.beginPath();
         ctx.moveTo(F[i], F[i + 1]);
         for (let j = 1; j < k; j++) ctx.lineTo(F[i + j * 2], F[i + j * 2 + 1]);
         i += k * 2;
-        if (op === 3) { ctx.closePath(); ctx.fill(); ink(); } else ctx.stroke();
+        ctx.stroke();
         break;
       }
       case 5: ctx.beginPath(); ctx.ellipse(F[i], F[i + 1], F[i + 2], F[i + 3], 0, 0, Math.PI * 2); ctx.fill(); ink(); i += 4; break;
@@ -108,17 +155,28 @@ function replay(ctx, U, F, S, texts) {
         const ga = ctx.globalAlpha;
         if (fl & 2) ctx.globalAlpha = ga * 0.5;
         if (fl & 1) {
-          ctx.save(); ctx.translate(x, y); ctx.scale(-1, 1);
+          // mirrored about x: the base transform, moved to x,y and flipped
+          ctx.setTransform(-base.a, -base.b, base.c, base.d,
+            base.a * x + base.c * y + base.e, base.b * x + base.d * y + base.f);
           ctx.drawImage(cv, sx, sy, fw, fh, -ax * sc, -ay * sc, fw * sc, fh * sc);
-          ctx.restore();
+          ctx.setTransform(base);
         } else ctx.drawImage(cv, sx, sy, fw, fh, x - ax * sc, y - ay * sc, fw * sc, fh * sc);
         ctx.globalAlpha = ga;
         break;
       }
       case 14: {
-        const p = patterns[U[i]];
-        if (p) { p.setTransform(new DOMMatrix([F[i + 1], F[i + 2], F[i + 3], F[i + 4], F[i + 5], F[i + 6]])); ctx.fillStyle = p; }
+        const t = U[i], a = F[i + 1], b = F[i + 2], c = F[i + 3], d = F[i + 4], e = F[i + 5], f = F[i + 6];
         i += 7;
+        if (t === pTex && a === pA && b === pB && c === pC && d === pD && e === pE && f === pF) break;
+        if (batch) flush();
+        const p = patterns[t];
+        if (p) {
+          patM.a = a; patM.b = b; patM.c = c; patM.d = d; patM.e = e; patM.f = f;
+          p.setTransform(patM);
+          ctx.fillStyle = p;
+          opaque = true; // the terrain textures have no see-through pixels
+          pTex = t; pA = a; pB = b; pC = c; pD = d; pE = e; pF = f;
+        }
         break;
       }
       case 11: ctx.beginPath(); ctx.ellipse(F[i], F[i + 1], F[i + 2], F[i + 3], 0, 0, Math.PI * 2); ctx.stroke(); i += 4; break;
@@ -139,11 +197,49 @@ function replay(ctx, U, F, S, texts) {
         ctx.fillStyle = fs;
         break;
       }
+      case 16: {
+        const id = U[i], w = U[i + 1], h = U[i + 2];
+        i += 3;
+        let cv = chunks.get(id);
+        if (!cv) { cv = spareChunks.pop() || document.createElement('canvas'); chunks.set(id, cv); }
+        // Rust paints every pixel of a chunk, so a reused canvas needn't be cleared
+        if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+        outer.push([ctx, baseAlpha, inkW, inkC]);
+        ctx = cv.getContext('2d');
+        ctx.setTransform(base);
+        ctx.imageSmoothingEnabled = false;
+        ctx.globalAlpha = 1;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        baseAlpha = 1; inkW = 0; opaque = false; pTex = -1;
+        break;
+      }
+      case 17:
+        if (outer.length) {
+          ctx.globalCompositeOperation = 'source-over';
+          [ctx, baseAlpha, inkW, inkC] = outer.pop();
+          opaque = false; pTex = -1;
+        }
+        break;
+      case 18: {
+        const cv = chunks.get(U[i]);
+        if (cv) ctx.drawImage(cv, F[i + 1], F[i + 2], cv.width / base.a, cv.height / base.d);
+        i += 3;
+        break;
+      }
+      case 19: {
+        const cv = chunks.get(U[i++]);
+        if (cv) { chunks.delete(U[i - 1]); if (spareChunks.length < 64) spareChunks.push(cv); }
+        break;
+      }
+      case 20: ctx.globalCompositeOperation = U[i++] ? 'destination-out' : 'source-over'; break;
       default:
         console.warn('bad draw op', op, 'at', i - 1);
+        if (batch) flush();
         return;
     }
   }
+  if (batch) flush();
   ctx.globalAlpha = 1;
 }
 // ------------------------------------------------------------------ VGA look
@@ -782,7 +878,7 @@ function loop(now) {
 }
 
 async function boot() {
-  const imports = { env: { js_log: (p, l) => console.error(readStr(p, l)) } };
+  const imports = { env: { js_log: (p, l) => console.error(readStr(p, l)), js_now: () => performance.now() } };
   const res = await fetch('brodilka.wasm');
   const bytes = await res.arrayBuffer();
   const { instance } = await WebAssembly.instantiate(bytes, imports);

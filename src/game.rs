@@ -549,6 +549,8 @@ pub struct Game {
     /// CSS pixels per art pixel (the host renders at low resolution)
     pub pix: f32,
     pub sprites: crate::render::SpriteCache,
+    /// pre-rendered ground, in chunks the host keeps as canvases
+    pub ground: crate::render::GroundCache,
 }
 
 const PLAYER_SPEED: f32 = 4.6;
@@ -597,6 +599,7 @@ impl Game {
             zoom_mul: 1.0,
             pix: 1.0,
             sprites: Default::default(),
+            ground: Default::default(),
             map,
         };
         let (sx, sy) = g.map.start;

@@ -6,7 +6,10 @@ const bytes = fs.readFileSync(process.argv[2] || 'dist/brodilka.wasm');
 const dec = new TextDecoder(), enc = new TextEncoder();
 let ex;
 const { instance } = await WebAssembly.instantiate(bytes, {
-  env: { js_log: (p, l) => console.error('wasm:', dec.decode(new Uint8Array(ex.memory.buffer, p, l))) },
+  env: {
+    js_log: (p, l) => console.error('wasm:', dec.decode(new Uint8Array(ex.memory.buffer, p, l))),
+    js_now: () => performance.now(),
+  },
 });
 ex = instance.exports;
 const out = (n) => dec.decode(new Uint8Array(ex.memory.buffer, ex.out_ptr(), n));
@@ -17,7 +20,7 @@ const fail = (m) => { console.error('SMOKE FAIL:', m); process.exit(1); };
 function checkDraw() {
   const n = ex.cmd_len();
   const U = new Uint32Array(ex.memory.buffer, ex.cmd_ptr(), n);
-  const sizes = { 1: 1, 2: 2, 6: 4, 5: 4, 7: 4, 8: 7, 9: 1, 10: 6, 11: 4, 12: 4, 13: 2, 14: 7, 15: 10 };
+  const sizes = { 1: 1, 2: 2, 6: 4, 5: 4, 7: 4, 8: 7, 9: 1, 10: 6, 11: 4, 12: 4, 13: 2, 14: 7, 15: 10, 16: 3, 17: 0, 18: 3, 19: 1, 20: 1 };
   let i = 0, ops = 0;
   while (i < n) {
     const op = U[i++];
