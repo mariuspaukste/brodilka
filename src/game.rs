@@ -57,6 +57,9 @@ impl Item {
     }
 }
 pub fn plural(s: &str) -> String {
+    if let Some(d) = ITEMS.iter().find(|d| d.name == s && !d.plural.is_empty()) {
+        return d.plural.to_string();
+    }
     if s.ends_with("silk")
         || s.ends_with("ash")
         || s.ends_with("moss")

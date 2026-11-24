@@ -139,7 +139,7 @@ seed = 1409                  # optional: a fixed world seed
 [mon.wolf]                   # monsters by id: name, color ("#rrggbb"), hp
 name = "a warg"
 
-[item.katana]                # items by id: name, icon
+[item.katana]                # items by id: name, icon, plural
 name = "long knife"
 
 [vendor.guard]               # smith mage provisioner healer banker guard folk
@@ -160,7 +160,8 @@ chatter = ["All quiet."]
 Text spoken in the world uses the pixel font, so accented letters are shown
 without their accents there (*Annúminas* → *Annuminas*). The rules —
 stats, damage, prices, the map's layout — stay the engine's; a pack changes
-names, words, colours and the seed. `src/pack.rs` has the format and parser.
+names, words, colours and the seed. `src/pack.rs` has the format and parser, and
+`cargo run --example pack_check -- my-world.toml` checks a pack.
 
 ## Build
 

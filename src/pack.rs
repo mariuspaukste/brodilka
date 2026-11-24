@@ -16,7 +16,7 @@
 //! name = "a warg"
 //! color = "#4a4038"
 //!
-//! [item.katana]              # items by id: name, icon
+//! [item.katana]              # items by id: name, icon, plural
 //! name = "long knife"
 //!
 //! [vendor.guard]             # vendors by id: title, names, chatter, robe

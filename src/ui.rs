@@ -248,14 +248,14 @@ impl Game {
             s.push_str(
                 &TEMPLATES
                     .iter()
-                    .map(|t| format!("[{},{},{}]", esc(t.id), esc(t.name), esc(t.desc)))
+                    .map(|t| format!("[{},{},{}]", esc(t.id), tx(t.name), tx(t.desc)))
                     .collect::<Vec<_>>()
                     .join(","),
             );
             s.push_str("],\"skills\":[");
             s.push_str(
                 &(0..N_SKILLS)
-                    .map(|k| format!("[{},{}]", k, esc(SKILL_NAME[k])))
+                    .map(|k| format!("[{},{}]", k, tx(SKILL_NAME[k])))
                     .collect::<Vec<_>>()
                     .join(","),
             );

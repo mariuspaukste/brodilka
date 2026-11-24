@@ -113,6 +113,8 @@ pub struct ItemDef {
     pub spell: i32,
     /// colour used when worn (0xRRGGBBAA)
     pub color: u32,
+    /// the name of several, when adding "s" will not do (from a world pack)
+    pub plural: &'static str,
 }
 
 const B: ItemDef = ItemDef {
@@ -130,6 +132,7 @@ const B: ItemDef = ItemDef {
     icon: "",
     spell: -1,
     color: 0x9a9a9aff,
+    plural: "",
 };
 
 static ITEMS_DEF: &[ItemDef] = &[
@@ -1467,6 +1470,7 @@ pub fn items_for(p: &Pack) -> Vec<ItemDef> {
             ItemDef {
                 name: name_of(p, &sec, "name", d.name),
                 icon: name_of(p, &sec, "icon", d.icon),
+                plural: name_of(p, &sec, "plural", d.plural),
                 ..d.clone()
             }
         })
@@ -1543,7 +1547,7 @@ pub fn pack_warnings(p: &Pack) -> Vec<String> {
         (
             "item",
             ITEMS_DEF.iter().map(|d| d.id).collect(),
-            &["name", "icon"],
+            &["name", "icon", "plural"],
         ),
         (
             "spell",
