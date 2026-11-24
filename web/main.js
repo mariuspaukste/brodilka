@@ -306,12 +306,21 @@ function glTex(filter, wrap) {
   return t;
 }
 function glSetup() {
-  const vs = 'attribute vec2 p; varying vec2 uv; void main(){ uv = vec2(p.x * 0.5 + 0.5, 0.5 - p.y * 0.5); gl_Position = vec4(p, 0.0, 1.0); }';
+  const vs = 'attribute vec2 p; void main(){ gl_Position = vec4(p, 0.0, 1.0); }';
   // ordered dither, then snap to the 256-colour palette through the LUT
   // Rows are 1.2× taller than columns, so they don't land on whole screen
   // pixels: the last screen pixel of a row blends into the next one.
-  const fs = `precision mediump float;
-    uniform sampler2D src; uniform sampler2D lut; uniform sampler2D bay; uniform vec2 size; uniform float kv; varying vec2 uv;
+  // Each screen pixel finds its art pixel from gl_FragCoord in exact steps of
+  // `k` (artK across, artK x ASPECT down), the same grid the 2D path and the
+  // text overlay use. highp matters: iPhone and iPad GPUs really run mediump
+  // as 16-bit floats, too coarse to place a pixel on a 2000+ pixel wide
+  // screen, so edges wandered and art pixels came out 6, 7 or 8 wide.
+  const fs = `#ifdef GL_FRAGMENT_PRECISION_HIGH
+    precision highp float;
+    #else
+    precision mediump float;
+    #endif
+    uniform sampler2D src; uniform sampler2D lut; uniform sampler2D bay; uniform vec2 size; uniform vec2 k; uniform float top;
     vec3 quant(vec2 px){
       vec3 c = texture2D(src, (px + 0.5) / size).rgb * 255.0;
       float o = (texture2D(bay, (px + 0.5) / 4.0).r * 255.0 / 16.0 / 16.0 - 0.47) * 18.0;
@@ -319,10 +328,10 @@ function glSetup() {
       return texture2D(lut, vec2((q.b * 32.0 + q.g + 0.5) / 1024.0, (q.r + 0.5) / 32.0)).rgb;
     }
     void main(){
-      vec2 t = uv * size;
+      vec2 t = vec2(gl_FragCoord.x, top - gl_FragCoord.y) / k;
       vec2 px = floor(t);
-      float d = (fract(t.y) - 0.5) * kv;
-      float edge = kv * 0.5 - 0.5;
+      float d = (fract(t.y) - 0.5) * k.y;
+      float edge = k.y * 0.5 - 0.5;
       vec3 c = quant(px);
       if (d > edge) c = mix(c, quant(px + vec2(0.0, 1.0)), clamp((d - edge) * 0.5, 0.0, 0.5));
       else if (d < -edge) c = mix(c, quant(px - vec2(0.0, 1.0)), clamp((-edge - d) * 0.5, 0.0, 0.5));
@@ -360,7 +369,8 @@ function glPresent(lw, lh) {
   gl.activeTexture(gl.TEXTURE2);
   gl.bindTexture(gl.TEXTURE_2D, glBayer);
   gl.uniform2f(gl.getUniformLocation(glProg, 'size'), lw, lh);
-  gl.uniform1f(gl.getUniformLocation(glProg, 'kv'), canvas.height / lh);
+  gl.uniform2f(gl.getUniformLocation(glProg, 'k'), artK, artK * ASPECT);
+  gl.uniform1f(gl.getUniformLocation(glProg, 'top'), canvas.height);
   gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 }
 // overhead text is drawn at art resolution with a small pixel-ish font
@@ -461,7 +471,14 @@ let pix = 1, artK = 1;
 function present(U, F, S) {
   const lw = Math.ceil(canvas.width / artK), lh = Math.ceil(canvas.height / (artK * ASPECT));
   if (low.width !== lw || low.height !== lh) { low.width = lw; low.height = lh; }
-  if (txt.width !== lw || txt.height !== lh) { txt.width = lw; txt.height = lh; }
+  const tkey = `${lw}x${lh}x${artK}x${dpr}`;
+  if (txt.dataset.k !== tkey) {
+    txt.dataset.k = tkey;
+    txt.width = lw; txt.height = lh;
+    // the same art grid as the world (it may run a few pixels off the edge)
+    txt.style.width = `${(lw * artK) / dpr}px`;
+    txt.style.height = `${(lh * artK * ASPECT) / dpr}px`;
+  }
   lctx.setTransform(1 / pix, 0, 0, 1 / pix, 0, 0);
   lctx.imageSmoothingEnabled = false;
   const texts = [];
@@ -536,6 +553,11 @@ function resize() {
   const w = window.innerWidth, h = window.innerHeight;
   canvas.width = Math.round(w * dpr);
   canvas.height = Math.round(h * dpr);
+  // shown at exactly the size it is drawn for: 100vw/100vh can differ from
+  // innerWidth/innerHeight (Safari's toolbars), and the browser would then
+  // resample the whole picture
+  canvas.style.width = `${canvas.width / dpr}px`;
+  canvas.style.height = `${canvas.height / dpr}px`;
   artK = Math.max(1, Math.round(canvas.width / 320));
   pix = artK / dpr;
   if (ex) { ex.resize(w, h / ASPECT); ex.set_pix(pix); }
