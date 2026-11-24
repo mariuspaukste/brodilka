@@ -16,6 +16,7 @@ pub const TEX_CLIFF: u32 = 9;
 pub const TEX_BRICK: u32 = 10;
 pub const TEX_WOODWALL: u32 = 11;
 pub const TEX_PLASTER: u32 = 12;
+pub const TEX_ASHLAR: u32 = 13;
 
 pub struct Texture {
     pub w: usize,
@@ -384,6 +385,32 @@ fn brick(base: u32, s: u32) -> Texture {
     m.done()
 }
 
+/// Big dressed stone blocks in staggered courses, for the castle.
+fn ashlar() -> Texture {
+    let (w, h) = (64usize, 64usize);
+    let mut m = Img::new(w, h);
+    let b = rgb(0x5e5c58);
+    for y in 0..h as i32 {
+        for x in 0..w as i32 {
+            let row = y / 16;
+            let off = if row % 2 == 0 { 0 } else { 16 };
+            let col = (x + off) / 32;
+            let (bx, by) = ((x + off) % 32, y % 16);
+            let n = fbm(x as f32, y as f32, w, h, 63);
+            let mut k = 0.72 + hash(col.rem_euclid(2), row, 64) * 0.3 + n * 0.3;
+            if bx == 0 || by == 0 {
+                k = 0.38;
+            } else if by == 1 || bx == 1 {
+                k *= 1.15;
+            } else if by >= 14 || bx >= 30 {
+                k *= 0.78;
+            }
+            *m.at(x, y) = [b[0] * k, b[1] * k, b[2] * k];
+        }
+    }
+    m.done()
+}
+
 fn woodwall() -> Texture {
     let (w, h) = (64usize, 64usize);
     let mut m = Img::new(w, h);
@@ -417,6 +444,7 @@ pub fn textures() -> Vec<Texture> {
         brick(0x6a6660, 61),
         woodwall(),
         brick(0x7e7462, 62),
+        ashlar(),
     ]
 }
 
@@ -470,7 +498,7 @@ mod tests {
     #[test]
     fn textures_are_periodic_sized() {
         let t = textures();
-        assert_eq!(t.len(), 13);
+        assert_eq!(t.len(), 14);
         for x in t.iter() {
             assert_eq!(x.rgba.len(), x.w * x.h * 4);
             assert_eq!(x.w % 64, 0);

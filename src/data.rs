@@ -1015,6 +1015,8 @@ pub const V_GUARD: usize = 5;
 pub const V_FOLK: usize = 6;
 pub const V_BARKEEP: usize = 7;
 pub const V_LIBRARIAN: usize = 8;
+/// the lord of Duskhold castle, on the throne in the keep
+pub const V_LORD: usize = 9;
 
 pub struct VendorDef {
     pub title: &'static str,
@@ -1212,6 +1214,22 @@ pub static VENDORS: &[VendorDef] = &[
             "The chronicles name six periods of the day, Bloodwatch to Eventide.",
             "Bring me scrolls thou hast found. I pay for knowledge.",
             "A spell learnt from a scroll is never forgot.",
+        ],
+    },
+    VendorDef {
+        title: "of Duskhold",
+        names: &["Lord Aldric", "Lady Morwen", "Lord Ulfgar"],
+        sells: &[],
+        buys: &[],
+        buys_ids: &[],
+        robe: 0x5a1a1aff,
+        chatter: &[
+            "Kneel, or state thy business.",
+            "The dead stir in the graveyard east of my walls. Put them down.",
+            "Orcs raid my roads from the south-west. I would see their lord's head.",
+            "My guards keep the peace within these walls. Beyond them, thou art alone.",
+            "Slay the dragon, and Duskhold will sing thy name.",
+            "The trolls in the hills grow bold. Thin their number.",
         ],
     },
 ];

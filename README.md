@@ -24,6 +24,12 @@ canvas and renders the windows ("gumps") from JSON; all game logic is in Rust.
 - **Town** with blacksmith, mage, provisioner, healer, banker (bank box), an
   inn, a pub (ale and bread) and a library (spellbooks and scrolls, and it buys
   the scrolls you find), and guards who strike down any monster that wanders in.
+- **Duskhold**, a walled city north of the town: stone walls with battlements,
+  towers and three gates, a castle bailey around the keep where the lord sits on
+  his throne, a pub facing the castle gate, a soldiers' camp, and a smith,
+  healer, inn, mage and goods shop around the market square. Its own guards
+  keep the peace inside the walls, and guard posts on the roads to it keep
+  monsters off the road around them.
 - **Death** turns you into a ghost and leaves your belongings on your corpse;
   find a healer or an ankh shrine, then run back for your things.
 - **Places**: a haunted graveyard (skeletons, zombies, a lich), an orc camp,
