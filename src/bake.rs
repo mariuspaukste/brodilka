@@ -87,9 +87,37 @@ const BEAST_ANIMS: &[(Anim, usize)] = &[
     (Die, 5),
 ];
 
+/// a horse: grazing stands in for looking about, and it gallops
+const HORSE_ANIMS: &[(Anim, usize)] = &[
+    (Idle, 2),
+    (Look, 3),
+    (Walk, 8),
+    (Run, 6),
+    (Hit, 2),
+    (Die, 5),
+];
+/// a rider: what can be done from the saddle (a thrown rider falls on foot)
+const RIDER_ANIMS: &[(Anim, usize)] = &[
+    (Idle, 2),
+    (Look, 3),
+    (Walk, 8),
+    (Run, 6),
+    (Stance, 2),
+    (Attack, 5),
+    (Work, 4),
+    (Cast, 4),
+    (Hit, 2),
+];
+
 pub fn anims(look: &Look) -> &'static [(Anim, usize)] {
+    if look.body_type == Body::Horse {
+        return HORSE_ANIMS;
+    }
     if look.body_type != Body::Human {
         return BEAST_ANIMS;
+    }
+    if look.mount != 0 {
+        return RIDER_ANIMS;
     }
     match look.role {
         0 => PLAYER_ANIMS,
@@ -167,6 +195,7 @@ pub enum Body {
     Bat,
     Slime,
     Dragon,
+    Horse,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -211,6 +240,12 @@ pub struct Look {
     pub hunch: u8,
     pub zombie: bool,
     pub female: bool,
+    /// riding: the horse's coat (0 = on foot); for a horse, its own coat is `skin`
+    pub mount: u32,
+    /// a horse's mane and tail
+    pub mane: u32,
+    /// a horse's tack: 0 none, 1 a halter, 2 saddle and bridle
+    pub tack: u8,
 }
 
 impl Look {
@@ -240,6 +275,9 @@ impl Look {
             hunch: 0,
             zombie: false,
             female: false,
+            mount: 0,
+            mane: 0,
+            tack: 0,
         }
     }
     pub fn creature(body: Body, color: u32, scale: u16) -> Look {
@@ -256,11 +294,16 @@ impl Look {
     pub fn s(&self) -> f32 {
         self.scale as f32 / 100.0
     }
+    /// a horse, or someone riding one: long, and reaching out towards the viewer
+    pub fn equine(&self) -> bool {
+        self.body_type == Body::Horse || self.mount != 0
+    }
     /// extra frame room for wide creatures
     fn room(&self) -> (f32, f32) {
         match self.body_type {
             Body::Dragon => (1.55, 1.3),
             Body::Bat => (1.2, 1.0),
+            _ if self.equine() => (1.8, 1.4),
             _ => (1.0, 1.0),
         }
     }
@@ -274,7 +317,9 @@ impl Look {
     }
     pub fn anchor(&self) -> (f32, f32) {
         let (fw, fh) = self.frame_size();
-        (fw as f32 / 2.0, fh as f32 - 8.0 * self.s())
+        // a horse facing the viewer reaches below its centre with head and forelegs
+        let foot = if self.equine() { 20.0 } else { 8.0 };
+        (fw as f32 / 2.0, fh as f32 - foot * self.s())
     }
 }
 
@@ -302,6 +347,8 @@ struct Pose {
     wrist: f32,
     head_tilt: f32,
     head_yaw: f32,
+    /// legs rolled outwards (thigh, shin): astride a horse they part around its barrel
+    spread: [f32; 2],
 }
 
 fn ease(t: f32) -> f32 {
@@ -324,6 +371,7 @@ fn pose_for(a: Anim, f: usize, n: usize, look: &Look) -> Pose {
         roll: [0.14, 0.14],
         el: [0.3, 0.3],
         wrist: 1.1,
+        spread: [0.03, 0.03],
         ..Default::default()
     };
     let hunch = look.hunch as f32 / 100.0;
@@ -615,9 +663,9 @@ fn build(look: &Look, q: &Pose) -> Vec<Prim> {
     // legs
     for (i, side) in [(0usize, 1.0f32), (1, -1.0)] {
         let hip = add(pel, [0.0, side * 0.1 * bulk, -0.06]);
-        let d1 = limb_dir(q.hip[i], 0.03, side, 0.0);
+        let d1 = limb_dir(q.hip[i], q.spread[0], side, 0.0);
         let knee = add(hip, mul(d1, 0.44));
-        let d2 = limb_dir(q.hip[i] - q.knee[i], 0.03, side, 0.0);
+        let d2 = limb_dir(q.hip[i] - q.knee[i], q.spread[1], side, 0.0);
         let ankle = add(knee, mul(d2, 0.44));
         let leg_col = if look.robe { look.body } else { look.legs };
         p(
@@ -689,7 +737,9 @@ fn build(look: &Look, q: &Pose) -> Vec<Prim> {
         body_mat,
     );
     if look.robe {
-        let hem = [pel[0] - 0.02, pel[1], 0.06];
+        // in the saddle the skirts fall over the horse's flanks, not to the ground
+        let hem_z = if look.mount != 0 { pel[2] - 0.42 } else { 0.06 };
+        let hem = [pel[0] - 0.02, pel[1], hem_z];
         p(
             add(pel, [0.0, 0.0, 0.05]),
             hem,
@@ -726,9 +776,9 @@ fn build(look: &Look, q: &Pose) -> Vec<Prim> {
             // boot shafts up the shin
             for (i, side) in [(0usize, 1.0f32), (1, -1.0)] {
                 let hip = add(pel, [0.0, side * 0.1 * bulk, -0.06]);
-                let d1 = limb_dir(q.hip[i], 0.03, side, 0.0);
+                let d1 = limb_dir(q.hip[i], q.spread[0], side, 0.0);
                 let knee = add(hip, mul(d1, 0.44));
-                let d2 = limb_dir(q.hip[i] - q.knee[i], 0.03, side, 0.0);
+                let d2 = limb_dir(q.hip[i] - q.knee[i], q.spread[1], side, 0.0);
                 let ankle = add(knee, mul(d2, 0.44));
                 let cuff = add(knee, mul(d2, 0.2));
                 p(
@@ -1111,6 +1161,25 @@ fn build(look: &Look, q: &Pose) -> Vec<Prim> {
 // ------------------------------------------------------------------ creatures
 fn figure_for(look: &Look, a: Anim, f: usize, n: usize) -> Figure {
     match look.body_type {
+        Body::Human if look.mount != 0 => rider(look, a, f, n),
+        Body::Horse => {
+            let h = horse(look.skin, look.mane, look.tack, a, f, n);
+            let mut v = h.prims;
+            if look.tack == 2 {
+                // no rider: the reins are looped over the pommel
+                for b in h.bit {
+                    let pommel = add(h.seat, [0.17, b[1].signum() * 0.07, 0.0]);
+                    prim(&mut v, b, pommel, 0.012, 0.012, LEATHER_DK, Mat::Hair);
+                }
+            }
+            Figure {
+                prims: v,
+                boxes: vec![],
+                pitch: 0.0,
+                roll: 0.0,
+                lift: 0.0,
+            }
+        }
         Body::Human => {
             let q = pose_for(a, f, n, look);
             Figure {
@@ -1502,6 +1571,549 @@ fn quad(look: &Look, a: Anim, f: usize, n: usize) -> Figure {
     }
 }
 
+// ------------------------------------------------------------------ horses
+const LEATHER_DK: u32 = 0x2e1e12ff;
+const SADDLE: u32 = 0x5a3a22ff;
+
+/// A posed horse and the points its rider and reins attach to.
+struct HorseParts {
+    prims: Vec<Prim>,
+    /// where a rider's seat bones rest, on top of the saddle
+    seat: V3,
+    /// the bit rings either side of the mouth (left, right)
+    bit: [V3; 2],
+}
+
+fn lerp3(a: V3, b: V3, t: f32) -> V3 {
+    add(mul(a, 1.0 - t), mul(b, t))
+}
+
+/// One leg's stride at gait phase `q` (0..1): its angle forward of straight
+/// down, and how far its joints fold. Planted for the first `duty` of the
+/// cycle (the body passes over the hoof, so the leg sweeps back), then lifted
+/// and carried forward.
+fn hoof_cycle(q: f32, duty: f32, reach: f32, lift: f32) -> (f32, f32) {
+    let q = q.rem_euclid(1.0);
+    if q < duty {
+        (reach * (1.0 - 2.0 * q / duty), 0.0)
+    } else {
+        let t = (q - duty) / (1.0 - duty);
+        (
+            reach * (2.0 * ease(t) - 1.0),
+            lift * (t * std::f32::consts::PI).sin(),
+        )
+    }
+}
+
+/// a ring of small spheres around the axis `d` at `c` (straps round a head)
+fn strap(v: &mut Vec<Prim>, c: V3, d: V3, r: f32, color: u32) {
+    let side = [0.0, 1.0, 0.0];
+    let up = [-d[2], 0.0, d[0]];
+    for k in 0..12 {
+        let a = k as f32 / 12.0 * std::f32::consts::TAU;
+        let pt = add(c, add(mul(side, a.cos() * r), mul(up, a.sin() * r)));
+        prim(v, pt, pt, 0.017, 0.017, color, Mat::Hair);
+    }
+}
+
+/// A horse on its four jointed legs: a deep barrel, an arched neck with a mane,
+/// a long head, a flowing tail. Walks in four beats, gallops with the body
+/// rocking, grazes (for `Look`), throws its head when hit, and falls on its side.
+fn horse(coat: u32, mane: u32, tack: u8, a: Anim, f: usize, n: usize) -> HorseParts {
+    let tau = std::f32::consts::TAU;
+    let mut v = vec![];
+    let p = if n > 1 {
+        f as f32 / (n - 1) as f32
+    } else {
+        0.0
+    };
+    let cyc = f as f32 / n.max(1) as f32;
+    let walk = a == Anim::Walk;
+    let gallop = a == Anim::Run;
+    let die = if a == Anim::Die { ease(p) } else { 0.0 };
+    let recoil = match (a, f) {
+        (Anim::Hit, 0) => 1.0,
+        (Anim::Hit, _) => 0.5,
+        _ => 0.0,
+    };
+    let graze = if a == Anim::Look {
+        [0.7, 1.0, 0.85][f.min(2)]
+    } else {
+        0.0
+    };
+    let idle = a == Anim::Idle;
+    // dark lower legs and muzzle, as on most coats
+    let points = shade_col(coat, 0.55);
+    let hoofc = 0x2a2420ff;
+    // the back rises and falls with the gait; the gallop rocks it fore and aft
+    let bob = if gallop {
+        0.05 * (cyc * tau).cos()
+    } else if walk {
+        0.014 * (2.0 * cyc * tau).cos()
+    } else {
+        0.0
+    };
+    let rock = if gallop {
+        0.06 * (cyc * tau + 0.6).sin()
+    } else {
+        0.0
+    };
+    let bz = 1.1 + bob - 0.25 * die;
+    let hip = [-0.46, 0.0, bz - rock * 0.46];
+    let sho = [0.42, 0.0, bz + rock * 0.42 + 0.12 * recoil];
+    // barrel, belly, croup, chest and withers
+    prim(&mut v, hip, sho, 0.27, 0.29, coat, Mat::Matte);
+    prim(
+        &mut v,
+        add(hip, [0.18, 0.0, -0.08]),
+        add(sho, [-0.2, 0.0, -0.09]),
+        0.26,
+        0.26,
+        coat,
+        Mat::Matte,
+    );
+    prim(
+        &mut v,
+        add(hip, [-0.04, 0.0, 0.05]),
+        add(hip, [0.06, 0.0, 0.05]),
+        0.26,
+        0.26,
+        coat,
+        Mat::Matte,
+    );
+    prim(
+        &mut v,
+        add(sho, [0.1, 0.0, -0.05]),
+        add(sho, [0.14, 0.0, -0.13]),
+        0.24,
+        0.2,
+        coat,
+        Mat::Matte,
+    );
+    prim(
+        &mut v,
+        add(sho, [-0.12, 0.0, 0.16]),
+        add(sho, [0.04, 0.0, 0.2]),
+        0.13,
+        0.12,
+        coat,
+        Mat::Matte,
+    );
+
+    // legs: walk is four beats (hind left, fore left, hind right, fore right),
+    // the gallop lands the hinds then the fores, with a moment in the air
+    let (duty, reach, lift) = if gallop {
+        (0.38, 0.55, 1.5)
+    } else {
+        (0.62, 0.3, 0.95)
+    };
+    for (front, side) in [(true, -1.0f32), (true, 1.0), (false, -1.0), (false, 1.0)] {
+        let left = side < 0.0;
+        let off = match (gallop, front, left) {
+            (false, false, true) => 0.0,
+            (false, true, true) => 0.25,
+            (false, false, false) => 0.5,
+            (false, true, false) => 0.75,
+            (true, false, false) => 0.0,
+            (true, false, true) => 0.12,
+            (true, true, false) => 0.42,
+            (true, true, true) => 0.54,
+        };
+        let (mut sw, mut flex) = if walk || gallop {
+            hoof_cycle(cyc - off, duty, reach, lift)
+        } else {
+            (0.0, 0.0)
+        };
+        if (idle || graze > 0.0) && !front && !left {
+            // resting a hind hoof on its toe
+            sw = 0.06;
+            flex = 0.3;
+        }
+        if recoil > 0.0 && front {
+            sw = 0.35 * recoil;
+            flex = 0.7 * recoil;
+        }
+        if die > 0.0 {
+            flex = flex.max(1.3 * die);
+            sw += if front { 0.25 } else { -0.3 } * die;
+        }
+        let lat = side * 0.14;
+        let (top, knee, a2, r_up) = if front {
+            let top = add(sho, [0.06, lat, -0.14]);
+            let knee = add(top, mul([sw.sin(), 0.0, -sw.cos()], 0.42));
+            // the knee folds the cannon back
+            (top, knee, sw - flex, 0.1)
+        } else {
+            let top = add(hip, [0.02, lat, -0.08]);
+            // the gaskin slopes back to the hock; flexing it swings the cannon forward
+            let a1 = sw - 0.32;
+            let hock = add(top, mul([a1.sin(), 0.0, -a1.cos()], 0.5));
+            (top, hock, sw + 0.1 + flex * 0.7, 0.14)
+        };
+        let fet = add(knee, mul([a2.sin(), 0.0, -a2.cos()], 0.37));
+        let a3 = a2 - flex * if front { 0.6 } else { 1.2 } + 0.45;
+        let hoof = add(fet, mul([a3.sin(), 0.0, -a3.cos()], 0.12));
+        prim(
+            &mut v,
+            add(top, [0.0, 0.0, 0.12]),
+            knee,
+            r_up,
+            0.055,
+            coat,
+            Mat::Matte,
+        );
+        prim(&mut v, knee, fet, 0.046, 0.038, points, Mat::Matte);
+        prim(&mut v, fet, hoof, 0.042, 0.046, points, Mat::Matte);
+        let hd = [a3.sin() * 0.03 + 0.02, 0.0, -0.02];
+        prim(&mut v, hoof, add(hoof, hd), 0.056, 0.062, hoofc, Mat::Matte);
+    }
+
+    // neck and head
+    let na = if die > 0.0 {
+        0.9 - 0.45 * die
+    } else if gallop {
+        0.62 + 0.08 * (cyc * tau).sin()
+    } else if walk {
+        0.88 + 0.05 * (2.0 * cyc * tau).sin()
+    } else if graze > 0.0 {
+        mixf(0.9, -0.9, graze)
+    } else {
+        0.95 + 0.3 * recoil + if idle && f == 1 { 0.04 } else { 0.0 }
+    };
+    let nbase = add(sho, [0.12, 0.0, 0.1]);
+    let poll = add(nbase, [na.cos() * 0.68, 0.0, na.sin() * 0.68]);
+    prim(&mut v, nbase, poll, 0.2, 0.1, coat, Mat::Matte);
+    prim(
+        &mut v,
+        add(nbase, [-0.06, 0.0, 0.08]),
+        add(poll, [-0.05, 0.0, 0.03]),
+        0.14,
+        0.08,
+        coat,
+        Mat::Matte,
+    );
+    let ha = if gallop {
+        -0.55
+    } else {
+        -0.85 - 0.55 * graze + 0.35 * recoil
+    };
+    let hd = [ha.cos(), 0.0, ha.sin()];
+    let up = [-hd[2], 0.0, hd[0]];
+    let muzzle = add(poll, mul(hd, 0.52));
+    let jaw = add(add(poll, mul(hd, 0.14)), mul(up, -0.05));
+    prim(&mut v, jaw, jaw, 0.12, 0.12, coat, Mat::Matte);
+    prim(
+        &mut v,
+        add(poll, mul(hd, 0.06)),
+        muzzle,
+        0.1,
+        0.072,
+        coat,
+        Mat::Matte,
+    );
+    prim(
+        &mut v,
+        muzzle,
+        add(muzzle, mul(hd, 0.02)),
+        0.076,
+        0.076,
+        shade_col(coat, 0.5),
+        Mat::Matte,
+    );
+    for s in [-1.0f32, 1.0] {
+        let e = add(
+            add(poll, mul(hd, 0.13)),
+            add([0.0, s * 0.09, 0.0], mul(up, 0.04)),
+        );
+        prim(&mut v, e, e, 0.024, 0.024, 0x100c0aff, Mat::Hair);
+        let ear = add(poll, add(mul(up, 0.05), [0.0, s * 0.055, 0.0]));
+        let flick = if idle && f == 1 && s > 0.0 {
+            -0.06
+        } else {
+            0.0
+        };
+        prim(
+            &mut v,
+            ear,
+            add(ear, add(mul(up, 0.12), [-0.03 + flick, s * 0.03, 0.0])),
+            0.032,
+            0.01,
+            coat,
+            Mat::Matte,
+        );
+        let ns = add(muzzle, add(mul(hd, 0.05), [0.0, s * 0.04, 0.0]));
+        prim(&mut v, ns, ns, 0.014, 0.014, 0x1a1210ff, Mat::Matte);
+    }
+    // the mane falls to the right of the crest; it streams back at the gallop
+    for k in 0..8 {
+        let t = k as f32 / 7.0;
+        let r = lerp3(add(nbase, [-0.1, 0.0, 0.17]), add(poll, mul(up, 0.07)), t);
+        let fall = if gallop {
+            [-0.1, 0.02, -0.03]
+        } else {
+            [-0.03, 0.06, -0.11]
+        };
+        prim(&mut v, r, add(r, fall), 0.045, 0.03, mane, Mat::Hair);
+    }
+    let fl = add(poll, mul(up, 0.05));
+    prim(
+        &mut v,
+        fl,
+        add(fl, mul(hd, 0.13)),
+        0.04,
+        0.02,
+        mane,
+        Mat::Hair,
+    );
+    // tail: a dock, then a long fall of hair that swishes, and streams at speed
+    let root = add(hip, [-0.27, 0.0, 0.12]);
+    let dock = add(root, [-0.1, 0.0, -0.02]);
+    prim(&mut v, root, dock, 0.06, 0.06, mane, Mat::Hair);
+    let stream = if gallop {
+        0.75
+    } else if walk {
+        0.15
+    } else {
+        0.05
+    } + 0.3 * die;
+    let swish = (cyc * tau).sin()
+        * if idle {
+            0.06
+        } else if walk {
+            0.04
+        } else {
+            0.02
+        };
+    // three locks of hair, so it reads as a fall of hair and not a rope
+    for (j, ly) in [-0.035f32, 0.0, 0.035].into_iter().enumerate() {
+        let mut p0 = add(dock, [0.0, ly * 0.6, 0.0]);
+        let len = [0.11, 0.125, 0.115][j];
+        for k in 0..5 {
+            let kf = k as f32;
+            let p1 = add(
+                p0,
+                [
+                    -0.03 - 0.1 * stream,
+                    swish * (kf + 1.0) * 0.5 + ly * 0.15,
+                    -len * (1.0 - stream * 0.7),
+                ],
+            );
+            let r = 0.04 - 0.004 * kf;
+            prim(&mut v, p0, p1, r, r - 0.004, mane, Mat::Hair);
+            p0 = p1;
+        }
+    }
+
+    // tack
+    let back_z = |x: f32| {
+        let t = ((x - hip[0]) / (sho[0] - hip[0])).clamp(0.0, 1.0);
+        mixf(hip[2], sho[2], t) + 0.27
+    };
+    let sx = -0.06;
+    let seat = [sx, 0.0, back_z(sx) + 0.07];
+    let nb = add(poll, mul(hd, 0.36));
+    let bit = [
+        add(add(poll, mul(hd, 0.44)), [0.0, -0.075, 0.0]),
+        add(add(poll, mul(hd, 0.44)), [0.0, 0.075, 0.0]),
+    ];
+    if tack >= 1 {
+        // headstall: noseband, cheek straps and a strap behind the ears
+        strap(&mut v, nb, hd, 0.085, LEATHER_DK);
+        strap(&mut v, add(poll, mul(hd, -0.02)), hd, 0.1, LEATHER_DK);
+        for s in [-1.0f32, 1.0] {
+            prim(
+                &mut v,
+                add(poll, [0.0, s * 0.095, 0.0]),
+                add(nb, [0.0, s * 0.085, 0.0]),
+                0.016,
+                0.016,
+                LEATHER_DK,
+                Mat::Hair,
+            );
+        }
+    }
+    if tack == 2 {
+        for b in bit {
+            prim(&mut v, b, b, 0.022, 0.022, 0x9a9aa0ff, Mat::Metal);
+        }
+        // a dark red blanket draped over the back, under the saddle
+        let blanket = 0x5a2422ff;
+        for k in 0..6 {
+            let x = -0.3 + k as f32 * 0.09;
+            let z = back_z(x);
+            for s in [-1.0f32, 1.0] {
+                prim(
+                    &mut v,
+                    [x, s * 0.12, z - 0.01],
+                    [x, s * 0.29, z - 0.24],
+                    0.03,
+                    0.03,
+                    blanket,
+                    Mat::Cloth,
+                );
+            }
+            prim(
+                &mut v,
+                [x, -0.12, z],
+                [x, 0.12, z],
+                0.03,
+                0.03,
+                blanket,
+                Mat::Cloth,
+            );
+        }
+        // the saddle: a dished seat between a high cantle and the pommel
+        for y in [-0.11f32, -0.04, 0.04, 0.11] {
+            let dz = 0.03 - y.abs() * 0.25;
+            prim(
+                &mut v,
+                [-0.2, y, back_z(-0.2) + dz],
+                [0.13, y, back_z(0.13) + dz],
+                0.045,
+                0.045,
+                SADDLE,
+                Mat::Hair,
+            );
+        }
+        let cz = back_z(-0.23) + 0.09;
+        prim(
+            &mut v,
+            [-0.23, -0.09, cz],
+            [-0.23, 0.09, cz],
+            0.05,
+            0.05,
+            SADDLE,
+            Mat::Hair,
+        );
+        let pz = back_z(0.16) + 0.08;
+        prim(
+            &mut v,
+            [0.16, 0.0, pz - 0.03],
+            [0.17, 0.0, pz],
+            0.055,
+            0.045,
+            SADDLE,
+            Mat::Hair,
+        );
+        // girth round the belly, stirrups hung either side
+        for k in 0..9 {
+            let a = -0.35 - k as f32 / 8.0 * 2.44;
+            let pt = [0.05, a.cos() * 0.33, bz - 0.06 + a.sin() * 0.33];
+            prim(&mut v, pt, pt, 0.026, 0.026, LEATHER_DK, Mat::Hair);
+        }
+        for s in [-1.0f32, 1.0] {
+            let top = [0.0, s * 0.25, back_z(0.0) - 0.06];
+            let iron = [0.03, s * 0.33, bz - 0.36];
+            prim(&mut v, top, iron, 0.014, 0.014, LEATHER_DK, Mat::Hair);
+            prim(
+                &mut v,
+                add(iron, [-0.03, 0.0, -0.02]),
+                add(iron, [0.03, 0.0, -0.02]),
+                0.022,
+                0.022,
+                0x8a8a90ff,
+                Mat::Metal,
+            );
+        }
+    }
+    if die > 0.0 {
+        // fall onto the near side, turning about the middle of the body so the
+        // carcass lands where the horse stood
+        let (rs, rc) = (1.45 * die).sin_cos();
+        let pivot = 0.6;
+        let rot = |p: V3| {
+            let z = p[2] - pivot;
+            [p[0], p[1] * rc - z * rs, p[1] * rs + z * rc + pivot]
+        };
+        for pr in v.iter_mut() {
+            pr.a = rot(pr.a);
+            pr.b = rot(pr.b);
+        }
+    }
+    HorseParts {
+        prims: v,
+        seat,
+        bit,
+    }
+}
+
+/// where the hands are for a humanoid pose (right, left), as `build` places them
+fn hand_points(look: &Look, q: &Pose) -> [V3; 2] {
+    let bulk = 1.0 + look.bulk as f32 / 100.0;
+    let shoulder_w = if look.female { 0.17 } else { 0.19 } * bulk;
+    let pel = [0.0, 0.0, 0.95 - q.sink];
+    let sd = [q.lean.sin(), 0.0, q.lean.cos()];
+    let chest = add(pel, mul(sd, 0.47));
+    let la = lat(q.twist);
+    let mut out = [[0.0f32; 3]; 2];
+    for (i, side) in [(0usize, 1.0f32), (1, -1.0)] {
+        let s = add(chest, mul(la, side * shoulder_w));
+        let d1 = limb_dir(q.sh[i], q.roll[i], side, q.twist);
+        let el = add(s, mul(d1, 0.29));
+        let d2 = limb_dir(q.sh[i] + q.el[i], q.roll[i], side, q.twist);
+        out[i] = add(el, mul(d2, 0.27));
+    }
+    out
+}
+
+/// A rider in the saddle: the horse walks, gallops or flinches beneath them
+/// and stands still for the rest; the rider sits astride, holding the reins
+/// unless swinging, working or casting from the saddle.
+fn rider(look: &Look, a: Anim, f: usize, n: usize) -> Figure {
+    let (ha, hf, hn) = match a {
+        Anim::Walk | Anim::Run | Anim::Hit | Anim::Idle => (a, f, n),
+        _ => (Anim::Idle, 0, 2),
+    };
+    let h = horse(look.mount, look.mane, 2, ha, hf, hn);
+    let reins = matches!(a, Anim::Idle | Anim::Look | Anim::Walk | Anim::Run);
+    let mut q = pose_for(a, f, n, look);
+    if reins {
+        q.sh = [0.5, 0.5];
+        q.el = [0.95, 0.95];
+        q.roll = [0.2, 0.2];
+        q.wrist = 1.0;
+        q.lean = look.hunch as f32 / 100.0
+            + match a {
+                Anim::Walk => 0.04,
+                Anim::Run => 0.3,
+                _ => 0.0,
+            };
+        if a != Anim::Look {
+            q.twist = 0.0;
+        }
+    }
+    // astride: thighs forward and parted round the barrel, shins hanging down
+    q.hip = [1.25, 1.25];
+    q.knee = [1.6, 1.6];
+    q.spread = [0.5, 0.0];
+    q.sink = 0.0;
+    q.fall = 0.0;
+    let off = [h.seat[0], 0.0, h.seat[2] + 0.05 - 0.95];
+    let mut v = h.prims;
+    for mut pr in build(look, &q) {
+        pr.a = add(pr.a, off);
+        pr.b = add(pr.b, off);
+        v.push(pr);
+    }
+    let pommel = add(h.seat, [0.17, 0.0, 0.0]);
+    let hands = hand_points(look, &q);
+    for (k, b) in h.bit.into_iter().enumerate() {
+        let end = if reins {
+            add(hands[1 - k], off)
+        } else {
+            add(pommel, [0.0, b[1].signum() * 0.07, 0.0])
+        };
+        prim(&mut v, b, end, 0.012, 0.012, LEATHER_DK, Mat::Hair);
+    }
+    Figure {
+        prims: v,
+        boxes: vec![],
+        pitch: 0.0,
+        roll: 0.0,
+        lift: 0.0,
+    }
+}
+
 fn bat(look: &Look, a: Anim, f: usize, n: usize) -> Figure {
     let mut v = vec![];
     let col = look.skin;
@@ -1682,7 +2294,9 @@ pub const P_FERN: usize = 94;
 pub const P_PEBBLES: usize = 95; // 2
 pub const P_TWIGS: usize = 97;
 pub const P_THRONE: usize = 98;
-pub const N_PROPS: usize = 99;
+/// split-rail paddock fence of weathered wood
+pub const P_RAIL: usize = 99;
+pub const N_PROPS: usize = 100;
 
 /// flames licking up from `base`, varied by animation frame `f`
 fn flames(p: &mut Vec<Prim>, base: V3, size: f32, f: usize) {
@@ -3063,6 +3677,41 @@ fn prop(kind: usize) -> Figure {
                 );
             }
         }
+        P_RAIL => {
+            // weathered split rails, sagging a little between rough posts
+            let wood = 0x6a5a44ff;
+            for y in [-0.72f32, 0.72] {
+                prim(
+                    &mut p,
+                    [0.0, y, 0.0],
+                    [0.0, y, 1.05],
+                    0.06,
+                    0.05,
+                    shade_col(wood, 0.85),
+                    Mat::Matte,
+                );
+            }
+            for (z, sag) in [(0.42f32, 0.03f32), (0.88, 0.05)] {
+                prim(
+                    &mut p,
+                    [0.0, -0.74, z],
+                    [0.02, 0.0, z - sag],
+                    0.04,
+                    0.036,
+                    wood,
+                    Mat::Matte,
+                );
+                prim(
+                    &mut p,
+                    [0.02, 0.0, z - sag],
+                    [0.0, 0.74, z],
+                    0.036,
+                    0.04,
+                    wood,
+                    Mat::Matte,
+                );
+            }
+        }
         k if k == P_GRAVE || k == P_GRAVE + 1 => {
             let stone = 0x7a7872ff;
             // the mound in front (+x), sunken earth
@@ -4413,6 +5062,45 @@ pub fn bake(look: &Look) -> Atlas {
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// horses and riders: every frame drawn, and nothing cut off at the frame's edges
+    #[test]
+    fn horses_fit_their_frames() {
+        let mut horse = Look::creature(Body::Horse, 0x6a4028ff, 100);
+        horse.mane = 0x1a1410ff;
+        horse.tack = 2;
+        let mut rider = Look::human(0xe0b090ff, 0x2e3f9aff, 0x3a3040ff);
+        rider.role = 0;
+        rider.robe = true;
+        rider.hat = 0x2e3f9aff;
+        rider.weapon = Weapon::Halberd;
+        rider.shield = 0x9a7a40ff;
+        rider.mount = 0x8a8680ff;
+        rider.mane = 0xc8c4bcff;
+        for l in [&horse, &rider] {
+            let a = bake(l);
+            for idx in 0..total_frames(l) {
+                let (ox, oy) = ((idx % COLS) * a.fw, (idx / COLS) * a.fh);
+                let at = |x: usize, y: usize| a.rgba[((oy + y) * a.w + ox + x) * 4 + 3] > 0;
+                let mut n = 0;
+                for y in 0..a.fh {
+                    for x in 0..a.fw {
+                        if at(x, y) {
+                            n += 1;
+                            let edge = x == 0 || y == 0 || x == a.fw - 1 || y == a.fh - 1;
+                            assert!(
+                                !edge,
+                                "{:?} frame {idx} touches the edge at {x},{y}",
+                                l.body_type
+                            );
+                        }
+                    }
+                }
+                assert!(n > 400, "{:?} frame {idx} nearly empty ({n})", l.body_type);
+            }
+        }
+        assert_eq!(anims(&rider), RIDER_ANIMS);
+        assert_eq!(slot(&rider, Block), slot(&rider, Stance));
+    }
     #[test]
     fn bakes_every_frame() {
         let mut l = Look::human(0xe0b090ff, 0x7a5230ff, 0x3a3040ff);

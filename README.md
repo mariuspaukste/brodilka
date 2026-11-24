@@ -30,6 +30,13 @@ canvas and renders the windows ("gumps") from JSON; all game logic is in Rust.
   healer, inn, mage and goods shop around the market square. Its own guards
   keep the peace inside the walls, and guard posts on the roads to it keep
   monsters off the road around them.
+- **Horses**: a stablemaster east of the town sells bay, grey and black
+  horses, saddled and bridled. Tap your horse to mount and yourself to get
+  down (or press E); riding is half again as fast as going on foot, and your
+  horse follows you about when you're on foot. A heavy blow throws you from the
+  saddle, you can't kick from horseback, and if you lose your horse the
+  stablemaster will send a lad to fetch it. Wild horses run the western
+  meadows, and the stablemaster's own graze in his paddock.
 - **Death** turns you into a ghost and leaves your belongings on your corpse;
   find a healer or an ankh shrine, then run back for your things.
 - **Places**: a haunted graveyard (skeletons, zombies, a lich), an orc camp,
@@ -51,7 +58,11 @@ renders every frame in 8 directions (5 rendered, 3 mirrored) into an atlas the
 first time that figure appears on screen. Animations follow Pagan's set: idle,
 walk, combat stance, attack, block, kick, work (mining/chopping/fishing),
 cast, hit, die, and falling down and getting back up;
-corpses keep the last frame of the death fall. Four-legged animals, the
+corpses keep the last frame of the death fall. Horses have their own rig:
+jointed legs that walk in four beats and gallop with the body rocking, a
+mane and a tail that streams at speed, grazing, and saddle and bridle; a
+rider is baked sitting astride the horse with the reins in hand, and the
+whole figure is baked again for each coat. Four-legged animals, the
 mongbat, the slime and the dragon have their own rigs (gaits, wing membranes,
 squash-and-stretch). Baking is spread over several frames so play never stalls.
 
@@ -97,7 +108,8 @@ animations.
 Tap the ground to walk, hold and drag to steer. Tap a creature to attack,
 tap people to trade, tap yourself for the paperdoll. Trees, mountains and
 water are gathered by tapping them with the right tool.
-Keyboard: WASD/arrows, Tab war mode, Space (hold) block, F kick, B bandage, P pack, K skills, M map,
+Tap your horse to mount, yourself to dismount.
+Keyboard: WASD/arrows, Tab war mode, Space (hold) block, F kick, E mount/dismount, B bandage, P pack, K skills, M map,
 1–9 cast, Esc close.
 
 ## Build

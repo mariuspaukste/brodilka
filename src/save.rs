@@ -85,6 +85,21 @@ impl Game {
             pl.shield.as_ref().map(item_str).unwrap_or_default(),
         );
         kv("armor", pl.armor.as_ref().map(item_str).unwrap_or_default());
+        if let Some(h) = &pl.horse {
+            kv(
+                "horse",
+                format!(
+                    "{},{},{}",
+                    h.coat,
+                    pl.riding as u8,
+                    h.name.replace(',', " ")
+                ),
+            );
+            if let Some(i) = self.my_horse() {
+                let (x, y) = self.ents[i].tile();
+                kv("horsepos", format!("{},{}", x, y));
+            }
+        }
         if let Some(c) = self.corpses.iter().find(|c| c.player) {
             kv(
                 "corpse",
@@ -100,6 +115,7 @@ impl Game {
         let (mut hp, mut mana) = (1, 0);
         let mut ok = false;
         let mut corpse: Option<(i32, i32, i64, Vec<Item>)> = None;
+        let mut horse_pos: Option<(i32, i32)> = None;
         for line in s.lines() {
             let Some((k, v)) = line.split_once('=') else {
                 continue;
@@ -151,6 +167,27 @@ impl Game {
                 "weapon" => pl.weapon = parse_item(v),
                 "shield" => pl.shield = parse_item(v),
                 "armor" => pl.armor = parse_item(v),
+                "horse" => {
+                    let mut it = v.splitn(3, ',');
+                    let coat = it.next().and_then(|c| c.parse::<u8>().ok()).unwrap_or(0);
+                    let riding = it.next() == Some("1");
+                    let name = it.next().unwrap_or("").trim();
+                    pl.horse = Some(Steed {
+                        name: if name.is_empty() {
+                            HORSE_NAMES[0].to_string()
+                        } else {
+                            name.chars().take(20).collect()
+                        },
+                        coat: coat % HORSE_COATS.len() as u8,
+                    });
+                    pl.riding = riding;
+                }
+                "horsepos" => {
+                    let n = nums(v);
+                    if n.len() == 2 {
+                        horse_pos = Some((n[0], n[1]));
+                    }
+                }
                 "corpse" => {
                     if let Some((head, its)) = v.split_once('|') {
                         let n: Vec<i64> = head.split(',').map(|x| x.parse().unwrap_or(0)).collect();
@@ -173,6 +210,9 @@ impl Game {
         let mm = pl.mmana();
         let nm = pl.name.clone();
         let ghost = pl.ghost;
+        if ghost {
+            pl.riding = false;
+        }
         self.pl = pl;
         let p = &mut self.ents[0];
         p.name = nm;
@@ -202,10 +242,22 @@ impl Game {
                 age: 10.0,
             });
         }
+        // the horse waits where it was left (or by the player, if that spot is gone)
+        self.ents.retain(|e| e.tame != 1);
+        if let Some(h) = self.pl.horse.clone() {
+            if !self.pl.riding {
+                let (x, y) = horse_pos
+                    .filter(|&(x, y)| {
+                        self.map.passable(x, y) && self.map.reach[crate::world::idx(x, y)]
+                    })
+                    .unwrap_or(pos);
+                self.spawn_horse(x, y, &h.name, h.coat);
+            }
+        }
         // move monsters away from the loaded position so we don't wake up in a fight
         let (px, py) = (pos.0 as f32, pos.1 as f32);
         for e in self.ents.iter_mut().skip(1) {
-            if matches!(e.k, EK::Mon(_)) && e.dist(px, py) < 6.0 {
+            if matches!(e.k, EK::Mon(_)) && e.tame == 0 && e.dist(px, py) < 6.0 {
                 e.dead = true;
             }
         }

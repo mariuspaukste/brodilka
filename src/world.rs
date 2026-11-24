@@ -111,6 +111,10 @@ pub struct Map {
     pub town: (i32, i32, i32, i32),
     /// the walled city of Duskhold and its castle, north of the town
     pub city: (i32, i32, i32, i32),
+    /// the stables east of the town: barn, yard and paddock (guarded ground)
+    pub stable: (i32, i32, i32, i32),
+    /// where the stablemaster's horses graze in the paddock
+    pub paddock: Vec<(i32, i32)>,
     /// guard posts along the roads: monsters near one are struck down too
     pub posts: Vec<(i32, i32)>,
     pub start: (i32, i32),
@@ -310,9 +314,11 @@ impl Map {
             .any(|&(x0, y0, x1, y1)| x >= x0 - 3 && y >= y0 - 3 && x < x1 + 3 && y < y1 + 3)
     }
 
-    /// Ground the guards keep: the town, the city and around each road post.
+    /// Ground the guards keep: the town, the city, the stables and around each road post.
     pub fn guarded(&self, x: i32, y: i32) -> bool {
+        let (sx0, sy0, sx1, sy1) = self.stable;
         self.in_town(x, y)
+            || (x >= sx0 && y >= sy0 && x < sx1 && y < sy1)
             || self
                 .posts
                 .iter()
@@ -542,6 +548,15 @@ impl Map {
                 ((bx + 5, by + 4, false), O_LONGTABLE),
                 ((bx + 6, by + 4, true), O_CHAIR),
                 ((bx + 6, by + 3, true), O_CHAIR),
+            ],
+            V_STABLE => vec![
+                // feed sacks and water barrels, a tack chest, a cart of hay
+                (back(bx + 1), O_SACKS),
+                (back(bx + 2), O_SACKS),
+                (back(bx + 6), O_BARREL),
+                (back(bx + 5), O_CHEST),
+                ((bx + 6, by + 3, false), O_BARREL),
+                (side(by + 3), O_CRATE),
             ],
             V_LIBRARIAN => vec![
                 // shelves on every wall that faces the room, a reading table
@@ -850,6 +865,8 @@ pub fn generate(seed: u32) -> Map {
         res: vec![12; N],
         regrow: vec![],
         town: (62, 64, 98, 104),
+        stable: (98, 80, 110, 99),
+        paddock: vec![],
         city: (60, 14, 100, 56),
         posts: vec![],
         start: (80, 79),
@@ -873,8 +890,10 @@ pub fn generate(seed: u32) -> Map {
     let hills = (34, 34);
     let lair = (128, 128);
     let city_c = (80, 35);
-    let pois: [((i32, i32), f32); 6] = [
+    let stable_c = (104, 89);
+    let pois: [((i32, i32), f32); 7] = [
         (town_c, 30.0),
+        (stable_c, 14.0),
         (city_c, 30.0),
         (grave, 15.0),
         (orcs, 14.0),
@@ -1153,6 +1172,7 @@ pub fn generate(seed: u32) -> Map {
     m.pois.push(("Town", town_c.0, town_c.1));
     m.pois.push(("Pub", x0 + 6, y0 + 37));
     m.pois.push(("Library", x0 + 30, y0 + 37));
+    stables(&mut m, &mut rng);
 
     city(&mut m);
 
@@ -1170,6 +1190,7 @@ pub fn generate(seed: u32) -> Map {
         ("slime", 110, 52, 8, 2),
         ("wolf", 44, 66, 11, 4),
         ("wolf", 112, 110, 11, 3),
+        ("horse", 46, 94, 10, 4),
         ("skeleton", grave.0, grave.1, 8, 5),
         ("zombie", grave.0, grave.1, 8, 4),
         ("lich", grave.0, grave.1, 3, 1),
@@ -1180,6 +1201,37 @@ pub fn generate(seed: u32) -> Map {
         ("dragon", lair.0, lair.1, 2, 1),
     ];
     m
+}
+
+/// The stables east of the town: a timber barn with the stablemaster, and a
+/// paddock fenced with split rails where his horses graze.
+fn stables(m: &mut Map, rng: &mut Rng) {
+    let (x0, y0, x1, y1) = m.stable;
+    for y in y0..y1 {
+        for x in x0..x1 {
+            let t = if rng.f() < 0.35 { T_DIRT } else { T_GRASS };
+            m.set(x, y, t, O_NONE);
+        }
+    }
+    let (bx, by) = (x0 + 2, y0 + 2);
+    m.building(bx, by, 2, V_STABLE);
+    // paddock: a ring of rails with a gate facing the barn door
+    let (px0, py0, px1, py1) = (x0 + 1, y0 + 10, x0 + 10, y0 + 17);
+    for y in py0..=py1 {
+        for x in px0..=px1 {
+            let edge = x == px0 || x == px1 || y == py0 || y == py1;
+            let gate = y == py0 && (x == bx + 3 || x == bx + 4);
+            if edge && !gate {
+                m.set(x, y, T_GRASS, O_FENCE);
+                m.style[idx(x, y)] = 1;
+            }
+        }
+    }
+    m.set_o(px1 - 1, py1 - 1, O_SACKS);
+    m.set_o(px0 + 1, py1 - 1, O_BARREL);
+    m.place(x1 - 1, by + 3, O_CART, false);
+    m.paddock = vec![(px0 + 2, py0 + 3), (px0 + 6, py0 + 2), (px0 + 4, py0 + 5)];
+    m.pois.push(("Stables", bx + 4, by + 6));
 }
 
 /// Duskhold: a walled city north of the town. Its castle fills the northern

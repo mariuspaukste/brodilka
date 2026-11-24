@@ -746,6 +746,7 @@ window.addEventListener('keydown', (e) => {
   else if (k === 'Escape') cmd('escape');
   else if (k === 'Space') { e.preventDefault(); if (!e.repeat) setBlock(true); }
   else if (k === 'KeyF') cmd('kick');
+  else if (k === 'KeyE') cmd('ride');
   else if (/^Digit[1-9]$/.test(k)) cmd(`cast:${+k.slice(5) - 1}`);
 });
 window.addEventListener('keyup', (e) => {

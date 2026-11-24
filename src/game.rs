@@ -128,6 +128,10 @@ pub struct Ent {
     pub running: bool,
     /// drawn height above level 0, following the ground (in levels)
     pub vz: f32,
+    /// a horse in someone's keeping: 0 wild, 1 the player's own, 2 the stablemaster's
+    pub tame: u8,
+    /// a horse's coat, an index into HORSE_COATS
+    pub coat: u8,
 }
 
 impl Ent {
@@ -171,6 +175,8 @@ impl Ent {
             ready: 0.0,
             running: false,
             vz: 0.0,
+            tame: 0,
+            coat: 0,
         }
     }
     pub fn tile(&self) -> (i32, i32) {
@@ -219,6 +225,7 @@ pub enum Pending {
     Gather(usize, i32, i32),
     Station(u8, i32, i32),
     Ankh(i32, i32),
+    Mount(u32),
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -294,6 +301,13 @@ pub struct Spawner {
     pub t: f32,
 }
 
+/// The player's own horse, whether ridden or standing in the world.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Steed {
+    pub name: String,
+    pub coat: u8,
+}
+
 pub struct Pl {
     pub name: String,
     pub female: bool,
@@ -329,6 +343,9 @@ pub struct Pl {
     pub still_t: f32,
     pub blocking: bool,
     pub kick_cd: f32,
+    pub horse: Option<Steed>,
+    /// in the saddle: the horse is part of the player until they get down
+    pub riding: bool,
 }
 
 impl Pl {
@@ -368,6 +385,8 @@ impl Pl {
             still_t: 0.0,
             blocking: false,
             kick_cd: 0.0,
+            horse: None,
+            riding: false,
         }
     }
     pub fn sk(&self, s: usize) -> f32 {
@@ -533,6 +552,8 @@ pub struct Game {
 }
 
 const PLAYER_SPEED: f32 = 4.6;
+/// how much faster a mounted player walks and gallops than they walk and run
+const RIDE_SPEED: f32 = 1.5;
 
 impl Game {
     pub fn new(seed: u32) -> Game {
@@ -612,6 +633,13 @@ impl Game {
                 g.spawn(si);
             }
         }
+        let paddock = g.map.paddock.clone();
+        for (k, (x, y)) in paddock.into_iter().enumerate() {
+            let i = g.spawn_horse(x, y, "the stablemaster's horse", (k % 5) as u8);
+            g.ents[i].tame = 2;
+            g.ents[i].dir8 = (k as u8 * 3) % 8;
+            g.ents[i].vdir = g.ents[i].dir8;
+        }
         g.build_minimap();
         let (px, py) = (g.ents[0].x, g.ents[0].y);
         g.camx = (px - py) * 32.0;
@@ -677,6 +705,9 @@ impl Game {
             if d.caster.len() > 0 {
                 e.mana = 200;
                 e.mmana = 200;
+            }
+            if d.id == "horse" {
+                e.coat = 3 + self.rng.range(0, 1) as u8;
             }
             self.ents.push(e);
             return;
@@ -762,6 +793,7 @@ impl Game {
             pl.add(it);
         }
         self.pl = pl;
+        self.ents.retain(|e| e.tame != 1);
         // auto-equip best starting gear
         let mut k = 0;
         while k < self.pl.pack.len() {
@@ -1010,6 +1042,12 @@ impl Game {
     }
 
     fn move_ent(&mut self, i: usize, speed: f32, dt: f32) -> bool {
+        // a horse's stride covers more ground than a man's
+        let stride = if self.is_horse(i) || (i == 0 && self.pl.riding) {
+            0.6
+        } else {
+            1.0
+        };
         let e = &mut self.ents[i];
         let Some(&(tx, ty)) = e.path.first() else {
             return false;
@@ -1029,7 +1067,7 @@ impl Game {
         if d > 0.01 {
             e.dir8 = dir8_of(dx, dy);
         }
-        e.walk += dt * speed * 2.4;
+        e.walk += dt * speed * 2.4 * stride;
         if d <= step {
             e.x = tx as f32;
             e.y = ty as f32;
@@ -1148,9 +1186,10 @@ impl Game {
         };
         let run = !self.pl.ghost && !self.pl.blocking && (far_steer || self.ents[0].path.len() > 5);
         self.ents[0].running = run;
+        let ride = if self.pl.riding { RIDE_SPEED } else { 1.0 };
         let moving = self.move_ent(
             0,
-            if run {
+            ride * if run {
                 PLAYER_SPEED * 1.55
             } else {
                 PLAYER_SPEED
@@ -1413,6 +1452,11 @@ impl Game {
         if self.pl.kick_cd > 0.0 {
             return;
         }
+        if self.pl.riding {
+            self.msg("Thou canst not kick from the saddle.", C_SYS);
+            self.pl.kick_cd = 1.0;
+            return;
+        }
         let (px, py) = (self.ents[0].x, self.ents[0].y);
         // the current target, else the nearest hostile in reach
         let mut ti = self
@@ -1423,6 +1467,7 @@ impl Game {
                 .filter(|&i| {
                     !self.ents[i].dead
                         && matches!(self.ents[i].k, EK::Mon(_))
+                        && self.ents[i].tame == 0
                         && self.ents[i].dist(px, py) <= 1.6
                 })
                 .min_by(|&a, &b| {
@@ -1488,7 +1533,7 @@ impl Game {
 
     /// Damage any entity by index.
     pub fn damage(&mut self, i: usize, dmg: i32, by_player: bool) {
-        if self.ents[i].dead {
+        if self.ents[i].dead || self.ents[i].tame != 0 {
             return;
         }
         if i == 0 {
@@ -1565,8 +1610,13 @@ impl Game {
             && dmg * 100 >= self.ents[0].mhp * 22
             && self.rng.chance(0.5)
         {
+            if self.pl.riding {
+                self.dismount();
+                self.msg("Thou art thrown from the saddle!", C_WARN);
+            } else {
+                self.msg("You are knocked off your feet!", C_WARN);
+            }
             self.knock_down(0, 1.9);
-            self.msg("You are knocked off your feet!", C_WARN);
         }
     }
 
@@ -1657,6 +1707,10 @@ impl Game {
     }
 
     fn kill_player(&mut self) {
+        // the rider falls; the horse stays where they died
+        if self.pl.riding {
+            self.dismount();
+        }
         let look = self.look_for(0);
         let dir8 = self.ents[0].dir8;
         let (x, y) = self.ents[0].tile();
@@ -1809,6 +1863,10 @@ impl Game {
     }
 
     fn mon_tick(&mut self, i: usize, mi: usize, dt: f32) {
+        if self.ents[i].tame != 0 {
+            self.horse_tick(i, dt);
+            return;
+        }
         let d = &MONS[mi];
         self.move_ent(i, d.mv, dt);
         {
@@ -1843,6 +1901,7 @@ impl Game {
         let pid = self.ents[0].id;
 
         if d.passive {
+            self.ents[i].running = self.ents[i].provoked;
             if self.ents[i].provoked && pd < 10.0 && !ghost {
                 if self.ents[i].path.is_empty() {
                     if let Some(s) = self.greedy_step(i, px, py, true) {
@@ -2357,6 +2416,11 @@ impl Game {
                 }
                 self.touch_ui();
             }
+            Pending::Mount(id) => {
+                if let Some(i) = self.find(id) {
+                    self.mount(i);
+                }
+            }
             Pending::Ankh(_, _) => {
                 if self.pl.ghost {
                     self.win = Win::Res;
@@ -2706,6 +2770,240 @@ impl Game {
     }
 
     /// handle a tap at screen coords
+    // ------------------------------------------------------------ horses
+    pub fn is_horse(&self, i: usize) -> bool {
+        self.is_horse_ent(&self.ents[i])
+    }
+    pub fn is_horse_ent(&self, e: &Ent) -> bool {
+        matches!(e.k, EK::Mon(m) if MONS[m].id == "horse")
+    }
+    #[cfg(test)]
+    pub fn damage_player_for_test(&mut self, dmg: i32) {
+        // armour and parrying aside, deal exactly this much
+        self.pl.armor = None;
+        self.pl.shield = None;
+        self.damage_player(dmg);
+    }
+    /// the player's horse while it stands in the world (not while ridden)
+    pub fn my_horse(&self) -> Option<usize> {
+        self.ents.iter().position(|e| e.tame == 1 && !e.dead)
+    }
+    /// Put a horse in the world; returns its index.
+    pub fn spawn_horse(&mut self, x: i32, y: i32, name: &str, coat: u8) -> usize {
+        let id = self.nid();
+        let mi = mon_idx("horse");
+        let mut e = Ent::new(id, EK::Mon(mi), name.to_string(), x, y, MONS[mi].hp);
+        e.coat = coat;
+        e.tame = 1;
+        e.ai_t = self.rng.f() * 2.0;
+        self.ents.push(e);
+        self.ents.len() - 1
+    }
+    /// a free tile next to (x, y) for a horse to stand on, or (x, y) itself
+    fn beside(&self, x: i32, y: i32) -> (i32, i32) {
+        for &(dx, dy) in DIRS.iter() {
+            if self.map.can_step(x, y, dx, dy) && !self.occupied(x + dx, y + dy, usize::MAX) {
+                return (x + dx, y + dy);
+            }
+        }
+        (x, y)
+    }
+    /// The stablemaster leads out a newly bought horse.
+    pub fn lead_out_horse(&mut self, coat: u8) {
+        let name =
+            HORSE_NAMES[self.rng.range(0, HORSE_NAMES.len() as i32 - 1) as usize].to_string();
+        self.pl.horse = Some(Steed {
+            name: name.clone(),
+            coat,
+        });
+        self.pl.riding = false;
+        let (px, py) = self.ents[0].tile();
+        let (x, y) = self.beside(px, py);
+        self.spawn_horse(x, y, &name, coat);
+        self.msg(
+            &format!("The stablemaster leads out {name}. Tap thy horse to mount; tap thyself to get down."),
+            C_GOOD,
+        );
+    }
+    /// Walk up to the player's horse (at `i`) and get on it.
+    fn approach_horse(&mut self, i: usize) {
+        if self.pl.ghost {
+            self.msg("Thy horse shies from thy spirit.", C_WARN);
+            return;
+        }
+        let id = self.ents[i].id;
+        if self.ents[i].dist(self.ents[0].x, self.ents[0].y) <= 1.8 {
+            self.ents[0].path.truncate(1);
+            self.pl.pending = Pending::Mount(id);
+            return;
+        }
+        let (x, y) = self.ents[i].tile();
+        if self.walk_to(x, y, 1) {
+            self.pl.pending = Pending::Mount(id);
+        } else {
+            self.msg("Thou canst not reach thy horse.", C_WARN);
+        }
+    }
+    /// Get on the player's horse at `i`: it leaves the world and carries them.
+    pub fn mount(&mut self, i: usize) {
+        if self.ents[i].tame != 1 || self.pl.riding {
+            return;
+        }
+        if self.pl.ghost {
+            self.msg("Thy horse shies from thy spirit.", C_WARN);
+            return;
+        }
+        if self.ents[0].down_t > 0.0 {
+            return;
+        }
+        if self.ents[i].dist(self.ents[0].x, self.ents[0].y) > 1.8 {
+            self.msg("Thy horse is too far away.", C_WARN);
+            return;
+        }
+        let h = self.ents.remove(i);
+        let p = &mut self.ents[0];
+        // swing up into the saddle where the horse stands, facing its way
+        if p.path.is_empty() {
+            p.x = h.x.round();
+            p.y = h.y.round();
+        }
+        p.dir8 = h.dir8;
+        p.vdir = h.dir8;
+        self.pl.riding = true;
+        self.pl.blocking = false;
+        self.msg(&format!("You mount {}.", h.name), C_SYS);
+        self.touch_ui();
+    }
+    /// Get down: the horse stands where the rider was.
+    pub fn dismount(&mut self) {
+        if !self.pl.riding {
+            return;
+        }
+        self.pl.riding = false;
+        let Some(st) = self.pl.horse.clone() else {
+            return;
+        };
+        let (x, y) = self.ents[0].tile();
+        let dir = self.ents[0].dir8;
+        let i = self.spawn_horse(x, y, &st.name, st.coat);
+        self.ents[i].dir8 = dir;
+        self.ents[i].vdir = dir;
+        self.ents[i].ai_t = 2.0;
+        // step off to the side, as a rider does
+        let (bx, by) = self.beside(x, y);
+        if (bx, by) != (x, y) && self.ents[0].path.is_empty() {
+            self.ents[0].path.push((bx, by));
+        }
+        self.msg(&format!("You climb down from {}.", st.name), C_SYS);
+        self.touch_ui();
+    }
+    /// Mount or dismount (the E key): get down, or go to the horse and get on.
+    pub fn ride(&mut self) {
+        if self.pl.riding {
+            self.dismount();
+            return;
+        }
+        let Some(i) = self.my_horse() else {
+            if self.pl.horse.is_some() {
+                self.msg("Thy horse is nowhere near.", C_WARN);
+            } else {
+                self.msg(
+                    "Thou hast no horse. The stablemaster east of town sells them.",
+                    C_SYS,
+                );
+            }
+            return;
+        };
+        if self.ents[i].dist(self.ents[0].x, self.ents[0].y) > 24.0 {
+            self.msg(
+                "Thy horse is too far away. The stablemaster can fetch it.",
+                C_WARN,
+            );
+            return;
+        }
+        self.cancel_activity();
+        self.approach_horse(i);
+    }
+    /// The stablemaster's lad brings the player's horse to their side.
+    pub fn fetch_horse(&mut self) {
+        if self.pl.riding || self.pl.horse.is_none() {
+            return;
+        }
+        let (px, py) = self.ents[0].tile();
+        let (x, y) = self.beside(px, py);
+        let i = match self.my_horse() {
+            Some(i) => i,
+            None => {
+                let st = self.pl.horse.clone().unwrap();
+                self.spawn_horse(x, y, &st.name, st.coat)
+            }
+        };
+        let e = &mut self.ents[i];
+        e.x = x as f32;
+        e.y = y as f32;
+        e.path.clear();
+        let nm = e.name.clone();
+        self.msg(&format!("A stable lad leads {nm} to thee."), C_SYS);
+    }
+    /// A kept horse: the player's follows them about; the stablemaster's
+    /// amble and graze in the paddock. Neither fights nor flees.
+    fn horse_tick(&mut self, i: usize, dt: f32) {
+        let speed = if self.ents[i].running { 7.8 } else { 3.4 };
+        self.move_ent(i, speed, dt);
+        self.ents[i].ai_t -= dt;
+        let (px, py) = (self.ents[0].x, self.ents[0].y);
+        let pd = self.ents[i].dist(px, py);
+        if self.ents[i].tame == 1 && pd > 3.0 && pd < 40.0 {
+            if self.ents[i].ai_t <= 0.0 || self.ents[i].path.is_empty() {
+                self.ents[i].ai_t = 0.6;
+                self.ents[i].running = pd > 6.0;
+                let (sx, sy) = self.ents[i]
+                    .path
+                    .first()
+                    .copied()
+                    .unwrap_or(self.ents[i].tile());
+                if let Some(mut p) =
+                    self.map
+                        .find_path(sx, sy, px.round() as i32, py.round() as i32, 2)
+                {
+                    if let Some(&f) = self.ents[i].path.first() {
+                        p.insert(0, f);
+                    }
+                    p.truncate(12);
+                    self.ents[i].path = p;
+                }
+            }
+            return;
+        }
+        if self.ents[i].path.is_empty() {
+            self.ents[i].running = false;
+        }
+        if self.ents[i].ai_t > 0.0 || !self.ents[i].path.is_empty() {
+            return;
+        }
+        // stand and graze a while, then shift a step
+        self.ents[i].ai_t = 3.0 + self.rng.f() * 6.0;
+        if !self.rng.chance(0.45) {
+            return;
+        }
+        let (x, y) = self.ents[i].tile();
+        let (dx, dy) = *self.rng.pick(&DIRS);
+        let (nx, ny) = (x + dx, y + dy);
+        let (hx, hy) = if self.ents[i].tame == 2 {
+            self.ents[i].home
+        } else {
+            (px.round() as i32, py.round() as i32)
+        };
+        if (nx - hx).abs() <= 2
+            && (ny - hy).abs() <= 2
+            && self.map.can_step(x, y, dx, dy)
+            && !self.occupied(nx, ny, i)
+            && (nx, ny) != self.ents[0].tile()
+        {
+            self.ents[i].path.push((nx, ny));
+        }
+    }
+
     pub fn tap(&mut self, sx: f32, sy: f32) {
         if !self.created {
             return;
@@ -2716,7 +3014,7 @@ impl Game {
             if e.dead {
                 continue;
             }
-            let size = e.mon().map(|m| m.size).unwrap_or(1.0);
+            let size = self.ent_size(e);
             let (ex, ey) = self.scr_h(e.x, e.y, e.vz);
             let cy = ey - 16.0 * size * self.zoom;
             let rw = (16.0 * size + 8.0) * self.zoom;
@@ -2738,6 +3036,10 @@ impl Game {
                     self.msg("Thou canst not target thyself with that.", C_WARN);
                     return;
                 }
+                if SPELLS[sp].hostile && self.ents[i].tame != 0 {
+                    self.msg("Thou wouldst not harm a horse in a man's keeping.", C_WARN);
+                    return;
+                }
                 self.start_cast(sp, id);
             } else {
                 self.msg("Target cancelled.", C_SYS);
@@ -2749,9 +3051,18 @@ impl Game {
         if let Some((i, _)) = best {
             let id = self.ents[i].id;
             match self.ents[i].k {
+                // as in Ultima Online, a rider who taps themself gets down
+                EK::Player if self.pl.riding => self.dismount(),
                 EK::Player => {
                     self.win = Win::Paperdoll;
                     self.touch_ui();
+                }
+                EK::Mon(_) if self.ents[i].tame == 1 => {
+                    self.cancel_activity();
+                    self.approach_horse(i);
+                }
+                EK::Mon(_) if self.ents[i].tame == 2 => {
+                    self.msg("That horse belongs to the stablemaster.", C_SYS);
                 }
                 EK::Npc(v) => {
                     self.cancel_activity();
@@ -3108,7 +3419,7 @@ mod tests {
                     if let Some(m) = g
                         .ents
                         .iter()
-                        .filter(|e| matches!(e.k, EK::Mon(_)) && !e.dead)
+                        .filter(|e| matches!(e.k, EK::Mon(_)) && !e.dead && e.tame == 0)
                         .min_by(|a, b| a.dist(p.0, p.1).partial_cmp(&b.dist(p.0, p.1)).unwrap())
                     {
                         // too far to give chase from here: walk towards it first
@@ -3230,6 +3541,141 @@ mod tests {
         }
         let (tx, ty) = g.ents[0].tile();
         assert!((g.ents[0].vz - g.map.surface(tx, ty)).abs() < 0.05);
+    }
+
+    #[test]
+    fn stables_sell_horses_that_can_be_ridden() {
+        for seed in [1u32, 7, 1997] {
+            let mut g = Game::new(seed);
+            g.create("Rider", false, 0, "warrior", [0, 0, 0]);
+            // the stables: a stablemaster reachable from the start, horses in the paddock
+            let sm = g
+                .ents
+                .iter()
+                .position(|e| e.k == EK::Npc(V_STABLE))
+                .expect("a stablemaster");
+            let (sx, sy) = g.map.start;
+            let (tx, ty) = g.ents[sm].tile();
+            assert!(
+                g.map.find_path(sx, sy, tx, ty, 1).is_some(),
+                "seed {seed}: stables unreachable"
+            );
+            assert!(g.map.guarded(tx, ty));
+            assert_eq!(g.ents.iter().filter(|e| e.tame == 2).count(), 3);
+            for e in g.ents.iter().filter(|e| e.tame == 2) {
+                let (x, y) = e.tile();
+                assert!(
+                    g.map.passable(x, y) && g.map.guarded(x, y),
+                    "seed {seed}: paddock horse at {x},{y}"
+                );
+            }
+            assert!(
+                g.ents.iter().any(|e| g.is_horse_ent(e) && e.tame == 0),
+                "seed {seed}: no wild horses"
+            );
+            // buy one
+            g.ents[0].x = tx as f32;
+            g.ents[0].y = ty as f32 + 1.0;
+            let sid = g.ents[sm].id;
+            g.pl.gold = 2000;
+            g.ui_cmd(&format!("vendor:{sid}:buy"));
+            g.ui_cmd("buy:horse_grey:1");
+            assert_eq!(g.pl.gold, 2000 - 620);
+            assert!(g.pl.horse.is_some());
+            let hi = g.my_horse().expect("horse led out");
+            assert_eq!(g.ents[hi].coat, 1);
+            g.ui_cmd("buy:horse_bay:1");
+            assert_eq!(g.pl.gold, 2000 - 620, "only one horse");
+            // tap it: walk over and mount
+            let (hx, hy) = (g.ents[hi].x, g.ents[hi].y);
+            let vz = g.ents[hi].vz;
+            let (px, py) = g.scr_h(hx, hy, vz);
+            g.win = Win::None;
+            g.tap(px, py - 21.0 * g.zoom);
+            for _ in 0..120 {
+                g.update(1.0 / 30.0);
+            }
+            assert!(
+                g.pl.riding,
+                "seed {seed}: did not mount: {:?} win {:?} pend {:?}",
+                g.journal.iter().map(|j| j.1.clone()).collect::<Vec<_>>(),
+                g.win,
+                g.pl.pending
+            );
+            assert!(g.my_horse().is_none());
+            let look = g.look_for(0).unwrap();
+            assert!(look.mount != 0);
+            // riding is faster than running (measured across the town square)
+            let speed = |g: &mut Game| {
+                let (sx, sy) = g.map.start;
+                g.ents[0].x = sx as f32;
+                g.ents[0].y = sy as f32;
+                g.ents[0].path.clear();
+                let (x0, y0) = (g.ents[0].x, g.ents[0].y);
+                assert!(g.walk_to(sx + 8, sy, 0));
+                let mut t = 0.0;
+                while !g.ents[0].path.is_empty() && t < 20.0 {
+                    g.update(1.0 / 30.0);
+                    t += 1.0 / 30.0;
+                }
+                g.ents[0].dist(x0, y0) / t
+            };
+            let fast = speed(&mut g);
+            g.ui_cmd("ride");
+            assert!(!g.pl.riding);
+            assert!(g.my_horse().is_some());
+            for _ in 0..30 {
+                g.update(1.0 / 30.0);
+            }
+            let slow = speed(&mut g);
+            assert!(
+                fast > slow * 1.3,
+                "seed {seed}: riding {fast} vs on foot {slow}"
+            );
+            // the horse follows its owner
+            for _ in 0..200 {
+                g.update(1.0 / 30.0);
+            }
+            let hi = g.my_horse().unwrap();
+            assert!(
+                g.ents[hi].dist(g.ents[0].x, g.ents[0].y) < 4.5,
+                "seed {seed}: horse left behind"
+            );
+            // and it saves, ridden or not
+            let s = g.save();
+            let mut h = Game::new(seed);
+            assert!(h.load(&s));
+            assert_eq!(h.pl.horse, g.pl.horse);
+            assert!(!h.pl.riding && h.my_horse().is_some());
+            g.ui_cmd("ride");
+            for _ in 0..90 {
+                g.update(1.0 / 30.0);
+            }
+            assert!(g.pl.riding);
+            let mut h = Game::new(seed);
+            assert!(h.load(&g.save()));
+            assert!(h.pl.riding && h.my_horse().is_none());
+            // no kicking from the saddle; a heavy blow throws the rider
+            g.kick();
+            assert_eq!(g.ents[0].kick, 0.0);
+            g.ents[0].hp = 1000;
+            g.ents[0].mhp = 1000;
+            while g.pl.riding {
+                g.ents[0].hp = 1000;
+                g.damage_player_for_test(400);
+            }
+            assert!(g.ents[0].down_t > 0.0 && g.my_horse().is_some());
+            // death on horseback leaves the horse standing
+            g.ui_cmd("ride");
+            for _ in 0..120 {
+                g.update(1.0 / 30.0);
+            }
+            if g.pl.riding {
+                g.ents[0].hp = 1;
+                g.damage_player_for_test(50);
+                assert!(g.pl.ghost && !g.pl.riding && g.my_horse().is_some());
+            }
+        }
     }
 
     #[test]

@@ -341,6 +341,16 @@ impl Game {
         self.cmds = c;
     }
 
+    /// How big an entity stands, for tapping and for what floats over it:
+    /// a rider sits as high as a horse's head.
+    pub fn ent_size(&self, e: &Ent) -> f32 {
+        if e.k == EK::Player && self.pl.riding {
+            1.35
+        } else {
+            e.mon().map(|m| m.size).unwrap_or(1.0)
+        }
+    }
+
     /// The baked look of an entity, if it is drawn as a baked figure.
     pub fn look_for(&self, i: usize) -> Option<Look> {
         self.look_for_ent(&self.ents[i])
@@ -392,6 +402,13 @@ impl Game {
                     };
                 }
                 l.shield = pl.shield.as_ref().map(|s| s.def().color).unwrap_or(0);
+                if pl.riding {
+                    if let Some(h) = &pl.horse {
+                        let (coat, mane) = HORSE_COATS[h.coat as usize % HORSE_COATS.len()];
+                        l.mount = coat;
+                        l.mane = mane;
+                    }
+                }
                 Some(l)
             }
             EK::Npc(v) => {
@@ -558,6 +575,18 @@ impl Game {
                     "mongbat" => return Some(Look::creature(bake::Body::Bat, 0x6a4e6aff, 100)),
                     "slime" => return Some(Look::creature(bake::Body::Slime, 0x5aa83aff, 100)),
                     "dragon" => return Some(Look::creature(bake::Body::Dragon, 0x9a2e24ff, 160)),
+                    "horse" => {
+                        let (coat, mane) = HORSE_COATS[e.coat as usize % HORSE_COATS.len()];
+                        let mut h = Look::creature(bake::Body::Horse, coat, 100);
+                        h.mane = mane;
+                        // the player's horse is saddled, the stable's wear halters
+                        h.tack = match e.tame {
+                            1 => 2,
+                            2 => 1,
+                            _ => 0,
+                        };
+                        return Some(h);
+                    }
                     _ => return None,
                 }
                 Some(l)
@@ -612,7 +641,13 @@ impl Game {
         let mut left = self.sprites.budget;
         while left > 0 && !self.sprites.jobs.is_empty() {
             let job = &mut self.sprites.jobs[0];
-            let cost = if job.1.scale > 130 { 4 } else { 1 };
+            let cost = if job.1.scale > 130 {
+                4
+            } else if job.1.equine() {
+                2
+            } else {
+                1
+            };
             bake::bake_frame(&job.1, &mut job.2, job.3);
             job.3 += 1;
             left = left.saturating_sub(cost);
@@ -1054,7 +1089,7 @@ impl Game {
             if sx < -100.0 || sx > self.w + 100.0 || sy < -100.0 || sy > self.h + 200.0 {
                 continue;
             }
-            let size = e.mon().map(|m| m.size).unwrap_or(1.0);
+            let size = self.ent_size(e);
             let top = sy - (44.0 * size * ZS + 18.0) * z;
             let ts = (12.0 * z.max(0.85)).min(16.0);
             let targeted = e.id == tid && tid != 0;
@@ -1663,7 +1698,11 @@ impl Game {
                     true,
                 )),
                 O_FENCE => Some((
-                    bake::P_FENCE,
+                    if style & 0x7f == 1 {
+                        bake::P_RAIL
+                    } else {
+                        bake::P_FENCE
+                    },
                     self.map.obj(x + 1, y) == O_FENCE || self.map.obj(x - 1, y) == O_FENCE,
                 )),
                 O_GRAVE => Some((bake::P_GRAVE + (sh as usize % 2), flip_v)),
@@ -2570,7 +2609,9 @@ impl Game {
                     d.color
                 };
                 match d.id {
-                    "rabbit" | "rat" | "wolf" => self.quad(c, e, sx, sy, z * s, col, d.id, wk, t),
+                    "rabbit" | "rat" | "wolf" | "horse" => {
+                        self.quad(c, e, sx, sy, z * s, col, d.id, wk, t)
+                    }
                     "mongbat" => self.mongbat(c, e, sx, sy, z * s, col, t),
                     "slime" => self.slime(c, e, sx, sy, z * s, col, t),
                     "dragon" => self.dragon(c, e, sx, sy, z * s, col, wk, t),

@@ -90,6 +90,8 @@ pub enum K {
     Book,
     Scroll,
     Gem,
+    /// a riding horse: bought from the stablemaster, it is led out, not packed
+    Mount,
 }
 
 pub struct ItemDef {
@@ -587,6 +589,52 @@ pub static ITEMS: &[ItemDef] = &[
         spell: 8,
         ..B
     },
+    ItemDef {
+        id: "horse_bay",
+        name: "bay horse",
+        k: K::Mount,
+        price: 550,
+        icon: "🐎",
+        ..B
+    },
+    ItemDef {
+        id: "horse_grey",
+        name: "grey horse",
+        k: K::Mount,
+        price: 620,
+        icon: "🐎",
+        ..B
+    },
+    ItemDef {
+        id: "horse_black",
+        name: "black horse",
+        k: K::Mount,
+        price: 750,
+        icon: "🐎",
+        ..B
+    },
+];
+
+// ---------------------------------------------------------------- horses
+/// Horse coats and their manes: bay, grey, black (sold at the stables), then
+/// chestnut and dun (wild).
+pub const HORSE_COATS: [(u32, u32); 5] = [
+    (0x6a4028ff, 0x1a1410ff),
+    (0x8a8680ff, 0xc8c4bcff),
+    (0x2a2522ff, 0x151210ff),
+    (0x7a4a2aff, 0x4a2a18ff),
+    (0x8a7050ff, 0x3a2a1aff),
+];
+/// the coat a horse bought as `item` wears
+pub fn horse_coat_of(item: &str) -> u8 {
+    match item {
+        "horse_grey" => 1,
+        "horse_black" => 2,
+        _ => 0,
+    }
+}
+pub const HORSE_NAMES: [&str; 10] = [
+    "Thistle", "Cinder", "Ash", "Bramble", "Mire", "Soot", "Raven", "Gloam", "Nettle", "Rook",
 ];
 
 pub fn item_idx(id: &str) -> usize {
@@ -977,6 +1025,19 @@ pub static MONS: &[MonDef] = &[
         ..MB
     },
     MonDef {
+        id: "horse",
+        name: "a wild horse",
+        hp: 45,
+        dmg: (2, 6),
+        skill: 30,
+        mv: 4.2,
+        passive: true,
+        fame: 20,
+        size: 1.3,
+        color: 0x7a4a2aff,
+        ..MB
+    },
+    MonDef {
         id: "dragon",
         name: "a dragon",
         hp: 650,
@@ -1017,6 +1078,8 @@ pub const V_BARKEEP: usize = 7;
 pub const V_LIBRARIAN: usize = 8;
 /// the lord of Duskhold castle, on the throne in the keep
 pub const V_LORD: usize = 9;
+/// the stablemaster by the town's east side: sells horses, fetches lost ones
+pub const V_STABLE: usize = 10;
 
 pub struct VendorDef {
     pub title: &'static str,
@@ -1230,6 +1293,21 @@ pub static VENDORS: &[VendorDef] = &[
             "My guards keep the peace within these walls. Beyond them, thou art alone.",
             "Slay the dragon, and Duskhold will sing thy name.",
             "The trolls in the hills grow bold. Thin their number.",
+        ],
+    },
+    VendorDef {
+        title: "the stablemaster",
+        names: &["Edda", "Garric", "Wynn"],
+        sells: &["horse_bay", "horse_grey", "horse_black"],
+        buys: &[],
+        buys_ids: &[],
+        robe: 0x5a4a32ff,
+        chatter: &[
+            "A good horse outruns any wolf on the road.",
+            "Tap thy horse to mount. Tap thyself to get down.",
+            "Lost thy horse? I'll send the lad to fetch it home.",
+            "Wild horses run the western meadows. Leave them be.",
+            "A heavy blow will throw thee from the saddle. Hold on tight.",
         ],
     },
 ];

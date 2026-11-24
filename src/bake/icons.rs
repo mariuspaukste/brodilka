@@ -55,11 +55,14 @@ pub const ICONS: &[&str] = &[
     "healpotion",
     "ale",
     "bread",
+    "horse",
 ];
 
 pub fn icon_index(id: &str) -> Option<usize> {
     let id = if id.starts_with("scroll_") {
         "scroll"
+    } else if id.starts_with("horse_") {
+        "horse"
     } else {
         id
     };
@@ -195,6 +198,18 @@ fn model(name: &str, color: u32) -> (Figure, f32) {
     };
     let mut scale = 1.27;
     match name {
+        "horse" => {
+            // the stable's bay, saddled, as it stands in the world
+            let (coat, mane) = crate::data::HORSE_COATS[0];
+            let h = horse(coat, mane, 2, Anim::Idle, 0, 2);
+            // turned to stand side-on to the viewer
+            m.p = h.prims;
+            for pr in m.p.iter_mut() {
+                pr.a = rotz(pr.a, -std::f32::consts::FRAC_PI_4);
+                pr.b = rotz(pr.b, -std::f32::consts::FRAC_PI_4);
+            }
+            scale = 0.5;
+        }
         "war" => {
             m.sword((-0.3, -0.3), (R2, R2), 0.75, 0.04, 0.0);
             m.sword((0.3, -0.3), (-R2, R2), 0.75, 0.04, 0.0);

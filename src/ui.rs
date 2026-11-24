@@ -325,6 +325,13 @@ impl Game {
                 if pl.ghost {
                     w.head.push("Thou art a ghost.".into());
                 }
+                if let Some(h) = &pl.horse {
+                    w.head.push(if pl.riding {
+                        format!("Riding {}", h.name)
+                    } else {
+                        format!("Thy horse: {}", h.name)
+                    });
+                }
                 for (slot, it) in [
                     ("weapon", &pl.weapon),
                     ("shield", &pl.shield),
@@ -340,6 +347,11 @@ impl Game {
                             w.rows.push(r)
                         }
                     }
+                }
+                if pl.riding {
+                    w.foot("Dismount", "ride");
+                } else if self.my_horse().is_some() && !pl.ghost {
+                    w.foot("Mount", "ride");
                 }
                 w.foot("Skills", "open:skills");
                 w.foot("Backpack", "open:pack");
@@ -463,8 +475,9 @@ impl Game {
                     ("📖", "Spells need reagents and mana. Buy scrolls from the mage to learn more."),
                     ("☠️", "Death leaves thy belongings on thy corpse. Find a healer or an ankh, then go back for them."),
                     ("🛡️", "Town guards slay any monster that enters the town."),
+                    ("🐎", "The stablemaster east of town sells horses. Tap thy horse to mount, tap thyself to get down; riding is fast, but a heavy blow throws thee."),
                     ("🛡️", "In war mode hold BLOCK to catch blows; KICK shoves a foe back and may floor it. Heavy blows can knock thee down."),
-                    ("⌨️", "Keys: WASD/arrows move · Tab war · Space block · F kick · B bandage · P pack · K skills · 1-9 cast · Esc close"),
+                    ("⌨️", "Keys: WASD/arrows move · Tab war · Space block · F kick · B bandage · P pack · K skills · E mount · 1-9 cast · Esc close"),
                 ] {
                     w.rows.push(Row::new(i, t, ""));
                 }
@@ -533,6 +546,9 @@ impl Game {
                 if v == V_BANKER {
                     w.foot("Bank box", "open:bank");
                 }
+                if v == V_STABLE && pl.horse.is_some() && !pl.riding {
+                    w.foot("Fetch my horse", "fetchhorse");
+                }
                 w.foot("Bye", "close");
                 w
             }
@@ -566,6 +582,8 @@ impl Game {
                             sub = format!("{} gp · armor {}", d.price, d.ar);
                         } else if d.k == K::Scroll && pl.spells & (1 << d.spell) != 0 {
                             sub.push_str(" · known");
+                        } else if d.k == K::Mount {
+                            sub.push_str(" · saddled and bridled");
                         }
                         let mut r =
                             Row::new(&icon(d), d.name, &sub).btn("Buy", &format!("buy:{}:1", sid));
@@ -741,6 +759,13 @@ impl Game {
             "war" => self.toggle_war(),
             "block" => self.set_block(arg(1) == "1"),
             "kick" => self.kick(),
+            "ride" => self.ride(),
+            "fetchhorse" => {
+                if self.near_npc(V_STABLE) {
+                    self.fetch_horse();
+                    self.win = Win::None;
+                }
+            }
             "bandage" => self.bandage(),
             "potion" => self.drink_potion(),
             "cast" => {
@@ -855,6 +880,10 @@ impl Game {
         }
         let ix = item_idx(id);
         let d = &ITEMS[ix];
+        if d.k == K::Mount && self.pl.horse.is_some() {
+            self.msg("Thou hast a horse already, and canst ride but one.", C_WARN);
+            return;
+        }
         let n = if d.stack { n } else { 1 };
         let cost = d.price as i64 * n as i64;
         if self.pl.gold < cost {
@@ -862,6 +891,12 @@ impl Game {
             return;
         }
         self.pl.gold -= cost;
+        if d.k == K::Mount {
+            self.msg(&format!("You buy a {} for {} gold.", d.name, cost), C_GOLD);
+            self.lead_out_horse(horse_coat_of(id));
+            self.win = Win::None;
+            return;
+        }
         self.pl.add(Item::new(ix, n));
         let label = Item::new(ix, n).label();
         self.msg(&format!("You buy {} for {} gold.", label, cost), C_GOLD);
