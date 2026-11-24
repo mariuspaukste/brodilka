@@ -53,6 +53,8 @@ pub const ICONS: &[&str] = &[
     "scroll",
     "spellbook",
     "healpotion",
+    "ale",
+    "bread",
 ];
 
 pub fn icon_index(id: &str) -> Option<usize> {
@@ -632,6 +634,49 @@ fn model(name: &str, color: u32) -> (Figure, f32) {
                 0x101010ff,
                 Mat::Matte,
             );
+        }
+        "ale" => {
+            // a pewter tankard with a wooden handle and a head of foam
+            let pewter = 0x8a8e94ff;
+            m.seg((0.0, -0.32), (0.0, 0.22), 0.2, 0.18, pewter, Mat::Metal);
+            for v in [-0.26f32, 0.14] {
+                m.seg3(
+                    [0.0, v, 0.0],
+                    [0.0, v + 0.03, 0.0],
+                    0.215,
+                    0.205,
+                    shade_col(pewter, 0.7),
+                    Mat::Metal,
+                );
+            }
+            m.seg((0.16, 0.12), (0.34, 0.06), 0.035, 0.035, WOOD, Mat::Matte);
+            m.seg((0.34, 0.06), (0.32, -0.2), 0.035, 0.035, WOOD, Mat::Matte);
+            m.seg((0.32, -0.2), (0.16, -0.22), 0.035, 0.035, WOOD, Mat::Matte);
+            m.seg(
+                (-0.08, 0.27),
+                (0.08, 0.27),
+                0.14,
+                0.14,
+                0xe8dcc0ff,
+                Mat::Matte,
+            );
+            m.ball((-0.12, 0.3), 0.07, 0xf0e8d0ff, Mat::Matte);
+        }
+        "bread" => {
+            // a dark round loaf, scored across the top
+            let crust = 0x7a4a22ff;
+            m.seg((-0.3, -0.08), (0.3, -0.08), 0.2, 0.2, crust, Mat::Matte);
+            m.ball((0.0, 0.0), 0.22, shade_col(crust, 1.1), Mat::Matte);
+            for h in [-0.16f32, 0.0, 0.16] {
+                m.seg3(
+                    [h - 0.06, 0.1, 0.16],
+                    [h + 0.06, 0.16, 0.14],
+                    0.02,
+                    0.02,
+                    0xc8a060ff,
+                    Mat::Matte,
+                );
+            }
         }
         "ore" | "sa" => {
             let (c, fleck) = if name == "ore" {

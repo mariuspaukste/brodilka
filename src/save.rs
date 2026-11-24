@@ -165,7 +165,8 @@ impl Game {
         if !ok {
             return false;
         }
-        if !self.map.passable(pos.0, pos.1) {
+        // a save from an older map may stand where it can no longer get out
+        if !self.map.passable(pos.0, pos.1) || !self.map.reach[crate::world::idx(pos.0, pos.1)] {
             pos = self.map.start;
         }
         let mhp = pl.mhp();

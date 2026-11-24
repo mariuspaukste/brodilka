@@ -438,6 +438,17 @@ impl Game {
                         l.long_hair = false;
                     }
                     V_HEALER => l.robe = true,
+                    V_LIBRARIAN => {
+                        // a scholar's dark robe and grey hair
+                        l.robe = true;
+                        l.legs = vd.robe;
+                        l.hair = 0xb0aca4ff;
+                        l.hunch = 8;
+                    }
+                    V_BARKEEP => {
+                        l.bulk = 17;
+                        l.legs = 0x3a3028ff;
+                    }
                     V_SMITH => {
                         l.weapon = Weapon::Mace;
                         l.skin = 0xd8a070ff;
@@ -1427,6 +1438,8 @@ impl Game {
                 (V_PROV, _) => "GOODS",
                 (V_HEALER, _) => "HEALER",
                 (V_BANKER, _) => "BANK",
+                (V_BARKEEP, _) => "PUB",
+                (V_LIBRARIAN, _) => "BOOKS",
                 _ => "",
             })
     }
@@ -2235,7 +2248,7 @@ impl Game {
         c.stroke(shade(base, 0.45), 2.0 * ink);
         let (r0, r1) = (sp(rx0, ym, ridge), sp(rx1, ym, ridge));
         c.line(r0.0, r0.1, r1.0, r1.1);
-        if inn || b.vendor == V_SMITH {
+        if inn || b.vendor == V_SMITH || b.vendor == V_BARKEEP {
             // a stone chimney with a wisp of smoke
             let (cx, cy) = sp(rx1 - 0.6, ym - 0.4, ridge - 6.0 * z);
             c.outline(INK, ink);
@@ -2422,6 +2435,13 @@ impl Game {
                         body: vd.robe,
                         legs: 0x2a2030ff,
                         hair: Some(hair),
+                        ..HUM
+                    },
+                    V_LIBRARIAN => Hum {
+                        body: vd.robe,
+                        legs: vd.robe,
+                        robe: true,
+                        hair: Some(0xb0aca4ff),
                         ..HUM
                     },
                     V_SMITH => Hum {
