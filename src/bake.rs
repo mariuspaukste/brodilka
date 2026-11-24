@@ -551,6 +551,8 @@ enum Mat {
     Bone,
     Hair,
     Membrane,
+    /// foliage: lit like cloth, broken up into clumps of light and dark leaves
+    Leaf,
 }
 
 /// a primitive in local model space (metres): a tapered chain of spheres
@@ -1539,7 +1541,12 @@ pub const P_SIGN: usize = 84;
 pub const P_ANVIL: usize = 85;
 pub const P_FORGE: usize = 86; // 4 frames
 pub const P_FOUNTAIN: usize = 90;
-pub const N_PROPS: usize = 91;
+/// small things lying about on open ground
+pub const P_TUFT: usize = 91; // 3
+pub const P_FERN: usize = 94;
+pub const P_PEBBLES: usize = 95; // 2
+pub const P_TWIGS: usize = 97;
+pub const N_PROPS: usize = 98;
 
 /// flames licking up from `base`, varied by animation frame `f`
 fn flames(p: &mut Vec<Prim>, base: V3, size: f32, f: usize) {
@@ -1873,22 +1880,59 @@ fn prop(kind: usize) -> Figure {
                 trunk,
                 Mat::Matte,
             );
-            let n = 18 + v * 4;
-            for i in 0..n {
-                let (a, r, h) = (
-                    hsh(i, v * 7 + 1) * std::f32::consts::TAU,
-                    hsh(i, v * 7 + 2),
-                    hsh(i, v * 7 + 3),
-                );
-                let rad = 0.75 + v as f32 * 0.12;
-                let c = [
-                    a.cos() * r * rad,
-                    a.sin() * r * rad,
-                    1.75 + h * 0.9 - r * 0.25,
+            // a ragged canopy of many small leaf clumps in a few lobes
+            let rad = 0.8 + v as f32 * 0.12;
+            let lobes = 4 + v;
+            let greens = [
+                0x24381affu32,
+                0x2c4620ff,
+                0x35521fff,
+                0x1e3016ff,
+                0x3e5a24ff,
+            ];
+            for l in 0..lobes {
+                let la = hsh(l, v * 11 + 20) * std::f32::consts::TAU;
+                let lr = rad * (0.35 + hsh(l, v * 11 + 21) * 0.45);
+                let lc = [
+                    la.cos() * lr,
+                    la.sin() * lr,
+                    1.85 + hsh(l, v * 11 + 22) * 0.6,
                 ];
-                let g = [0x263e18ffu32, 0x2e4a1cff, 0x355420ff, 0x22381aff]
-                    [(hsh(i, v + 9) * 4.0) as usize % 4];
-                prim(&mut p, c, c, 0.3 + hsh(i, 5) * 0.18, 0.3, g, Mat::Matte);
+                let lsize = 0.45 + hsh(l, v * 11 + 23) * 0.25;
+                for i in 0..26 {
+                    let k = l * 31 + i;
+                    let (a, e, r) = (
+                        hsh(k, v * 7 + 1) * std::f32::consts::TAU,
+                        hsh(k, v * 7 + 2) * 2.0 - 1.0,
+                        hsh(k, v * 7 + 3).sqrt() * lsize,
+                    );
+                    let ce = (1.0 - e * e).sqrt();
+                    let c = [
+                        lc[0] + a.cos() * ce * r,
+                        lc[1] + a.sin() * ce * r,
+                        lc[2] + e * r * 0.75,
+                    ];
+                    let g = greens[(hsh(k, v + 9) * 5.0) as usize % 5];
+                    let sz = 0.13 + hsh(k, 5) * 0.1;
+                    prim(&mut p, c, c, sz, sz, g, Mat::Leaf);
+                }
+            }
+            // a few bare twigs poking out
+            for i in 0..3 {
+                let a = hsh(i, v + 40) * std::f32::consts::TAU;
+                prim(
+                    &mut p,
+                    [a.cos() * 0.3, a.sin() * 0.3, 2.0],
+                    [
+                        a.cos() * (rad + 0.25),
+                        a.sin() * (rad + 0.25),
+                        2.3 + hsh(i, 41) * 0.4,
+                    ],
+                    0.025,
+                    0.01,
+                    trunk,
+                    Mat::Matte,
+                );
             }
         }
         k if (P_PINE..P_PINE + 2).contains(&k) => {
@@ -1921,7 +1965,7 @@ fn prop(kind: usize) -> Figure {
                         } else {
                             0x243c1cff
                         },
-                        Mat::Matte,
+                        Mat::Leaf,
                     );
                 }
             }
@@ -1932,7 +1976,7 @@ fn prop(kind: usize) -> Figure {
                 0.12,
                 0.02,
                 0x243c1cff,
-                Mat::Matte,
+                Mat::Leaf,
             );
         }
         k if (P_DEAD..P_DEAD + 2).contains(&k) => {
@@ -2690,7 +2734,7 @@ fn prop(kind: usize) -> Figure {
             let v = k - P_CRAG;
             let tall = v >= 3;
             let hgt = if tall { 1.25 } else { 0.7 };
-            let rock = [0x4c463effu32, 0x423c36ff, 0x544c42ff, 0x3a3530ff];
+            let rock = [0x52483effu32, 0x473e35ff, 0x5c5146ff, 0x3e362eff];
             bx(
                 &mut b,
                 [0.0, 0.0, hgt * 0.5],
@@ -2713,13 +2757,31 @@ fn prop(kind: usize) -> Figure {
                     mat: Mat::Matte,
                 });
             }
+            // rounded boulders breaking up the blocky mass, and moss
+            for i in 0..10 {
+                let c = [
+                    hsh(i, v * 13 + 8) * 1.3 - 0.65,
+                    hsh(i, v * 13 + 9) * 1.3 - 0.65,
+                    hsh(i, v * 13 + 10) * (hgt + 0.3),
+                ];
+                let r = 0.18 + hsh(i, v * 13 + 11) * 0.2;
+                prim(
+                    &mut p,
+                    c,
+                    [c[0] + 0.08, c[1], c[2] + 0.05],
+                    r,
+                    r * 0.9,
+                    rock[i % 4],
+                    Mat::Matte,
+                );
+            }
             for i in 0..4 {
                 let c = [
-                    hsh(i, v * 13 + 8) * 1.2 - 0.6,
-                    hsh(i, v * 13 + 9) * 1.2 - 0.6,
-                    hgt + 0.02,
+                    hsh(i, v * 13 + 12) * 1.0 - 0.5,
+                    hsh(i, v * 13 + 13) * 1.0 - 0.5,
+                    hgt + 0.05,
                 ];
-                prim(&mut p, c, c, 0.12, 0.12, 0x3e4a30ff, Mat::Matte);
+                prim(&mut p, c, c, 0.12, 0.12, 0x3e4a30ff, Mat::Leaf);
             }
         }
 
@@ -3397,10 +3459,101 @@ fn prop(kind: usize) -> Figure {
             }
             flames(&mut p, [0.05, 0.0, 0.68], 0.2, k - P_FORGE);
         }
+        k if (P_TUFT..P_TUFT + 3).contains(&k) => {
+            // a clump of long grass blades leaning every way
+            let v = k - P_TUFT;
+            let greens = [0x6a8a34ffu32, 0x5a7a2cff, 0x7a9038ff, 0x8a8a44ff];
+            let n = 9 + v * 3;
+            for i in 0..n {
+                let a = hsh(i, 60 + v) * std::f32::consts::TAU;
+                let r = hsh(i, 61 + v) * 0.12;
+                let b = [a.cos() * r, a.sin() * r, 0.0];
+                let lean = 0.06 + hsh(i, 62 + v) * 0.12;
+                let h = 0.24 + hsh(i, 63 + v) * 0.24 + v as f32 * 0.06;
+                let tip = [b[0] + a.cos() * lean, b[1] + a.sin() * lean, h];
+                prim(&mut p, b, tip, 0.022, 0.006, greens[i % 4], Mat::Leaf);
+            }
+        }
+        P_FERN => {
+            for i in 0..7 {
+                let a = i as f32 / 7.0 * std::f32::consts::TAU + 0.3;
+                let mid = [a.cos() * 0.18, a.sin() * 0.18, 0.2];
+                let tip = [a.cos() * 0.38, a.sin() * 0.38, 0.1];
+                prim(
+                    &mut p,
+                    [0.0, 0.0, 0.02],
+                    mid,
+                    0.035,
+                    0.05,
+                    0x3a5a22ff,
+                    Mat::Leaf,
+                );
+                prim(&mut p, mid, tip, 0.05, 0.015, 0x44662aff, Mat::Leaf);
+            }
+        }
+        k if k == P_PEBBLES || k == P_PEBBLES + 1 => {
+            let v = k - P_PEBBLES;
+            let rock = [0x6e6a62ffu32, 0x5a564eff, 0x7e786cff];
+            for i in 0..(4 + v * 3) {
+                let (x, y) = (hsh(i, 70 + v) * 0.5 - 0.25, hsh(i, 71 + v) * 0.5 - 0.25);
+                let r = 0.04 + hsh(i, 72 + v) * 0.05;
+                prim(
+                    &mut p,
+                    [x, y, r * 0.5],
+                    [x + r * 0.4, y, r * 0.5],
+                    r,
+                    r,
+                    rock[i % 3],
+                    Mat::Matte,
+                );
+            }
+        }
+        P_TWIGS => {
+            let w = 0x4a3420ff;
+            prim(
+                &mut p,
+                [-0.25, -0.05, 0.02],
+                [0.25, 0.1, 0.02],
+                0.02,
+                0.015,
+                w,
+                Mat::Matte,
+            );
+            prim(
+                &mut p,
+                [0.0, 0.03, 0.02],
+                [0.08, 0.2, 0.02],
+                0.014,
+                0.01,
+                w,
+                Mat::Matte,
+            );
+            prim(
+                &mut p,
+                [-0.1, -0.2, 0.02],
+                [0.15, -0.12, 0.02],
+                0.016,
+                0.012,
+                0x3e2c1aff,
+                Mat::Matte,
+            );
+            for i in 0..4 {
+                let c = [hsh(i, 75) * 0.5 - 0.25, hsh(i, 76) * 0.5 - 0.25, 0.015];
+                prim(
+                    &mut p,
+                    c,
+                    c,
+                    0.04,
+                    0.04,
+                    [0x6a4a22ffu32, 0x7a5a28ff][i % 2],
+                    Mat::Matte,
+                );
+            }
+        }
         P_FOUNTAIN => {
             // an octagonal stone basin two tiles across: a raised rim around dark water,
             // a column with a shallow bowl, and water falling back into the pool
-            let stone = 0x86827aff;
+            let stone = 0x6e6a62ff;
             let water = 0x1e3a5aff;
             let n = 16;
             for i in 0..n {
@@ -3687,6 +3840,7 @@ fn shade_px(color: u32, n: [f32; 3], mat: u8) -> [f32; 3] {
         5 => (0.62, 0.0),
         3 => (0.4 + 0.62 * diff, spec_dot.powi(10) * 0.2),
         4 => (0.42 + 0.66 * diff, spec_dot.powi(12) * 0.3),
+        6 => (0.22 + 0.95 * diff, 0.0),
         _ => (0.4 + 0.72 * diff, spec_dot.powi(8) * 0.06),
     };
     [
@@ -3738,6 +3892,7 @@ fn mat_code(m: Mat) -> u8 {
         Mat::Hair => 3,
         Mat::Bone => 4,
         Mat::Membrane => 5,
+        Mat::Leaf => 6,
     }
 }
 
@@ -3876,7 +4031,22 @@ fn render_frame(
                 for sx in 0..SS {
                     let i = ry * aw + x * SS + sx;
                     if ras.depth[i] > f32::NEG_INFINITY {
-                        let c = shade_px(ras.col[i], ras.nrm[i], ras.mat[i]);
+                        let mut c = shade_px(ras.col[i], ras.nrm[i], ras.mat[i]);
+                        if ras.mat[i] == 6 {
+                            // leaves: clumps two pixels across, some catching light, some deep
+                            let (lx, ly) = ((x / 2) as u32, (ry / 5) as u32);
+                            let hsh2 = |a: u32, b: u32, s: u32| {
+                                let mut h =
+                                    a.wrapping_mul(0x8da6_b343) ^ b.wrapping_mul(0xd816_3841) ^ s;
+                                h ^= h >> 13;
+                                h = h.wrapping_mul(0x5bd1_e995);
+                                ((h >> 8) & 0xffff) as f32 / 65535.0
+                            };
+                            let f = 0.62
+                                + hsh2(lx, ly, 7) * 0.5
+                                + hsh2(x as u32, ry as u32 / 2, 9) * 0.16;
+                            c = [c[0] * f, c[1] * f, c[2] * f];
+                        }
                         acc = [acc[0] + c[0], acc[1] + c[1], acc[2] + c[2]];
                         cnt += 1;
                         if ras.depth[i] > dz {

@@ -119,6 +119,36 @@ fn main() {
     }
     dump(&mut g, &dir, "talk");
     g.win = Win::None;
+    // a shore near town, for water and bank art
+    {
+        use brodilka::world::*;
+        let (sx, sy) = g.map.start;
+        let mut best = (i32::MAX, sx, sy);
+        for y in 2..H - 2 {
+            for x in 2..W - 2 {
+                if g.map.passable(x, y)
+                    && g.map.reach[idx(x, y)]
+                    && g.map.tile(x + 2, y + 1) == T_WATER
+                    && g.map.tile(x - 1, y) != T_WATER
+                {
+                    let d = (x - sx).abs() + (y - sy).abs();
+                    if d < best.0 {
+                        best = (d, x, y);
+                    }
+                }
+            }
+        }
+        tp(&mut g, best.1, best.2);
+    }
+    g.zoom_mul = 1.3;
+    g.apply_zoom();
+    for _ in 0..10 {
+        g.update(1.0 / 30.0);
+    }
+    dump(&mut g, &dir, "coast");
+    g.zoom_mul = 1.0;
+    g.apply_zoom();
+    g.win = Win::None;
     // graveyard fight
     tp(&mut g, 116, 40);
     g.pl.war = true;

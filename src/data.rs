@@ -1093,7 +1093,7 @@ pub static VENDORS: &[VendorDef] = &[
         sells: &["bandage", "healpotion", "ga", "gi"],
         buys: &[],
         buys_ids: &[],
-        robe: 0xe8e0c0ff,
+        robe: 0xa8a090ff,
         chatter: &[
             "Should death find thee, seek me out.",
             "Bandages mend the flesh, if thy hand be steady.",
@@ -1119,7 +1119,7 @@ pub static VENDORS: &[VendorDef] = &[
         sells: &[],
         buys: &[],
         buys_ids: &[],
-        robe: 0xc8ced6ff,
+        robe: 0x8a8e96ff,
         chatter: &[
             "All is well.",
             "Keep thy blade sheathed within the town.",

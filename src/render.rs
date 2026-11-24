@@ -62,6 +62,8 @@ pub struct Canvas {
     pub strs: Vec<u8>,
     /// width of ink borders in CSS px (one "art pixel")
     pub ink: f32,
+    /// see-through things are drawn without ink lines, or they leave a wireframe
+    pub mute_ink: bool,
 }
 
 impl Canvas {
@@ -162,8 +164,8 @@ impl Canvas {
     /// While width > 0, every fill (poly/ellipse/rect) also gets an ink outline.
     pub fn outline(&mut self, c: u32, w: f32) {
         self.cmd.push(13);
-        self.cmd.push(c);
-        self.f(w);
+        self.cmd.push(if self.mute_ink { 0 } else { c });
+        self.f(if self.mute_ink { 0.0 } else { w });
     }
     /// a frame from a baked sprite atlas, anchored at the figure's feet
     #[allow(clippy::too_many_arguments)]
@@ -277,7 +279,6 @@ fn tile_color(t: u8) -> u32 {
     }
 }
 
-const WALL_COLORS: [u32; 5] = [0x6a6660ff, 0x6a6660ff, 0x664830ff, 0x7a7060ff, 0x4a4642ff];
 const INK: u32 = 0x120c08ff;
 /// screen pixels per ground level at zoom 1
 pub const LH: f32 = 20.0;
@@ -912,6 +913,9 @@ impl Game {
                     }
                 }
                 let o = self.map.o[i];
+                if o == O_NONE {
+                    self.clutter(c, x, y, sx, sy, tl, z);
+                }
                 if o != O_NONE {
                     // anything tall enough to hide you turns see-through
                     let tall = size(o).1;
@@ -927,6 +931,7 @@ impl Game {
                     };
                     if occl {
                         c.alpha(0.35);
+                        c.mute_ink = true;
                     }
                     c.outline(INK, self.pix.max(z));
                     self.object(
@@ -945,6 +950,7 @@ impl Game {
                     c.outline(0, 0.0);
                     if occl {
                         c.alpha(1.0);
+                        c.mute_ink = false;
                     }
                 }
             }
@@ -1363,6 +1369,51 @@ impl Game {
         }
     }
 
+    /// Grass tufts, ferns, pebbles and twigs scattered over open ground, as
+    /// Pagan's wilds are littered with small things.
+    #[allow(clippy::too_many_arguments)]
+    fn clutter(&self, c: &mut Canvas, x: i32, y: i32, sx: f32, sy: f32, tl: u8, z: f32) {
+        let Some(pid) = self.sprites.props else {
+            return;
+        };
+        if self.map.in_town(x, y) && tl != T_GRASS {
+            return;
+        }
+        let h = ((x as u32).wrapping_mul(0x9e37_79b9) ^ (y as u32).wrapping_mul(0x85eb_ca6b))
+            .wrapping_mul(0xc2b2_ae35);
+        let r = (h >> 24) as usize; // 0..255
+        let k = match tl {
+            T_GRASS if r < 70 => bake::P_TUFT + r % 3,
+            T_GRASS if r < 84 => bake::P_FERN,
+            T_GRASS if r < 92 => bake::P_PEBBLES + r % 2,
+            T_DIRT if r < 40 => bake::P_PEBBLES + r % 2,
+            T_DIRT if r < 60 => bake::P_TWIGS,
+            T_DIRT if r < 75 => bake::P_TUFT + r % 3,
+            T_SAND if r < 30 => bake::P_PEBBLES + r % 2,
+            _ => return,
+        };
+        // somewhere inside the tile, not always its middle
+        let (ox, oy) = (
+            ((h >> 4) & 15) as f32 / 15.0 - 0.5,
+            ((h >> 8) & 15) as f32 / 15.0 - 0.5,
+        );
+        let (px, py) = (sx + (ox - oy) * 22.0 * z, sy + (ox + oy) * 11.0 * z);
+        let (ax, ay) = bake::PROP_ANCHOR;
+        c.outline(0, 0.0);
+        c.sprite(
+            pid,
+            k,
+            bake::PROP_FW,
+            bake::PROP_FH,
+            ax,
+            ay,
+            px,
+            py,
+            z,
+            (h >> 12) & 1,
+        );
+    }
+
     /// What the shop sign at a tile says.
     fn sign_label(&self, x: i32, y: i32) -> Option<&'static str> {
         self.map
@@ -1730,8 +1781,12 @@ impl Game {
                     (sx, sy + hh - hgt * 0.3),
                 ]);
                 c.outline(INK, self.pix.max(z));
-                c.fill(shade(WALL_COLORS[(style as usize).min(4)], 0.7));
+                self.pat(c, tex, hgt);
                 c.poly(&top);
+                c.outline(0, 0.0);
+                c.fill(0x0c080660);
+                c.poly(&top);
+                c.outline(INK, self.pix.max(z));
                 if (x + y) % 3 == 0 && style != 4 {
                     c.outline(0, 0.0);
                     c.fill(0x0a080cff);

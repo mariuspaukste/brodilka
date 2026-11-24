@@ -197,7 +197,7 @@ fn sand() -> Texture {
 fn flag() -> Texture {
     let (w, h) = (128usize, 64usize);
     let mut m = Img::new(w, h);
-    let pts: Vec<(f32, f32, f32)> = (0..34)
+    let pts: Vec<(f32, f32, f32)> = (0..52)
         .map(|i| {
             (
                 hash(i, 1, 11) * w as f32,
@@ -206,7 +206,7 @@ fn flag() -> Texture {
             )
         })
         .collect();
-    let b = rgb(0x5e5a54);
+    let b = rgb(0x4e4a44);
     for y in 0..h {
         for x in 0..w {
             let (mut d1, mut d2, mut best, mut v) = (1e9f32, 1e9f32, 0usize, (0.0f32, 0.0f32));
@@ -303,32 +303,57 @@ fn rock() -> Texture {
     m.done()
 }
 
+/// a natural rock face: irregular boulders packed in earth, each lit along its
+/// upper rim and shadowed at its foot
 fn cliff() -> Texture {
     let (w, h) = (64usize, 64usize);
     let mut m = Img::new(w, h);
-    let b = rgb(0x524a44);
+    let rock = rgb(0x5e5448);
+    let earth = rgb(0x3e3024);
+    let pts: Vec<(f32, f32, f32)> = (0..22)
+        .map(|i| {
+            (
+                hash(i, 1, 48) * w as f32,
+                hash(i, 2, 48) * h as f32,
+                0.78 + hash(i, 3, 48) * 0.35,
+            )
+        })
+        .collect();
     for y in 0..h {
         for x in 0..w {
-            let band = pnoise(x as f32 * 0.3, y as f32, 8.0, w, h, 41);
+            let (mut d1, mut d2, mut best, mut v) = (1e9f32, 1e9f32, 0usize, (0.0f32, 0.0f32));
+            for (k, &(px, py, _)) in pts.iter().enumerate() {
+                for ox in [-1.0f32, 0.0, 1.0] {
+                    for oy in [-1.0f32, 0.0, 1.0] {
+                        let dx = (x as f32 - (px + ox * w as f32)) * 0.75;
+                        let dy = y as f32 - (py + oy * h as f32);
+                        let d = (dx * dx + dy * dy).sqrt();
+                        if d < d1 {
+                            d2 = d1;
+                            d1 = d;
+                            best = k;
+                            v = (dx, dy);
+                        } else if d < d2 {
+                            d2 = d;
+                        }
+                    }
+                }
+            }
             let n = fbm(x as f32, y as f32, w, h, 42);
-            let mut k = 0.7 + band * 0.35 + n * 0.25;
-            if (y as f32 + pnoise(x as f32, 0.0, 16.0, w, h, 43) * 6.0).rem_euclid(13.0) < 1.0 {
-                k *= 0.55;
-            }
-            m.px[y * w + x] = [b[0] * k, b[1] * k, b[2] * k];
-        }
-    }
-    for i in 0..10 {
-        let (mut x, mut y) = (
-            (hash(i, 1, 44) * 64.0) as i32,
-            (hash(i, 2, 44) * 64.0) as i32,
-        );
-        for j in 0..9 {
-            m.mul(x, y, 0.5);
-            y += 1;
-            if hash(i, j, 45) < 0.3 {
-                x += 1;
-            }
+            let edge = d2 - d1;
+            let (c, k) = if edge < 1.3 {
+                (earth, 0.6 + n * 0.3)
+            } else {
+                let len = (v.0 * v.0 + v.1 * v.1).sqrt().max(0.01);
+                // rounded boulder: lit toward the top, dark toward the foot
+                let up = -v.1 / len;
+                let rim = (1.0 - ((edge - 1.3) / 5.0).min(1.0)) * up * 0.3;
+                (
+                    rock,
+                    pts[best].2 * (0.85 + n * 0.3) * (1.0 + rim) * (1.0 + up * 0.08),
+                )
+            };
+            m.px[y * w + x] = [c[0] * k, c[1] * k, c[2] * k];
         }
     }
     m.done()
