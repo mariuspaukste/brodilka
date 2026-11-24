@@ -178,7 +178,7 @@ fn dirt(base: u32, s: u32) -> Texture {
 
 fn sand() -> Texture {
     let mut m = Img::new(128, 64);
-    m.fill_noise(0x7a6a4c, 0.85, 1.15, 5);
+    m.fill_noise(0x7e6e44, 0.85, 1.15, 5);
     for y in 0..64 {
         for x in 0..128 {
             // ripples running along the iso x axis
@@ -271,7 +271,7 @@ fn planks(base: u32, along_x: bool, s: u32) -> Texture {
 
 fn water() -> Texture {
     let mut m = Img::new(128, 64);
-    m.fill_noise(0x111b40, 0.75, 1.2, 21);
+    m.fill_noise(0x0f2228, 0.75, 1.2, 21);
     for i in 0..26 {
         let (x, y) = (
             (hash(i, 1, 22) * 128.0) as i32,
@@ -282,7 +282,7 @@ fn water() -> Texture {
             m.set(
                 x + j,
                 y,
-                rgb(if j == len / 2 { 0x4a64a0 } else { 0x2a3a70 }),
+                rgb(if j == len / 2 { 0x5a8a88 } else { 0x24464c }),
             );
         }
     }

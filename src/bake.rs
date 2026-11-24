@@ -3146,66 +3146,98 @@ fn prop(kind: usize) -> Figure {
             flames(&mut p, [0.0, 0.0, 1.33], 0.38, k - P_LAMP);
         }
         P_BONES => {
-            let bone = 0xcfc4a4ff;
+            // the remains of someone who fell here: skull, ribs, spine and long bones
+            let bone = 0xa89e84ff;
+            let old = 0x8a8068ff;
+            // spine along y, ribs curving off it
             prim(
                 &mut p,
-                [-0.35, -0.1, 0.03],
-                [0.2, 0.25, 0.03],
-                0.035,
-                0.03,
-                bone,
-                Mat::Bone,
-            );
-            prim(
-                &mut p,
-                [-0.1, -0.35, 0.03],
-                [0.1, 0.0, 0.04],
-                0.03,
-                0.028,
-                bone,
+                [0.0, -0.25, 0.04],
+                [0.02, 0.2, 0.04],
+                0.025,
+                0.022,
+                old,
                 Mat::Bone,
             );
             for i in 0..5 {
-                let y = -0.2 + i as f32 * 0.07;
-                prim(
-                    &mut p,
-                    [0.3, y, 0.03],
-                    [0.42, y + 0.05, 0.05],
-                    0.018,
-                    0.015,
-                    bone,
-                    Mat::Bone,
-                );
+                let y = -0.15 + i as f32 * 0.07;
+                for s in [-1.0f32, 1.0] {
+                    prim(
+                        &mut p,
+                        [0.0, y, 0.05],
+                        [s * 0.1, y + 0.02, 0.09],
+                        0.014,
+                        0.012,
+                        bone,
+                        Mat::Bone,
+                    );
+                    prim(
+                        &mut p,
+                        [s * 0.1, y + 0.02, 0.09],
+                        [s * 0.16, y + 0.05, 0.03],
+                        0.012,
+                        0.01,
+                        bone,
+                        Mat::Bone,
+                    );
+                }
             }
+            // skull beyond the neck, turned on its side
             prim(
                 &mut p,
-                [0.25, -0.25, 0.1],
-                [0.25, -0.25, 0.1],
-                0.11,
-                0.11,
+                [0.04, 0.3, 0.08],
+                [0.04, 0.3, 0.08],
+                0.085,
+                0.085,
                 bone,
                 Mat::Bone,
             );
             prim(
                 &mut p,
-                [0.33, -0.25, 0.05],
-                [0.33, -0.25, 0.05],
-                0.06,
-                0.06,
+                [0.1, 0.33, 0.05],
+                [0.1, 0.33, 0.05],
+                0.045,
+                0.045,
+                old,
+                Mat::Bone,
+            );
+            prim(
+                &mut p,
+                [0.11, 0.29, 0.1],
+                [0.11, 0.29, 0.1],
+                0.022,
+                0.022,
+                0x120c08ff,
+                Mat::Matte,
+            );
+            // a thighbone and an arm flung aside
+            prim(
+                &mut p,
+                [-0.05, -0.28, 0.03],
+                [-0.3, -0.45, 0.03],
+                0.026,
+                0.022,
                 bone,
                 Mat::Bone,
             );
-            for s in [-1.0f32, 1.0] {
-                prim(
-                    &mut p,
-                    [0.34, -0.25 + s * 0.04, 0.12],
-                    [0.34, -0.25 + s * 0.04, 0.12],
-                    0.03,
-                    0.03,
-                    0x120c08ff,
-                    Mat::Matte,
-                );
-            }
+            prim(
+                &mut p,
+                [0.08, -0.3, 0.03],
+                [0.2, -0.55, 0.03],
+                0.024,
+                0.02,
+                old,
+                Mat::Bone,
+            );
+            prim(
+                &mut p,
+                [0.15, 0.12, 0.03],
+                [0.38, 0.05, 0.03],
+                0.018,
+                0.015,
+                bone,
+                Mat::Bone,
+            );
         }
         k if k == P_BUSH || k == P_BUSH + 1 => {
             let v = k - P_BUSH;
@@ -4209,7 +4241,11 @@ mod tests {
                 }
             }
             // ground clutter is meant to be small
-            let min = if (P_TUFT..P_TWIGS + 1).contains(&k) { 20 } else { 60 };
+            let min = if (P_TUFT..P_TWIGS + 1).contains(&k) {
+                20
+            } else {
+                60
+            };
             assert!(n > min, "prop {k} nearly empty ({n})");
         }
     }

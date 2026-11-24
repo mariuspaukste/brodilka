@@ -1035,7 +1035,7 @@ impl Game {
                 continue;
             }
             let size = e.mon().map(|m| m.size).unwrap_or(1.0);
-            let top = sy - (44.0 * size * ZS + 8.0) * z;
+            let top = sy - (44.0 * size * ZS + 18.0) * z;
             let ts = (12.0 * z.max(0.85)).min(16.0);
             let targeted = e.id == tid && tid != 0;
             let show_bar = targeted
