@@ -281,6 +281,9 @@ const WALL_COLORS: [u32; 5] = [0x6a6660ff, 0x6a6660ff, 0x664830ff, 0x7a7060ff, 0
 const INK: u32 = 0x120c08ff;
 /// screen pixels per ground level at zoom 1
 pub const LH: f32 = 20.0;
+/// Heights drawn by hand, scaled to the baked sprites' steeper camera
+/// (0.8 / ASPECT per metre instead of the plain 2:1 view's 0.866).
+pub const ZS: f32 = 0.77;
 
 /// Small helper for drawing in "model units" around a screen anchor.
 struct P {
@@ -1022,7 +1025,7 @@ impl Game {
                 continue;
             }
             let size = e.mon().map(|m| m.size).unwrap_or(1.0);
-            let top = sy - (44.0 * size + 8.0) * z;
+            let top = sy - (44.0 * size * ZS + 8.0) * z;
             let ts = (12.0 * z.max(0.85)).min(16.0);
             let targeted = e.id == tid && tid != 0;
             let show_bar = targeted
@@ -1356,6 +1359,23 @@ impl Game {
         }
     }
 
+    /// What the shop sign at a tile says.
+    fn sign_label(&self, x: i32, y: i32) -> Option<&'static str> {
+        self.map
+            .buildings
+            .iter()
+            .find(|b| b.x + 4 == x && b.y + 6 == y)
+            .map(|b| match (b.vendor, b.style) {
+                (V_SMITH, _) => "SMITH",
+                (V_MAGE, _) => "MAGE",
+                (V_PROV, 2) => "INN",
+                (V_PROV, _) => "GOODS",
+                (V_HEALER, _) => "HEALER",
+                (V_BANKER, _) => "BANK",
+                _ => "",
+            })
+    }
+
     /// Torches and banners hung on the outside faces of a wall.
     #[allow(clippy::too_many_arguments)]
     fn wall_deco(
@@ -1392,7 +1412,7 @@ impl Game {
             let (cx, cy) = (sx + hw * fx, sy + hh * 0.5);
             let (ax, ay) = bake::PROP_ANCHOR;
             if k < 3 {
-                let (tx, ty) = (cx, cy - 18.0 * z);
+                let (tx, ty) = (cx, cy - 14.0 * z);
                 c.sprite(
                     pid,
                     bake::P_TORCH,
@@ -1411,10 +1431,10 @@ impl Game {
                 let fxo = if flip { -4.0 } else { 4.0 } * z;
                 c.outline(0, 0.0);
                 c.alpha(0.5);
-                c.glow(tx + fxo, ty - 14.0 * z, 16.0 * z * fl, 0xff8a30ff);
+                c.glow(tx + fxo, ty - 11.0 * z, 16.0 * z * fl, 0xff8a30ff);
                 c.alpha(1.0);
                 c.outline(INK, self.pix.max(z));
-                lights.push((tx + fxo, ty - 14.0 * z, 110.0, 0xff9040ff));
+                lights.push((tx + fxo, ty - 11.0 * z, 110.0, 0xff9040ff));
             } else if k < 5 && style != 4 {
                 let v = bake::P_BANNER + ((x + y) as usize & 1);
                 c.sprite(
@@ -1458,6 +1478,7 @@ impl Game {
         };
         if let Some(pid) = self.sprites.props {
             let flip_v = sh & 4 != 0;
+            let anim4 = ((t * 9.0) as usize + (x * 3 + y) as usize) % 4;
             let pick = match o {
                 O_TREE => {
                     let k = if style & 0x7f == 1 {
@@ -1486,22 +1507,76 @@ impl Game {
                 O_WELL => Some((bake::P_WELL, false)),
                 O_LONGTABLE => Some((bake::P_LONGTABLE, style & FACE_S != 0)),
                 O_CART => Some((bake::P_CART, style & FACE_S != 0)),
+                O_DOOR => Some((
+                    bake::P_DOOR + (self.map.obj(x - 1, y) != O_WALL) as usize,
+                    true,
+                )),
+                O_FENCE => Some((
+                    bake::P_FENCE,
+                    self.map.obj(x + 1, y) == O_FENCE || self.map.obj(x - 1, y) == O_FENCE,
+                )),
+                O_GRAVE => Some((bake::P_GRAVE + (sh as usize % 2), flip_v)),
+                O_TENT => Some((bake::P_TENT, flip_v)),
+                O_FIRE => Some((bake::P_FIRE + anim4, false)),
+                O_ANKH => Some((bake::P_ANKH, false)),
+                O_LAMP => Some((bake::P_LAMP + anim4, false)),
+                O_BONES => Some((bake::P_BONES, flip_v)),
+                O_BUSH => Some((bake::P_BUSH + (sh as usize % 2), flip_v)),
+                O_BOULDER => Some((bake::P_BOULDER + (sh as usize % 2), flip_v)),
+                O_FLOWERS => Some((bake::P_FLOWERS + (sh as usize % 2), flip_v)),
+                O_HOARD => Some((bake::P_HOARD, flip_v)),
+                O_SIGN => Some((bake::P_SIGN, true)),
+                O_ANVIL => Some((bake::P_ANVIL, false)),
+                O_FORGE => Some((bake::P_FORGE + anim4, false)),
+                O_FOUNTAIN => {
+                    // one basin over four tiles, drawn from the front one
+                    if self.map.obj(x + 1, y) == O_FOUNTAIN || self.map.obj(x, y + 1) == O_FOUNTAIN
+                    {
+                        return;
+                    }
+                    Some((bake::P_FOUNTAIN, false))
+                }
                 _ => None,
             };
             if let Some((k, flip)) = pick {
-                if matches!(o, O_TREE | O_MUSHROOM | O_STATUE | O_WELL) {
+                // Pagan draws no drop shadows; light comes from fires and magic
+                let fl = 0.85 + (t * 11.0 + (x * 3 + y) as f32).sin() * 0.1;
+                let glow = |c: &mut Canvas, gy: f32, r: f32, col: u32, a: f32| {
                     c.outline(0, 0.0);
-                    c.fill(0x00000030);
-                    c.ell(sx, sy, 16.0 * z, 6.0 * z);
-                }
-                if o == O_HEARTH {
-                    lights.push((sx, sy - 10.0 * z, 130.0, 0xff9040ff));
+                    c.alpha(a);
+                    c.glow(sx, sy - gy * z, r * z * fl, col);
+                    c.alpha(1.0);
+                    c.outline(INK, self.pix.max(z));
+                };
+                match o {
+                    O_HEARTH => lights.push((sx, sy - 10.0 * z, 130.0, 0xff9040ff)),
+                    O_FIRE => {
+                        glow(c, 8.0, 26.0, 0xff8030ff, 0.5);
+                        lights.push((sx, sy - 6.0 * z, 140.0, 0xff9040ff));
+                    }
+                    O_LAMP => {
+                        glow(c, 31.0, 22.0, 0xff8030ff, 0.5);
+                        lights.push((sx, sy - 31.0 * z, 150.0, 0xffa050ff));
+                    }
+                    O_FORGE => {
+                        glow(c, 16.0, 24.0, 0xff7020ff, 0.45);
+                        lights.push((sx, sy - 14.0 * z, 90.0, 0xff9040ff));
+                    }
+                    O_ANKH => {
+                        let gl = 0.5 + (t * 2.0).sin() * 0.2;
+                        glow(c, 34.0, 30.0, 0xffe090ff, gl * 0.6);
+                        lights.push((sx, sy - 30.0 * z, 110.0, 0xffe090ff));
+                    }
+                    O_HOARD => lights.push((sx, sy - 6.0 * z, 70.0, 0xffd060ff)),
+                    _ => {}
                 }
                 let (ax, ay) = bake::PROP_ANCHOR;
                 // larger objects are drawn from their front tile at the middle of their footprint
                 let (len, _) = size(o);
                 let back = (len - 1) as f32 * 0.5;
-                let (sx, sy) = if style & FACE_S != 0 {
+                let (sx, sy) = if o == O_FOUNTAIN {
+                    (sx, sy - 16.0 * z)
+                } else if style & FACE_S != 0 {
                     (sx - back * 32.0 * z, sy - back * 16.0 * z)
                 } else {
                     (sx + back * 32.0 * z, sy - back * 16.0 * z)
@@ -1518,6 +1593,19 @@ impl Game {
                     z,
                     flip as u32,
                 );
+                if o == O_SIGN {
+                    if let Some(l) = self.sign_label(x, y) {
+                        c.fill(0xf0e0b0ff);
+                        c.text(sx + 2.0 * z, sy - 23.0 * z, 6.5 * z, 0, l, 0x00000000);
+                    }
+                }
+                if o == O_HOARD && (t * 3.0 + x as f32).sin() > 0.6 {
+                    c.outline(0, 0.0);
+                    c.fill(0xffffffff);
+                    c.ell(sx + 5.0 * z, sy - 12.0 * z, 1.5 * z, 4.0 * z);
+                    c.ell(sx + 5.0 * z, sy - 12.0 * z, 4.0 * z, 1.5 * z);
+                    c.outline(INK, self.pix.max(z));
+                }
                 return;
             }
         }
@@ -1590,7 +1678,7 @@ impl Game {
                 }
             }
             O_WALL => {
-                let hgt = 38.0 * z;
+                let hgt = 38.0 * ZS * z;
                 let tex = match style {
                     2 => TEX_WOODWALL,
                     3 => TEX_PLASTER,
@@ -1979,20 +2067,7 @@ impl Game {
                 c.line(sx, sy, sx, sy - 22.0 * z);
                 c.fill(0x8a6238ff);
                 c.rect(sx - 10.0 * z, sy - 30.0 * z, 20.0 * z, 10.0 * z);
-                let label = self
-                    .map
-                    .buildings
-                    .iter()
-                    .find(|b| b.x + 4 == x && b.y + 6 == y)
-                    .map(|b| match b.vendor {
-                        V_SMITH => "SMITH",
-                        V_MAGE => "MAGE",
-                        V_PROV => "GOODS",
-                        V_HEALER => "HEALER",
-                        V_BANKER => "BANK",
-                        _ => "",
-                    });
-                if let Some(l) = label {
+                if let Some(l) = self.sign_label(x, y) {
                     c.fill(0xf0e0b0ff);
                     c.text(sx, sy - 22.0 * z, 6.5 * z, 0, l, 0x00000000);
                 }
@@ -2019,7 +2094,7 @@ impl Game {
         let ym = (y0 + y1) / 2.0;
         let hw = (y1 - y0) / 2.0;
         let (rx0, rx1) = (x0 + hw, x1 - hw);
-        let eave = 38.0 * z;
+        let eave = 38.0 * ZS * z;
         let ridge = eave + 34.0 * z;
         let floor = self.map.level(b.x + 1, b.y + 1) as f32 * LH * z;
         let sp = |x: f32, y: f32, h: f32| {
@@ -2972,16 +3047,18 @@ impl Game {
             f.y1,
             self.map.surface(f.x1.round() as i32, f.y1.round() as i32),
         );
-        let (y0, y1) = (y0 - 26.0 * z, y1 - 24.0 * z);
+        let (y0, y1) = (y0 - 26.0 * ZS * z, y1 - 24.0 * ZS * z);
         let lerp = |k: f32| (x0 + (x1 - x0) * k, y0 + (y1 - y0) * k);
         // baked frame animations for the big spells
         if let Some(pid) = self.sprites.props {
             let (ax, ay) = bake::PROP_ANCHOR;
             let fr = ((k * bake::FX_FRAMES as f32) as usize).min(bake::FX_FRAMES - 1);
             let pick = match f.kind {
-                FX_EXPLOSION => Some((bake::P_FX_EXPLO + fr, x1, y1 + 24.0 * z, 0xff8030ff)),
-                FX_FLAMESTRIKE => Some((bake::P_FX_FLAME + fr, x1, y1 + 24.0 * z, 0xff6020ff)),
-                FX_HEAL | FX_RES => Some((bake::P_FX_HEAL + fr, x0, y0 + 26.0 * z, 0xffe090ff)),
+                FX_EXPLOSION => Some((bake::P_FX_EXPLO + fr, x1, y1 + 24.0 * ZS * z, 0xff8030ff)),
+                FX_FLAMESTRIKE => Some((bake::P_FX_FLAME + fr, x1, y1 + 24.0 * ZS * z, 0xff6020ff)),
+                FX_HEAL | FX_RES => {
+                    Some((bake::P_FX_HEAL + fr, x0, y0 + 26.0 * ZS * z, 0xffe090ff))
+                }
                 FX_FIREBALL => {
                     let (x, y) = lerp(k);
                     Some((

@@ -192,23 +192,24 @@ fn sand() -> Texture {
     m.done()
 }
 
-/// irregular flagstones from periodic Voronoi cells
+/// irregular flagstones from periodic Voronoi cells, each bevelled: the edges
+/// facing the upper-left light catch it, the far edges fall into shadow
 fn flag() -> Texture {
     let (w, h) = (128usize, 64usize);
     let mut m = Img::new(w, h);
-    let pts: Vec<(f32, f32, f32)> = (0..18)
+    let pts: Vec<(f32, f32, f32)> = (0..34)
         .map(|i| {
             (
                 hash(i, 1, 11) * w as f32,
                 hash(i, 2, 11) * h as f32,
-                0.8 + hash(i, 3, 11) * 0.35,
+                0.78 + hash(i, 3, 11) * 0.4,
             )
         })
         .collect();
-    let b = rgb(0x5c5a58);
+    let b = rgb(0x5e5a54);
     for y in 0..h {
         for x in 0..w {
-            let (mut d1, mut d2, mut best) = (1e9f32, 1e9f32, 0usize);
+            let (mut d1, mut d2, mut best, mut v) = (1e9f32, 1e9f32, 0usize, (0.0f32, 0.0f32));
             for (k, &(px, py, _)) in pts.iter().enumerate() {
                 for ox in [-1.0f32, 0.0, 1.0] {
                     for oy in [-1.0f32, 0.0, 1.0] {
@@ -219,6 +220,7 @@ fn flag() -> Texture {
                             d2 = d1;
                             d1 = d;
                             best = k;
+                            v = (dx, dy);
                         } else if d < d2 {
                             d2 = d;
                         }
@@ -226,12 +228,15 @@ fn flag() -> Texture {
                 }
             }
             let n = fbm(x as f32, y as f32, w, h, 12);
+            let grit = hash(x as i32, y as i32, 13) * 0.1 - 0.05;
             let edge = d2 - d1;
-            let mut k = pts[best].2 * (0.85 + n * 0.3);
-            if edge < 1.6 {
-                k = 0.5;
-            } else if edge < 2.8 {
-                k *= 1.1;
+            let mut k = pts[best].2 * (0.86 + n * 0.28) + grit;
+            if edge < 1.5 {
+                k = 0.42;
+            } else if edge < 5.0 {
+                let len = (v.0 * v.0 + v.1 * v.1).sqrt().max(0.01);
+                let lit = (-v.0 - v.1 * 0.5) / len;
+                k *= 1.0 + lit * 0.22 * (1.0 - (edge - 1.5) / 3.5);
             }
             m.px[y * w + x] = [b[0] * k, b[1] * k, b[2] * k];
         }

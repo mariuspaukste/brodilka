@@ -3,6 +3,9 @@
 'use strict';
 
 const WORLD_SEED = 1997;
+// Pagan's 320×200 filled a 4:3 screen, so its pixels stood 20% taller than
+// wide; the world is drawn squeezed and stretched back by this much.
+const ASPECT = 1.2;
 const SAVE_KEY = 'brodilka.save.v1';
 const $ = (id) => document.getElementById(id);
 const canvas = $('c');
@@ -209,14 +212,25 @@ function glTex(filter, wrap) {
 function glSetup() {
   const vs = 'attribute vec2 p; varying vec2 uv; void main(){ uv = vec2(p.x * 0.5 + 0.5, 0.5 - p.y * 0.5); gl_Position = vec4(p, 0.0, 1.0); }';
   // ordered dither, then snap to the 256-colour palette through the LUT
+  // Rows are 1.2× taller than columns, so they don't land on whole screen
+  // pixels: the last screen pixel of a row blends into the next one.
   const fs = `precision mediump float;
-    uniform sampler2D src; uniform sampler2D lut; uniform sampler2D bay; uniform vec2 size; varying vec2 uv;
-    void main(){
-      vec2 px = floor(uv * size);
+    uniform sampler2D src; uniform sampler2D lut; uniform sampler2D bay; uniform vec2 size; uniform float kv; varying vec2 uv;
+    vec3 quant(vec2 px){
       vec3 c = texture2D(src, (px + 0.5) / size).rgb * 255.0;
       float o = (texture2D(bay, (px + 0.5) / 4.0).r * 255.0 / 16.0 / 16.0 - 0.47) * 18.0;
       vec3 q = floor(clamp(c + o, 0.0, 255.0) / 8.0);
-      gl_FragColor = texture2D(lut, vec2((q.b * 32.0 + q.g + 0.5) / 1024.0, (q.r + 0.5) / 32.0));
+      return texture2D(lut, vec2((q.b * 32.0 + q.g + 0.5) / 1024.0, (q.r + 0.5) / 32.0)).rgb;
+    }
+    void main(){
+      vec2 t = uv * size;
+      vec2 px = floor(t);
+      float d = (fract(t.y) - 0.5) * kv;
+      float edge = kv * 0.5 - 0.5;
+      vec3 c = quant(px);
+      if (d > edge) c = mix(c, quant(px + vec2(0.0, 1.0)), clamp((d - edge) * 0.5, 0.0, 0.5));
+      else if (d < -edge) c = mix(c, quant(px - vec2(0.0, 1.0)), clamp((-edge - d) * 0.5, 0.0, 0.5));
+      gl_FragColor = vec4(c, 1.0);
     }`;
   glProg = gl.createProgram();
   gl.attachShader(glProg, glShader(gl.VERTEX_SHADER, vs));
@@ -250,6 +264,7 @@ function glPresent(lw, lh) {
   gl.activeTexture(gl.TEXTURE2);
   gl.bindTexture(gl.TEXTURE_2D, glBayer);
   gl.uniform2f(gl.getUniformLocation(glProg, 'size'), lw, lh);
+  gl.uniform1f(gl.getUniformLocation(glProg, 'kv'), canvas.height / lh);
   gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 }
 // overhead text is drawn at art resolution with a small pixel-ish font
@@ -348,7 +363,7 @@ function drawTexts(c, texts) {
 // Low-resolution "VGA" buffer (~320 pixels across), scaled up with nearest-neighbour.
 let pix = 1, artK = 1;
 function present(U, F, S) {
-  const lw = Math.ceil(canvas.width / artK), lh = Math.ceil(canvas.height / artK);
+  const lw = Math.ceil(canvas.width / artK), lh = Math.ceil(canvas.height / (artK * ASPECT));
   if (low.width !== lw || low.height !== lh) { low.width = lw; low.height = lh; }
   if (txt.width !== lw || txt.height !== lh) { txt.width = lw; txt.height = lh; }
   lctx.setTransform(1 / pix, 0, 0, 1 / pix, 0, 0);
@@ -356,7 +371,7 @@ function present(U, F, S) {
   const texts = [];
   replay(lctx, U, F, S, texts);
   if (gl && glProg) glPresent(lw, lh);
-  else if (ctx) { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.imageSmoothingEnabled = false; ctx.drawImage(low, 0, 0, lw, lh, 0, 0, lw * artK, lh * artK); }
+  else if (ctx) { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.imageSmoothingEnabled = false; ctx.drawImage(low, 0, 0, lw, lh, 0, 0, lw * artK, lh * artK * ASPECT); }
   tctx.setTransform(1, 0, 0, 1, 0, 0);
   tctx.clearRect(0, 0, lw, lh);
   drawTexts(tctx, texts);
@@ -387,7 +402,7 @@ function resize() {
   canvas.height = Math.round(h * dpr);
   artK = Math.max(1, Math.round(canvas.width / 320));
   pix = artK / dpr;
-  if (ex) { ex.resize(w, h); ex.set_pix(pix); }
+  if (ex) { ex.resize(w, h / ASPECT); ex.set_pix(pix); }
 }
 window.addEventListener('resize', resize);
 
@@ -608,7 +623,7 @@ function setupCreate(u) {
 // ------------------------------------------------------------------ input
 const pointers = new Map();
 let pinchD = 0;
-function rel(e) { return [e.clientX, e.clientY]; }
+function rel(e) { return [e.clientX, e.clientY / ASPECT]; }
 canvas.addEventListener('pointerdown', (e) => {
   canvas.setPointerCapture(e.pointerId);
   pointers.set(e.pointerId, rel(e));

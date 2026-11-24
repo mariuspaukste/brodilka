@@ -514,10 +514,34 @@ impl Map {
         for i in 0..N {
             let t = self.t[i];
             self.lv[i] = if land(t) && t != T_SAND && t != T_BRIDGE {
-                (((elev[i] - 0.36) / 0.075).floor().clamp(0.0, 3.0)) as u8
+                (((elev[i] - 0.36) / 0.095).floor().clamp(0.0, 3.0)) as u8
             } else {
                 0
             };
+        }
+        // smooth the terraces: each land tile takes the median level around it,
+        // which removes one-tile spurs and notches from the ledges
+        for _ in 0..2 {
+            let prev = self.lv.clone();
+            for y in 1..H - 1 {
+                for x in 1..W - 1 {
+                    let i = idx(x, y);
+                    if !land(self.t[i]) || self.t[i] == T_SAND || self.t[i] == T_BRIDGE {
+                        continue;
+                    }
+                    let mut v: Vec<u8> = Vec::with_capacity(9);
+                    for dy in -1..=1 {
+                        for dx in -1..=1 {
+                            let j = idx(x + dx, y + dy);
+                            if land(self.t[j]) {
+                                v.push(prev[j]);
+                            }
+                        }
+                    }
+                    v.sort_unstable();
+                    self.lv[i] = v[v.len() / 2];
+                }
+            }
         }
         // the town, its buildings and the shrines sit on one flat level
         let (x0, y0, x1, y1) = self.town;

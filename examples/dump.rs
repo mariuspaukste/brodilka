@@ -37,7 +37,7 @@ fn tp(g: &mut Game, x: i32, y: i32) {
 fn main() {
     let dir = std::env::args().nth(1).unwrap_or("/tmp/dump".into());
     fs::create_dir_all(&dir).unwrap();
-    let (w, h) = (390.0, 780.0);
+    let (w, h) = (390.0, 780.0 / brodilka::bake::ASPECT);
     let mut g = Game::new(1997);
     g.w = w;
     g.h = h;

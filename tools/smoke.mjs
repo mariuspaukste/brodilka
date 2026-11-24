@@ -42,7 +42,7 @@ for (let i = 0; i < 4; i++) if (!(ex.ui_img_w(i) > 0 && ex.ui_img_h(i) > 0)) fai
   if (adv[33] < 4) fail('font advances');
 }
 ex.set_pix(4 / 3);
-ex.resize(390, 780);
+ex.resize(390, 650);
 ex.frame(0.016);
 if (JSON.parse(out(ex.ui_json())).screen !== 'create') fail('expected create screen');
 let baked = 0;

@@ -57,6 +57,12 @@ chimneys) that lift away when you walk inside. Figures also run, glance
 around, draw their weapon when combat starts, step in a fighting stance near
 a foe, gesture while they talk, and turn through the in-between directions. Wounds leave blood on the ground.
 
+Like Pagan's 320×200 on a 4:3 monitor, the picture's pixels stand 20%
+taller than wide, and sprites are baked from the matching steeper camera so
+figures keep their proportions. Every object in the world — doors, fences,
+graves, the fountain, lamps, forges, tents, campfires — is a baked prop, and
+nothing casts a drop shadow.
+
 The ground is terraced like Pagan's: land rises in up to four levels with
 rock ledges between them. You can't climb a ledge; roads and scattered slopes
 lead up and down, and anything standing on high ground is drawn there.

@@ -2692,9 +2692,9 @@ impl Game {
             }
             let size = e.mon().map(|m| m.size).unwrap_or(1.0);
             let (ex, ey) = self.scr_h(e.x, e.y, e.vz);
-            let cy = ey - 20.0 * size * self.zoom;
+            let cy = ey - 16.0 * size * self.zoom;
             let rw = (16.0 * size + 8.0) * self.zoom;
-            let rh = (24.0 * size + 8.0) * self.zoom;
+            let rh = (19.0 * size + 8.0) * self.zoom;
             let (dx, dy) = ((sx - ex).abs(), (sy - cy).abs());
             if dx < rw && dy < rh {
                 let d = dx / rw + dy / rh + if i == 0 { 0.6 } else { 0.0 };

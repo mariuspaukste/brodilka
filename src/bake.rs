@@ -1522,10 +1522,54 @@ pub const P_FX_FLAME: usize = 41; // 8 frames
 pub const P_FX_HEAL: usize = 49; // 8 frames
 pub const P_FX_BALL: usize = 57; // 4 frames
 pub const FX_FRAMES: usize = 8;
-pub const N_PROPS: usize = 61;
-pub const PROP_FW: usize = 96;
+/// the rest of the world's furniture, once drawn by hand
+pub const P_DOOR: usize = 61; // post on the -y side, then on the +y side
+pub const P_FENCE: usize = 63;
+pub const P_GRAVE: usize = 64; // headstone, cross
+pub const P_TENT: usize = 66;
+pub const P_FIRE: usize = 67; // 4 frames
+pub const P_ANKH: usize = 71;
+pub const P_LAMP: usize = 72; // 4 frames
+pub const P_BONES: usize = 76;
+pub const P_BUSH: usize = 77; // 2
+pub const P_BOULDER: usize = 79; // 2
+pub const P_FLOWERS: usize = 81; // 2
+pub const P_HOARD: usize = 83;
+pub const P_SIGN: usize = 84;
+pub const P_ANVIL: usize = 85;
+pub const P_FORGE: usize = 86; // 4 frames
+pub const P_FOUNTAIN: usize = 90;
+pub const N_PROPS: usize = 91;
+
+/// flames licking up from `base`, varied by animation frame `f`
+fn flames(p: &mut Vec<Prim>, base: V3, size: f32, f: usize) {
+    for i in 0..7 {
+        let a = i as f32 * 2.4 + f as f32 * 1.3;
+        let r = size * (0.25 + hsh(i + f * 7, 70) * 0.35);
+        let h = size * (0.7 + hsh(i + f * 7, 71) * 0.9);
+        let b = [
+            base[0] + a.cos() * r * 0.6,
+            base[1] + a.sin() * r * 0.6,
+            base[2],
+        ];
+        let tip = [
+            b[0] + (hsh(i + f * 7, 72) - 0.5) * size * 0.4,
+            b[1],
+            b[2] + h,
+        ];
+        let col = if i < 3 {
+            0xffc848ff
+        } else if i < 5 {
+            0xe86414ff
+        } else {
+            0xa82a0cff
+        };
+        prim(p, b, tip, r, 0.01, col, Mat::Glow);
+    }
+}
+pub const PROP_FW: usize = 128;
 pub const PROP_FH: usize = 128;
-pub const PROP_ANCHOR: (f32, f32) = (48.0, 116.0);
+pub const PROP_ANCHOR: (f32, f32) = (64.0, 116.0);
 
 fn bx(v: &mut Vec<BoxP>, c: V3, h: V3, color: u32, mat: Mat) {
     v.push(BoxP {
@@ -2678,6 +2722,776 @@ fn prop(kind: usize) -> Figure {
                 prim(&mut p, c, c, 0.12, 0.12, 0x3e4a30ff, Mat::Matte);
             }
         }
+
+        k if k == P_DOOR || k == P_DOOR + 1 => {
+            // a doorway in a wall running along y: lintel, one post, the leaf swung inward (-x)
+            let side = if k == P_DOOR { -1.0f32 } else { 1.0 };
+            bx(
+                &mut b,
+                [0.0, 0.0, 1.17],
+                [0.2, 0.72, 0.07],
+                dark,
+                Mat::Matte,
+            );
+            bx(
+                &mut b,
+                [0.0, side * 0.66, 0.55],
+                [0.2, 0.07, 0.55],
+                dark,
+                Mat::Matte,
+            );
+            let hinge = [-0.12, side * 0.58];
+            let ang = std::f32::consts::FRAC_PI_2 * 0.85;
+            let dir = [-ang.sin(), -side * ang.cos()];
+            let len = 0.55;
+            b.push(BoxP {
+                c: [
+                    hinge[0] + dir[0] * len * 0.5,
+                    hinge[1] + dir[1] * len * 0.5,
+                    0.52,
+                ],
+                h: [len * 0.5, 0.035, 0.5],
+                yaw: dir[1].atan2(dir[0]),
+                color: wood,
+                mat: Mat::Matte,
+            });
+            for z in [0.2f32, 0.85] {
+                prim(
+                    &mut p,
+                    [hinge[0], hinge[1], z],
+                    [hinge[0] + dir[0] * 0.3, hinge[1] + dir[1] * 0.3, z],
+                    0.02,
+                    0.02,
+                    0x2e2e30ff,
+                    Mat::Metal,
+                );
+            }
+        }
+        P_FENCE => {
+            // wrought iron: spiked posts and two rails along y
+            let iron = 0x34343aff;
+            for y in [-0.72f32, -0.24, 0.24, 0.72] {
+                prim(
+                    &mut p,
+                    [0.0, y, 0.0],
+                    [0.0, y, 0.95],
+                    0.03,
+                    0.025,
+                    iron,
+                    Mat::Metal,
+                );
+                prim(
+                    &mut p,
+                    [0.0, y, 0.95],
+                    [0.0, y, 1.08],
+                    0.04,
+                    0.005,
+                    iron,
+                    Mat::Metal,
+                );
+            }
+            for z in [0.3f32, 0.8] {
+                prim(
+                    &mut p,
+                    [0.0, -0.74, z],
+                    [0.0, 0.74, z],
+                    0.022,
+                    0.022,
+                    iron,
+                    Mat::Metal,
+                );
+            }
+        }
+        k if k == P_GRAVE || k == P_GRAVE + 1 => {
+            let stone = 0x7a7872ff;
+            // the mound in front (+x), sunken earth
+            prim(
+                &mut p,
+                [0.15, 0.0, 0.0],
+                [0.75, 0.0, 0.0],
+                0.2,
+                0.2,
+                0x4a3a28ff,
+                Mat::Matte,
+            );
+            if k == P_GRAVE {
+                bx(
+                    &mut b,
+                    [-0.2, 0.0, 0.38],
+                    [0.07, 0.24, 0.38],
+                    stone,
+                    Mat::Matte,
+                );
+                prim(
+                    &mut p,
+                    [-0.2, -0.17, 0.76],
+                    [-0.2, 0.17, 0.76],
+                    0.07,
+                    0.07,
+                    stone,
+                    Mat::Matte,
+                );
+                bx(
+                    &mut b,
+                    [-0.2, 0.0, 0.06],
+                    [0.12, 0.3, 0.06],
+                    shade_col(stone, 0.85),
+                    Mat::Matte,
+                );
+                // a carved cross and lichen
+                bx(
+                    &mut b,
+                    [-0.125, 0.0, 0.5],
+                    [0.005, 0.025, 0.14],
+                    shade_col(stone, 0.6),
+                    Mat::Matte,
+                );
+                bx(
+                    &mut b,
+                    [-0.125, 0.0, 0.55],
+                    [0.005, 0.09, 0.025],
+                    shade_col(stone, 0.6),
+                    Mat::Matte,
+                );
+                prim(
+                    &mut p,
+                    [-0.13, 0.15, 0.2],
+                    [-0.13, 0.15, 0.2],
+                    0.05,
+                    0.05,
+                    0x4e5a3eff,
+                    Mat::Matte,
+                );
+            } else {
+                let w = 0x5a4430ff;
+                prim(
+                    &mut p,
+                    [-0.2, 0.0, 0.0],
+                    [-0.22, 0.03, 1.0],
+                    0.045,
+                    0.04,
+                    w,
+                    Mat::Matte,
+                );
+                prim(
+                    &mut p,
+                    [-0.21, -0.28, 0.72],
+                    [-0.21, 0.3, 0.74],
+                    0.04,
+                    0.04,
+                    w,
+                    Mat::Matte,
+                );
+            }
+        }
+        P_TENT => {
+            // a hide A-frame along y, its mouth at +y
+            let hide = 0x8a7050ff;
+            let n = 14;
+            for i in 0..n {
+                let t = i as f32 / n as f32;
+                let zt = t * 1.35;
+                for s in [-1.0f32, 1.0] {
+                    let x = s * (1.0 - t) * 0.85;
+                    prim(
+                        &mut p,
+                        [x, -0.75, zt],
+                        [x, 0.7, zt],
+                        0.07,
+                        0.07,
+                        if i % 4 == 0 {
+                            shade_col(hide, 0.85)
+                        } else {
+                            hide
+                        },
+                        Mat::Matte,
+                    );
+                }
+            }
+            for s in [-1.0f32, 1.0] {
+                prim(
+                    &mut p,
+                    [s * 0.15, -0.8, 1.2],
+                    [-s * 0.15, -0.8, 1.6],
+                    0.035,
+                    0.03,
+                    dark,
+                    Mat::Matte,
+                );
+                prim(
+                    &mut p,
+                    [s * 0.15, 0.75, 1.2],
+                    [-s * 0.15, 0.75, 1.6],
+                    0.035,
+                    0.03,
+                    dark,
+                    Mat::Matte,
+                );
+            }
+            // the dark opening
+            for i in 0..6 {
+                let t = i as f32 / 6.0;
+                prim(
+                    &mut p,
+                    [-(1.0 - t) * 0.45, 0.72, t * 0.7],
+                    [(1.0 - t) * 0.45, 0.72, t * 0.7],
+                    0.06,
+                    0.06,
+                    0x18120cff,
+                    Mat::Matte,
+                );
+            }
+        }
+        k if (P_FIRE..P_FIRE + 4).contains(&k) => {
+            for i in 0..8 {
+                let a = i as f32 / 8.0 * std::f32::consts::TAU;
+                let c = [a.cos() * 0.42, a.sin() * 0.42, 0.06];
+                prim(&mut p, c, c, 0.1, 0.1, 0x5e5a54ff, Mat::Matte);
+            }
+            for a in [0.3f32, 1.9, 3.6] {
+                prim(
+                    &mut p,
+                    [a.cos() * 0.35, a.sin() * 0.35, 0.05],
+                    [-a.cos() * 0.1, -a.sin() * 0.1, 0.22],
+                    0.06,
+                    0.05,
+                    0x3a2414ff,
+                    Mat::Matte,
+                );
+            }
+            prim(
+                &mut p,
+                [0.0, 0.0, 0.05],
+                [0.0, 0.0, 0.08],
+                0.22,
+                0.2,
+                0xb0380cff,
+                Mat::Glow,
+            );
+            flames(&mut p, [0.0, 0.0, 0.12], 0.45, k - P_FIRE);
+        }
+        P_ANKH => {
+            let gold = 0xd8b050ff;
+            bx(
+                &mut b,
+                [0.0, 0.0, 0.12],
+                [0.42, 0.42, 0.12],
+                0x6e6a62ff,
+                Mat::Matte,
+            );
+            bx(
+                &mut b,
+                [0.0, 0.0, 0.3],
+                [0.3, 0.3, 0.06],
+                0x7e7a72ff,
+                Mat::Matte,
+            );
+            // the ankh faces the viewer: built in the plane through x = y
+            let r2 = std::f32::consts::FRAC_1_SQRT_2;
+            let q = |h: f32, v: f32| [h * r2, -h * r2, v];
+            prim(
+                &mut p,
+                q(0.0, 0.36),
+                q(0.0, 1.45),
+                0.07,
+                0.06,
+                gold,
+                Mat::Metal,
+            );
+            prim(
+                &mut p,
+                q(-0.38, 1.45),
+                q(0.38, 1.45),
+                0.06,
+                0.06,
+                gold,
+                Mat::Metal,
+            );
+            for i in 0..14 {
+                let a = i as f32 / 14.0 * std::f32::consts::TAU;
+                let a2 = (i + 1) as f32 / 14.0 * std::f32::consts::TAU;
+                prim(
+                    &mut p,
+                    q(a.sin() * 0.2, 1.72 + a.cos() * 0.25),
+                    q(a2.sin() * 0.2, 1.72 + a2.cos() * 0.25),
+                    0.06,
+                    0.06,
+                    gold,
+                    Mat::Metal,
+                );
+            }
+        }
+        k if (P_LAMP..P_LAMP + 4).contains(&k) => {
+            // a stone pillar carrying a shallow iron fire bowl
+            let stone = 0x5e5a52ff;
+            let iron = 0x2a2624ff;
+            bx(
+                &mut b,
+                [0.0, 0.0, 0.08],
+                [0.22, 0.22, 0.08],
+                shade_col(stone, 0.85),
+                Mat::Matte,
+            );
+            prim(
+                &mut p,
+                [0.0, 0.0, 0.15],
+                [0.0, 0.0, 1.2],
+                0.12,
+                0.1,
+                stone,
+                Mat::Matte,
+            );
+            prim(
+                &mut p,
+                [0.0, 0.0, 1.18],
+                [0.0, 0.0, 1.26],
+                0.08,
+                0.14,
+                iron,
+                Mat::Metal,
+            );
+            for i in 0..12 {
+                let a = i as f32 / 12.0 * std::f32::consts::TAU;
+                let a2 = (i + 1) as f32 / 12.0 * std::f32::consts::TAU;
+                prim(
+                    &mut p,
+                    [a.cos() * 0.24, a.sin() * 0.24, 1.34],
+                    [a2.cos() * 0.24, a2.sin() * 0.24, 1.34],
+                    0.045,
+                    0.045,
+                    iron,
+                    Mat::Metal,
+                );
+                prim(
+                    &mut p,
+                    [a.cos() * 0.12, a.sin() * 0.12, 1.26],
+                    [a.cos() * 0.24, a.sin() * 0.24, 1.34],
+                    0.04,
+                    0.04,
+                    iron,
+                    Mat::Metal,
+                );
+            }
+            prim(
+                &mut p,
+                [0.0, 0.0, 1.31],
+                [0.0, 0.0, 1.33],
+                0.2,
+                0.2,
+                0xb0380cff,
+                Mat::Glow,
+            );
+            flames(&mut p, [0.0, 0.0, 1.33], 0.38, k - P_LAMP);
+        }
+        P_BONES => {
+            let bone = 0xcfc4a4ff;
+            prim(
+                &mut p,
+                [-0.35, -0.1, 0.03],
+                [0.2, 0.25, 0.03],
+                0.035,
+                0.03,
+                bone,
+                Mat::Bone,
+            );
+            prim(
+                &mut p,
+                [-0.1, -0.35, 0.03],
+                [0.1, 0.0, 0.04],
+                0.03,
+                0.028,
+                bone,
+                Mat::Bone,
+            );
+            for i in 0..5 {
+                let y = -0.2 + i as f32 * 0.07;
+                prim(
+                    &mut p,
+                    [0.3, y, 0.03],
+                    [0.42, y + 0.05, 0.05],
+                    0.018,
+                    0.015,
+                    bone,
+                    Mat::Bone,
+                );
+            }
+            prim(
+                &mut p,
+                [0.25, -0.25, 0.1],
+                [0.25, -0.25, 0.1],
+                0.11,
+                0.11,
+                bone,
+                Mat::Bone,
+            );
+            prim(
+                &mut p,
+                [0.33, -0.25, 0.05],
+                [0.33, -0.25, 0.05],
+                0.06,
+                0.06,
+                bone,
+                Mat::Bone,
+            );
+            for s in [-1.0f32, 1.0] {
+                prim(
+                    &mut p,
+                    [0.34, -0.25 + s * 0.04, 0.12],
+                    [0.34, -0.25 + s * 0.04, 0.12],
+                    0.03,
+                    0.03,
+                    0x120c08ff,
+                    Mat::Matte,
+                );
+            }
+        }
+        k if k == P_BUSH || k == P_BUSH + 1 => {
+            let v = k - P_BUSH;
+            let leaf = [0x2e5a22ffu32, 0x3a6a2aff, 0x4a7a32ff];
+            for i in 0..14 {
+                let a = hsh(i, 40 + v) * std::f32::consts::TAU;
+                let r = hsh(i, 42 + v) * 0.35;
+                let zc = 0.18 + hsh(i, 44 + v) * 0.35 - r * 0.3;
+                let c = [a.cos() * r, a.sin() * r, zc];
+                prim(
+                    &mut p,
+                    c,
+                    c,
+                    0.14 + hsh(i, 46) * 0.06,
+                    0.14,
+                    leaf[i % 3],
+                    Mat::Hair,
+                );
+            }
+            if v == 1 {
+                for i in 0..6 {
+                    let a = hsh(i, 48) * std::f32::consts::TAU;
+                    let c = [a.cos() * 0.3, a.sin() * 0.3, 0.3 + hsh(i, 49) * 0.2];
+                    prim(&mut p, c, c, 0.035, 0.035, 0x6a1a2aff, Mat::Metal);
+                }
+            }
+        }
+        k if k == P_BOULDER || k == P_BOULDER + 1 => {
+            let v = k - P_BOULDER;
+            let rock = [0x6e6a62ffu32, 0x625e56ff, 0x7a766cff];
+            for i in 0..(4 + v * 2) {
+                let (u, w) = (hsh(i, 30 + v) * 0.6 - 0.3, hsh(i, 32 + v) * 0.6 - 0.3);
+                let sz = 0.2 + hsh(i, 34 + v) * 0.2;
+                b.push(BoxP {
+                    c: [u, w, sz * 0.8],
+                    h: [sz, sz * 0.8, sz * 0.8],
+                    yaw: hsh(i, 36 + v) * 3.0,
+                    color: rock[i % 3],
+                    mat: Mat::Matte,
+                });
+            }
+            prim(
+                &mut p,
+                [0.0, 0.0, 0.5],
+                [0.0, 0.0, 0.5],
+                0.08,
+                0.08,
+                0x4e5a3eff,
+                Mat::Matte,
+            );
+        }
+        k if k == P_FLOWERS || k == P_FLOWERS + 1 => {
+            let v = k - P_FLOWERS;
+            let petals = if v == 0 {
+                [0xa02030ffu32, 0xc04050ff]
+            } else {
+                [0xc8b040ff, 0xd8d0c0ff]
+            };
+            for i in 0..9 {
+                let (x, y) = (hsh(i, 20 + v) * 0.9 - 0.45, hsh(i, 22 + v) * 0.9 - 0.45);
+                let h = 0.12 + hsh(i, 24 + v) * 0.15;
+                prim(
+                    &mut p,
+                    [x, y, 0.0],
+                    [x, y, h],
+                    0.012,
+                    0.01,
+                    0x3a5a22ff,
+                    Mat::Matte,
+                );
+                prim(
+                    &mut p,
+                    [x + 0.04, y, 0.0],
+                    [x + 0.08, y + 0.03, 0.06],
+                    0.03,
+                    0.01,
+                    0x3a6a26ff,
+                    Mat::Matte,
+                );
+                prim(
+                    &mut p,
+                    [x, y, h],
+                    [x, y, h],
+                    0.04,
+                    0.04,
+                    petals[i % 2],
+                    Mat::Hair,
+                );
+            }
+        }
+        P_HOARD => {
+            // a mound of coins, a goblet and a few gems
+            let gold = [0xd8b050ffu32, 0xc89a40ff, 0xe8c868ff];
+            for i in 0..60 {
+                let a = hsh(i, 80) * std::f32::consts::TAU;
+                let r = hsh(i, 81).sqrt() * 0.7;
+                let zc = (0.45 - r * 0.6).max(0.0) + 0.04;
+                let c = [a.cos() * r, a.sin() * r, zc];
+                prim(&mut p, c, c, 0.07, 0.07, gold[i % 3], Mat::Metal);
+            }
+            prim(
+                &mut p,
+                [0.2, -0.25, 0.4],
+                [0.2, -0.25, 0.62],
+                0.025,
+                0.08,
+                gold[0],
+                Mat::Metal,
+            );
+            prim(
+                &mut p,
+                [0.2, -0.25, 0.62],
+                [0.2, -0.25, 0.7],
+                0.08,
+                0.09,
+                gold[2],
+                Mat::Metal,
+            );
+            for (i, col) in [0xc01828ffu32, 0x2848c8ff, 0x28a048ff].iter().enumerate() {
+                let c = [0.25 - i as f32 * 0.2, 0.2, 0.35 - i as f32 * 0.05];
+                prim(&mut p, c, c, 0.05, 0.05, *col, Mat::Metal);
+            }
+        }
+        P_SIGN => {
+            // a signpost with a board hanging from an arm, the board facing +x
+            prim(
+                &mut p,
+                [0.0, -0.3, 0.0],
+                [0.0, -0.3, 1.5],
+                0.05,
+                0.045,
+                dark,
+                Mat::Matte,
+            );
+            prim(
+                &mut p,
+                [0.0, -0.3, 1.42],
+                [0.0, 0.35, 1.42],
+                0.035,
+                0.035,
+                dark,
+                Mat::Matte,
+            );
+            for y in [-0.15f32, 0.25] {
+                prim(
+                    &mut p,
+                    [0.0, y, 1.4],
+                    [0.0, y, 1.25],
+                    0.008,
+                    0.008,
+                    0x2e2e30ff,
+                    Mat::Metal,
+                );
+            }
+            bx(
+                &mut b,
+                [0.0, 0.05, 1.06],
+                [0.03, 0.3, 0.19],
+                0x7a5630ff,
+                Mat::Matte,
+            );
+            bx(
+                &mut b,
+                [0.0, 0.05, 1.06],
+                [0.035, 0.27, 0.16],
+                0x8a6238ff,
+                Mat::Matte,
+            );
+        }
+        P_ANVIL => {
+            // a stump with an iron anvil and a hammer left on it
+            prim(
+                &mut p,
+                [0.0, 0.0, 0.0],
+                [0.0, 0.0, 0.42],
+                0.22,
+                0.2,
+                0x4a3220ff,
+                Mat::Matte,
+            );
+            let iron = 0x4a4e56ff;
+            bx(
+                &mut b,
+                [0.0, 0.0, 0.47],
+                [0.11, 0.09, 0.06],
+                iron,
+                Mat::Metal,
+            );
+            bx(
+                &mut b,
+                [0.0, 0.0, 0.6],
+                [0.24, 0.12, 0.07],
+                iron,
+                Mat::Metal,
+            );
+            prim(
+                &mut p,
+                [0.24, 0.0, 0.62],
+                [0.45, 0.0, 0.64],
+                0.07,
+                0.01,
+                iron,
+                Mat::Metal,
+            );
+            prim(
+                &mut p,
+                [-0.1, -0.05, 0.69],
+                [0.12, 0.1, 0.69],
+                0.018,
+                0.018,
+                0x6a4628ff,
+                Mat::Matte,
+            );
+            bx(
+                &mut b,
+                [-0.12, -0.06, 0.7],
+                [0.03, 0.05, 0.03],
+                0x6a6e76ff,
+                Mat::Metal,
+            );
+        }
+        k if (P_FORGE..P_FORGE + 4).contains(&k) => {
+            // a brick hearth with glowing coals and a hood
+            let brick = 0x6a3a2aff;
+            bx(
+                &mut b,
+                [0.0, 0.0, 0.32],
+                [0.5, 0.5, 0.32],
+                brick,
+                Mat::Matte,
+            );
+            bx(
+                &mut b,
+                [-0.38, 0.0, 0.9],
+                [0.12, 0.5, 0.28],
+                shade_col(brick, 0.85),
+                Mat::Matte,
+            );
+            bx(
+                &mut b,
+                [-0.4, 0.0, 1.45],
+                [0.1, 0.2, 0.3],
+                shade_col(brick, 0.8),
+                Mat::Matte,
+            );
+            for i in 0..12 {
+                let c = [hsh(i, 90) * 0.6 - 0.3, hsh(i, 91) * 0.7 - 0.35, 0.66];
+                let hot = (hsh(i + (k - P_FORGE) * 12, 92) * 3.0) as usize;
+                let col = [0xffb040ffu32, 0xe05010ff, 0x8a2008ff][hot.min(2)];
+                prim(&mut p, c, c, 0.08, 0.08, col, Mat::Glow);
+            }
+            flames(&mut p, [0.05, 0.0, 0.68], 0.2, k - P_FORGE);
+        }
+        P_FOUNTAIN => {
+            // an octagonal stone basin two tiles across: a raised rim around dark water,
+            // a column with a shallow bowl, and water falling back into the pool
+            let stone = 0x86827aff;
+            let water = 0x1e3a5aff;
+            let n = 16;
+            for i in 0..n {
+                let a = (i as f32 + 0.5) / n as f32 * std::f32::consts::TAU;
+                let r = 1.12;
+                let half = r * (std::f32::consts::PI / n as f32).tan() + 0.02;
+                b.push(BoxP {
+                    c: [a.cos() * r, a.sin() * r, 0.25],
+                    h: [0.12, half, 0.25],
+                    yaw: a,
+                    color: if i % 2 == 0 {
+                        stone
+                    } else {
+                        shade_col(stone, 0.93)
+                    },
+                    mat: Mat::Matte,
+                });
+            }
+            for i in 0..4 {
+                let yaw = i as f32 / 4.0 * std::f32::consts::FRAC_PI_2;
+                b.push(BoxP {
+                    c: [0.0, 0.0, 0.2],
+                    h: [1.05, 0.44, 0.2],
+                    yaw,
+                    color: water,
+                    mat: Mat::Metal,
+                });
+            }
+            prim(
+                &mut p,
+                [0.0, 0.0, 0.3],
+                [0.0, 0.0, 1.05],
+                0.14,
+                0.1,
+                stone,
+                Mat::Matte,
+            );
+            for i in 0..14 {
+                let a = i as f32 / 14.0 * std::f32::consts::TAU;
+                let a2 = (i + 1) as f32 / 14.0 * std::f32::consts::TAU;
+                prim(
+                    &mut p,
+                    [a.cos() * 0.4, a.sin() * 0.4, 1.12],
+                    [a2.cos() * 0.4, a2.sin() * 0.4, 1.12],
+                    0.05,
+                    0.05,
+                    stone,
+                    Mat::Matte,
+                );
+                prim(
+                    &mut p,
+                    [a.cos() * 0.12, a.sin() * 0.12, 1.02],
+                    [a.cos() * 0.4, a.sin() * 0.4, 1.12],
+                    0.045,
+                    0.045,
+                    shade_col(stone, 0.9),
+                    Mat::Matte,
+                );
+            }
+            for i in 0..4 {
+                let yaw = i as f32 / 4.0 * std::f32::consts::FRAC_PI_2;
+                b.push(BoxP {
+                    c: [0.0, 0.0, 1.1],
+                    h: [0.36, 0.15, 0.015],
+                    yaw,
+                    color: 0x2a4e72ff,
+                    mat: Mat::Metal,
+                });
+            }
+            prim(
+                &mut p,
+                [0.0, 0.0, 1.1],
+                [0.0, 0.0, 1.38],
+                0.06,
+                0.03,
+                stone,
+                Mat::Matte,
+            );
+            for i in 0..10 {
+                let a = i as f32 / 10.0 * std::f32::consts::TAU + 0.2;
+                prim(
+                    &mut p,
+                    [a.cos() * 0.44, a.sin() * 0.44, 1.1],
+                    [a.cos() * 0.55, a.sin() * 0.55, 0.42],
+                    0.02,
+                    0.03,
+                    0x7aa4c4ff,
+                    Mat::Metal,
+                );
+            }
+        }
         _ => {
             // stump
             prim(
@@ -2883,6 +3697,13 @@ fn shade_px(color: u32, n: [f32; 3], mat: u8) -> [f32; 3] {
 }
 
 const SS: usize = 2;
+/// Pagan ran at 320×200 shown on 4:3 screens, so every pixel stood 20% taller
+/// than wide. The host stretches the picture the same way; sprites are baked
+/// for it: a true orthographic camera at Pagan's steeper angle (ground at
+/// 0.6, heights at 0.8), squeezed vertically by this factor.
+pub const ASPECT: f32 = 1.2;
+const CAM_G: f32 = 0.6;
+const CAM_Z: f32 = 0.8;
 
 thread_local! {
     static NO_INK: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
@@ -2973,8 +3794,10 @@ fn render_frame(
     let th = dir.1.atan2(dir.0);
     let r2 = std::f32::consts::FRAC_1_SQRT_2;
     let kk = K * SS as f32;
-    let (aw, ah) = (fw * SS, fh * SS);
-    let (ax, ay) = (anchor.0 * SS as f32, anchor.1 * SS as f32);
+    // rows per output pixel: the vertical supersampling also squeezes by ASPECT
+    let ssv = SS as f32 * ASPECT;
+    let (aw, ah) = (fw * SS, (fh as f32 * ssv).ceil() as usize + 1);
+    let (ax, ay) = (anchor.0 * SS as f32, anchor.1 * ssv);
     // local metres -> view space (u right, v up, w towards the camera), in tile units
     let view = |p: V3, with_ground: bool| -> V3 {
         let x = p[0] * m2t;
@@ -2984,8 +3807,8 @@ fn render_frame(
         let wz = (p[2] + if with_ground { ground } else { 0.0 }) * m2t;
         [
             (wx - wy) * r2,
-            -0.5 * (wx + wy) * r2 + 0.866 * wz,
-            0.866 * (wx + wy) * r2 + 0.5 * wz,
+            -CAM_G * (wx + wy) * r2 + CAM_Z * wz,
+            CAM_Z * (wx + wy) * r2 + CAM_G * wz,
         ]
     };
     let mut ras = Raster::new(aw, ah);
@@ -3011,8 +3834,8 @@ fn render_frame(
             let wy = x * th.sin() + y * th.cos();
             let wz = pl[2] * m2t;
             let u = (wx - wy) * r2;
-            let v = -0.5 * (wx + wy) * r2 + 0.866 * wz;
-            let w = 0.866 * (wx + wy) * r2 + 0.5 * wz;
+            let v = -CAM_G * (wx + wy) * r2 + CAM_Z * wz;
+            let w = CAM_Z * (wx + wy) * r2 + CAM_G * wz;
             ras.sphere(ax + u * kk, ay - v * kk, w * kk, rr * kk, pr.color, mat);
         }
     }
@@ -3044,9 +3867,14 @@ fn render_frame(
             let mut acc = [0.0f32; 3];
             let mut cnt = 0;
             let mut dz = f32::NEG_INFINITY;
-            for sy in 0..SS {
+            let (r0, r1) = (
+                (y as f32 * ssv) as usize,
+                (((y + 1) as f32 * ssv) as usize).min(ah),
+            );
+            let total = (r1 - r0) * SS;
+            for ry in r0..r1 {
                 for sx in 0..SS {
-                    let i = (y * SS + sy) * aw + x * SS + sx;
+                    let i = ry * aw + x * SS + sx;
                     if ras.depth[i] > f32::NEG_INFINITY {
                         let c = shade_px(ras.col[i], ras.nrm[i], ras.mat[i]);
                         acc = [acc[0] + c[0], acc[1] + c[1], acc[2] + c[2]];
@@ -3058,7 +3886,7 @@ fn render_frame(
                     }
                 }
             }
-            if cnt * 2 >= SS * SS {
+            if cnt * 2 >= total {
                 let i = y * fw + x;
                 alpha[i] = true;
                 depth[i] = dz / SS as f32;
