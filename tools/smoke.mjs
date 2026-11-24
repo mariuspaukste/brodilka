@@ -29,7 +29,7 @@ function checkDraw() {
 }
 
 ex.init(1997);
-if (ex.tex_count() !== 13) fail('textures');
+if (ex.tex_count() !== 14) fail('textures');
 // interface art: icon sheet, panel, frame, font, glyph advances
 for (let i = 0; i < 4; i++) if (!(ex.ui_img_w(i) > 0 && ex.ui_img_h(i) > 0)) fail('ui art ' + i);
 {
