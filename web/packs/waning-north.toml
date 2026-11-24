@@ -1,0 +1,378 @@
+# The Waning North: an original world for brodilka.
+#
+# An old northern kingdom in its last age. A grey pestilence has emptied
+# half the farms, the Witch-realm of Vathmor sends its orcs over the fells,
+# and something cold has woken in the burial howes. Thornmere stands at
+# the crossroads; the King still holds Caer Ardun to the north.
+#
+# Ships with the game: pick it on the title screen under "World".
+
+[pack]
+id = "waning-north"
+name = "The Waning North"
+subtitle = "The last age of the kingdom of Ardun"
+seed = 640
+
+# ------------------------------------------------------------------ creatures
+[mon.rabbit]
+name = "a coney"
+
+[mon.rat]
+name = "a great rat"
+
+[mon.mongbat]
+name = "a fell bat"
+color = "#4a3a4a"
+
+[mon.slime]
+name = "a bog-crawler"
+color = "#5a7a3a"
+
+[mon.wolf]
+name = "a dire wolf"
+color = "#5a5048"
+
+[mon.skeleton]
+name = "a howe-thrall"
+
+[mon.zombie]
+name = "a pestilent dead"
+color = "#6a7a5a"
+
+[mon.orc]
+name = "an orc of Vathmor"
+color = "#4a6a32"
+
+[mon.orclord]
+name = "an orc-captain"
+
+[mon.troll]
+name = "a fell-troll"
+
+[mon.ettin]
+name = "a stone-troll"
+color = "#7a7468"
+
+[mon.lich]
+name = "the Howe-king"
+color = "#8a8aa0"
+
+[mon.horse]
+name = "a wild horse"
+
+[mon.dragon]
+name = "a fire-drake"
+
+# ------------------------------------------------------------------ arms and goods
+[item.katana]
+name = "long knife"
+
+[item.longsword]
+name = "warden's longsword"
+
+[item.warhammer]
+name = "dwarf-hammer"
+
+[item.ringmail]
+name = "ring-mail shirt"
+
+[item.chainmail]
+name = "dwarf-mail shirt"
+
+[item.platemail]
+name = "plate of Ardun"
+
+[item.heater]
+name = "kite shield"
+
+[item.healpotion]
+name = "healing draught"
+
+[item.ale]
+name = "pint of Thornmere ale"
+
+[item.spellbook]
+name = "book of lore"
+
+[item.bp]
+name = "river pearl"
+
+[item.bm]
+name = "bloodwort"
+plural = "bloodwort"
+
+[item.ga]
+name = "heal-all"
+plural = "heal-all"
+
+[item.gi]
+name = "evermourn"
+plural = "evermourn"
+
+[item.mr]
+name = "mallow root"
+
+[item.ss]
+name = "Blackwood spider-silk"
+
+[item.sa]
+name = "brimstone ash"
+
+# ------------------------------------------------------------------ the old words
+[spell.magicarrow]
+name = "Flame-dart"
+words = "Ves Ithar"
+
+[spell.heal]
+name = "Mending"
+words = "Halu"
+
+[spell.harm]
+name = "Withering"
+words = "Murr Dhal"
+
+[spell.fireball]
+name = "Fire-bolt"
+words = "Kaer Ignath"
+
+[spell.greaterheal]
+name = "Great Mending"
+words = "Halu Varon"
+
+[spell.lightning]
+name = "Thunder-stroke"
+words = "Thun Kalath"
+
+[spell.energybolt]
+name = "Doom-bolt"
+words = "Dhal an Morrow"
+
+[spell.explosion]
+name = "Wildfire"
+words = "Ignath Velar"
+
+[spell.flamestrike]
+name = "Pillar of Flame"
+words = "Kaer Varon"
+
+[item.scroll_magicarrow]
+name = "Flame-dart scroll"
+
+[item.scroll_heal]
+name = "Mending scroll"
+
+[item.scroll_harm]
+name = "Withering scroll"
+
+[item.scroll_fireball]
+name = "Fire-bolt scroll"
+
+[item.scroll_greaterheal]
+name = "Great Mending scroll"
+
+[item.scroll_lightning]
+name = "Thunder-stroke scroll"
+
+[item.scroll_energybolt]
+name = "Doom-bolt scroll"
+
+[item.scroll_explosion]
+name = "Wildfire scroll"
+
+[item.scroll_flamestrike]
+name = "Pillar of Flame scroll"
+
+# ------------------------------------------------------------------ who you start as
+[template.warrior]
+name = "Warden"
+desc = "Swordsmanship, Tactics, Healing. One of the Roadwardens, the last guard of the North."
+
+[template.mage]
+name = "Loremaster"
+desc = "Lore, Meditation, Wrestling. Wise in the old words, frail in a fight."
+
+[template.blacksmith]
+name = "Smith"
+desc = "Blacksmithy, Mining, Mace Fighting. Forge thine own arms, as the Dwarves taught."
+
+[template.woodsman]
+name = "Woodsman"
+desc = "Lumberjacking, Swordsmanship, Fishing. Lives off the wild of the North."
+
+# ------------------------------------------------------------------ the folk of Thornmere and Caer Ardun
+[vendor.smith]
+title = "the smith"
+names = ["Will Pickering", "Harry Sandford", "Ada Rushby"]
+chatter = [
+  "Good steel, forged this very morn!",
+  "Bring me ingots from the Greyspine and I shall pay fair coin.",
+  "Smelt thine ore at my forge, friend.",
+  "The Dwarves passing on the Road pay well for a sharp edge.",
+]
+
+[vendor.mage]
+title = "the loremaster"
+names = ["Maelis", "Orwen", "Isaund"]
+chatter = [
+  "Herbs and old words, for those with the wit to use them.",
+  "Heal-all, they say, works best in a steady hand.",
+  "Practise the old words and thy lore shall grow.",
+  "These words were old when Ardun was young.",
+]
+robe = "#3a4a6a"
+
+[vendor.provisioner]
+title = "the provisioner"
+names = ["Tom Applegarth", "Nell Thistleby", "Bill Heathcote"]
+chatter = [
+  "Bandages, tools, all a traveller on the Road needs.",
+  "The Hartwood is thick with timber.",
+  "Fish from the Wend fetch a good price.",
+]
+
+[vendor.healer]
+title = "the herb-wife"
+names = ["Mother Brackley", "Old Marlow"]
+chatter = [
+  "Should death find thee, seek me out.",
+  "Bandages mend the flesh, if thy hand be steady.",
+  "The old waystones of Ardun can call back the fallen.",
+  "Half of Thornmere was buried after the Pestilence. I mended the other half.",
+]
+
+[vendor.banker]
+title = "the moneylender"
+names = ["Ned Underwood", "Rose Hollins"]
+chatter = [
+  "Thy coin is safe with me. Safer than on the Road.",
+  "Carry less, lose less, as they say in the hill-farms.",
+  "Deposits and withdrawals, friend.",
+]
+
+[vendor.guard]
+title = "the watchman"
+names = ["Sam Rushby", "Ted Pickering", "Wat Underwood"]
+chatter = [
+  "All quiet on the Road.",
+  "Keep thy blade sheathed within Thornmere.",
+  "Cold lights burn over the howes to the north-east.",
+  "Orcs of Vathmor have made camp in the south-west.",
+  "Trolls roam the Grimfells to the north-west.",
+  "They say a fire-drake sleeps in the south-east.",
+]
+
+[vendor.folk]
+names = [
+  "Old Tam",
+  "Mirela Heathcote",
+  "Joss",
+  "Widow Agna",
+  "Pell Applegarth",
+  "Hanne",
+  "Corwin Hollins",
+  "Ilse",
+  "Brother Aldo",
+  "Fen Underwood",
+]
+chatter = [
+  "The bell tolls for another burial today.",
+  "Bar thy door after dark, stranger.",
+  "My son went north to fight for the King. He has not come back.",
+  "Roadwardens in the common-room again. Grim folk, but they keep the Road.",
+  "Bread costs twice what it did before the Pestilence.",
+  "The dead walk on the howes. I have seen the lights.",
+  "Stay off the Road at night.",
+  "Vathmor sends its wolves further south every winter.",
+]
+
+[vendor.barkeep]
+title = "the innkeeper"
+names = ["Barnaby Hollins", "Hilda Hollins", "Wat Marlow"]
+chatter = [
+  "A pint's a copper or three. Sit, warm thy bones.",
+  "A drover swore he saw the dead walking the Northway.",
+  "The orcs pay no tithe, and want no ale. Ill-mannered folk.",
+  "Last fool who went for the drake's gold drank here first.",
+  "Pay before thou drinkest. House rule since my grandfather's day.",
+  "Hill-folk, river-folk, wardens: all are welcome at the Hart.",
+]
+
+[vendor.librarian]
+title = "the keeper of records"
+names = ["Erelas the Scribe", "Mistress Pickering", "Anselm"]
+chatter = [
+  "Hush. These are the chronicles of Ardun.",
+  "The Howe-king was a lord of the old kingdom once, they say. Mind thy studies.",
+  "The day turns from Dawn to Night, as it ever has.",
+  "Bring me scrolls thou hast found. I pay for knowledge.",
+  "Old words learnt from a scroll are never forgot.",
+]
+
+[vendor.lord]
+title = "of Caer Ardun"
+names = ["Lord Aranthor", "Lady Eldaneth", "Lord Corvane"]
+chatter = [
+  "Kneel, or state thy business at the King's court.",
+  "The howes have stirred since the Pestilence. Lay the dead to rest.",
+  "Vathmor's orcs raid my lands from the south-west. Bring me their captain's head.",
+  "Within these walls the King's peace holds. Beyond, thou art alone.",
+  "Slay the drake, and all Ardun will sing thy name.",
+  "The fell-trolls grow bold upon the Grimfells. Thin their number.",
+]
+robe = "#2a2a3a"
+
+[vendor.stablemaster]
+title = "the stablemaster"
+names = ["Edda Applegarth", "Garric Heathcote", "Wynn"]
+chatter = [
+  "A good horse outruns any wolf on the Road.",
+  "Tap thy horse to mount. Tap thyself to get down.",
+  "Lost thy horse? I'll send the lad to fetch it home.",
+  "Wild horses run the western meadows. Leave them be.",
+  "A heavy blow will throw thee from the saddle. Hold on tight.",
+]
+
+# ------------------------------------------------------------------ places and whole lines
+[text]
+"Town" = "Thornmere"
+"Pub" = "The Leaping Hart"
+"Library" = "House of Records"
+"Stables" = "Thornmere Stables"
+"Graveyard" = "the Howe-downs"
+"Orc Camp" = "Vathmor War-camp"
+"Troll Hills" = "the Grimfells"
+"Dragon Lair" = "Drake's Hollow"
+"Duskhold Pub" = "The King's Alehouse"
+"Castle" = "The King's Hall"
+"Places of note" = "Places of the North"
+
+# the six periods of the day
+"Daytide" = "Morning"
+"Threemoons" = "Midday"
+"Lastebb" = "Afternoon"
+"Eventide" = "Dusk"
+"Bloodwatch" = "Night"
+"Firstebb" = "Dawn"
+
+"Town guards slay any monster that enters the town." = "The Thornmere watch slays any monster that comes inside the hedge."
+"The pub sells ale and bread; the library sells spellbooks and scrolls, and buys the scrolls thou findest." = "The Leaping Hart sells ale and bread; the House of Records sells books of lore and scrolls, and buys the scrolls thou findest."
+"Spells need reagents and mana. Buy scrolls from the mage to learn more." = "The old words need herbs and mana. Buy scrolls from the loremaster to learn more."
+"Thou hast no spellbook. A mage in town sells them." = "Thou hast no book of lore. The loremaster in Thornmere sells them."
+
+# ------------------------------------------------------------------ words inside any line
+[words]
+"an ankh shrine" = "a waystone"
+"an ankh" = "a waystone"
+"Ankh shrine" = "Waystone"
+"ankh shrine" = "waystone"
+"ankh" = "waystone"
+"Duskhold" = "Caer Ardun"
+"dragon fire" = "drake-fire"
+"dragon" = "drake"
+"Dragon" = "Drake"
+"graveyard" = "howes"
+"Magery" = "Lore"
+"spellbook" = "book of lore"
+"Spellbook" = "Book of Lore"
+"in town" = "in Thornmere"
+"of town" = "of Thornmere"

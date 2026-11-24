@@ -97,7 +97,8 @@ button { font: inherit; color: var(--ink); cursor: pointer; }
 .create h1 { margin: 0; text-align: center; color: var(--gold); font-size: 34px; letter-spacing: 2px; text-shadow: 0 2px 0 #000; }
 .create .sub { text-align: center; margin: 0 0 12px; opacity: .8; font-style: italic; }
 .create .world { display: flex; gap: 6px; align-items: center; justify-content: center; flex-wrap: wrap; margin: 0 0 8px; font-size: 13px; }
-.create .wbtn { background: #2a2016; border: 1px solid var(--edge); border-radius: 4px; padding: 4px 10px; }
+.create .world label { display: inline; margin: 0; }
+.create .world select { font: inherit; background: #120e0a; color: var(--ink); border: 1px solid var(--edge); border-radius: 4px; padding: 6px 8px; max-width: 70%; }
 #worldmsg { color: #e0a070; opacity: .9; }
 .create label { display: block; margin: 8px 0; }
 .create input { width: 100%; margin-top: 4px; padding: 8px; font: inherit; background: #120e0a; color: var(--ink); border: 1px solid var(--edge); border-radius: 4px; }

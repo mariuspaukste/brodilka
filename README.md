@@ -123,11 +123,18 @@ Keyboard: WASD/arrows, Tab war mode, Space (hold) block, F kick, E mount/dismoun
 
 The engine plays its own world, but a **world pack** can rename and
 re-flavour it without touching the code: one text file, a small subset of
-TOML. On the title screen, **Change world…** picks a pack file; the game
-checks it, keeps it in this browser and reloads into that world. Each world
-keeps its own saved hero, and **Default world** goes back. Packs never need
-to be in this repository: they are loaded at run time from the player's own
-files.
+TOML. On the title screen, **World** picks one: the engine's own, a world
+that ships with the game (`web/packs/`, listed in `web/packs/index.json`), or
+**From a file…** for a pack on the player's device, which never has to be in
+this repository. The game checks the pack, keeps the choice in this browser
+and reloads into that world. Each world keeps its own saved hero.
+
+Shipped worlds:
+
+- **The Waning North** (`web/packs/waning-north.toml`): an old northern
+  kingdom in its last age. Thornmere at the crossroads, the King's seat at
+  Caer Ardun, the Howe-king in the burial mounds and the Witch-realm of
+  Vathmor sending its orcs over the fells.
 
 ```toml
 [pack]

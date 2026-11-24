@@ -557,8 +557,30 @@ function lsDel(k) { try { localStorage.removeItem(k); } catch (_) { /* storage m
 
 // ------------------------------------------------------------------ world packs
 let packInfo = null, packError = '';
-function usePack() {
+// A bundled world is stored as "bundled:<file>" and fetched fresh at each
+// start (the last copy is kept for offline play); a world from the player's
+// own file is stored as its text.
+const BUNDLED = 'bundled:';
+const PACK_CACHE = 'brodilka.pack.cache';
+let bundledPacks = [];
+async function loadPackList() {
+  try {
+    const r = await fetch('packs/index.json', { cache: 'no-cache' });
+    if (r.ok) bundledPacks = await r.json();
+  } catch (_) { /* offline: only the default world and files */ }
+}
+async function packSource() {
   const src = lsGet(PACK_KEY);
+  if (!src || !src.startsWith(BUNDLED)) return src;
+  const file = src.slice(BUNDLED.length);
+  try {
+    const r = await fetch('packs/' + encodeURIComponent(file), { cache: 'no-cache' });
+    if (r.ok) { const t = await r.text(); lsSet(PACK_CACHE, t); return t; }
+  } catch (_) { /* offline */ }
+  return lsGet(PACK_CACHE);
+}
+async function usePack() {
+  const src = await packSource();
   if (src) {
     const r = packCall('pack_set', src);
     if (r.ok) {
@@ -575,12 +597,35 @@ function usePack() {
   document.querySelector('.create h1').textContent = packInfo.name;
   document.querySelector('.create .sub').textContent = packInfo.subtitle;
 }
+function switchWorld(stored, name) {
+  if (!confirm(`Play in the world "${name}"? Each world keeps its own hero.`)) return false;
+  saveGame();
+  if (stored === null) lsDel(PACK_KEY);
+  else if (!lsSet(PACK_KEY, stored)) return false;
+  location.reload();
+  return true;
+}
 function setupWorld() {
-  $('worldname').textContent = packInfo.name;
   const msg = (t) => { $('worldmsg').textContent = t; $('worldmsg').classList.toggle('hidden', !t); };
   if (packError) msg('Thy world pack could not be read, so the default world is in play: ' + packError);
-  $('bworlddef').classList.toggle('hidden', !lsGet(PACK_KEY));
-  $('bworld').onclick = () => $('fworld').click();
+  const sel = $('selworld');
+  const opt = (value, label) => { const o = el('option', '', label); o.value = value; sel.appendChild(o); return o; };
+  const stored = lsGet(PACK_KEY) || '';
+  opt('', 'Brodilka');
+  for (const p of bundledPacks) opt(BUNDLED + p.file, p.name);
+  if (stored && !stored.startsWith(BUNDLED)) opt('custom', `${packInfo.name} (from a file)`);
+  opt('file', 'From a file…');
+  sel.value = !stored ? '' : stored.startsWith(BUNDLED) ? stored : 'custom';
+  const keep = sel.value;
+  sel.onchange = () => {
+    const v = sel.value;
+    sel.value = keep;
+    if (v === keep || v === 'custom') return;
+    if (v === 'file') { $('fworld').click(); return; }
+    if (v === '') { switchWorld(null, 'Brodilka'); return; }
+    const p = bundledPacks.find((b) => BUNDLED + b.file === v);
+    switchWorld(v, p ? p.name : v);
+  };
   $('fworld').onchange = async () => {
     const f = $('fworld').files[0];
     $('fworld').value = '';
@@ -588,18 +633,8 @@ function setupWorld() {
     const text = await f.text();
     const r = packCall('pack_check', text);
     if (!r.ok) { msg('That pack cannot be read: ' + r.error); return; }
-    let q = `Play in the world "${r.pack.name}"? Each world keeps its own hero.`;
-    if (r.warnings.length) q += `\n\nThe engine will ignore:\n${r.warnings.slice(0, 8).join('\n')}`;
-    if (!confirm(q)) return;
-    saveGame();
-    if (!lsSet(PACK_KEY, text)) { msg('This browser would not store the pack.'); return; }
-    location.reload();
-  };
-  $('bworlddef').onclick = () => {
-    if (!confirm('Return to the default world? Thy hero in this world stays saved.')) return;
-    saveGame();
-    lsDel(PACK_KEY);
-    location.reload();
+    if (r.warnings.length) console.warn('World pack: ' + r.warnings.join('\n'));
+    if (!switchWorld(text, r.pack.name)) msg('This browser would not store the pack.');
   };
 }
 function cmd(s) {
@@ -967,7 +1002,8 @@ async function boot() {
   const bytes = await res.arrayBuffer();
   const { instance } = await WebAssembly.instantiate(bytes, imports);
   ex = instance.exports;
-  usePack();
+  await loadPackList();
+  await usePack();
   ex.init(WORLD_SEED);
   const texs = [];
   for (let k = 0; k < ex.tex_count(); k++) {
