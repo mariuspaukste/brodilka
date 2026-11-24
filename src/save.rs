@@ -243,7 +243,7 @@ impl Game {
             });
         }
         // the horse waits where it was left (or by the player, if that spot is gone)
-        self.ents.retain(|e| e.tame != 1);
+        self.ents.retain(|e| e.tame() != 1);
         if let Some(h) = self.pl.horse.clone() {
             if !self.pl.riding {
                 let (x, y) = horse_pos
@@ -257,7 +257,7 @@ impl Game {
         // move monsters away from the loaded position so we don't wake up in a fight
         let (px, py) = (pos.0 as f32, pos.1 as f32);
         for e in self.ents.iter_mut().skip(1) {
-            if matches!(e.k, EK::Mon(_)) && e.tame == 0 && e.dist(px, py) < 6.0 {
+            if matches!(e.k, EK::Mon(_)) && e.tame() == 0 && e.dist(px, py) < 6.0 {
                 e.dead = true;
             }
         }

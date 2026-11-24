@@ -225,12 +225,12 @@ pub extern "C" fn py() -> f32 {
 #[no_mangle]
 pub extern "C" fn avatar_sx() -> f32 {
     let g = g();
-    g.scr_h(g.ents[0].x, g.ents[0].y, g.ents[0].vz).0
+    g.scr_h(g.ents[0].x, g.ents[0].y, g.ents[0].anim.vz).0
 }
 #[no_mangle]
 pub extern "C" fn avatar_sy() -> f32 {
     let g = g();
-    g.scr_h(g.ents[0].x, g.ents[0].y, g.ents[0].vz).1 - 20.0 * render::ZS * g.zoom
+    g.scr_h(g.ents[0].x, g.ents[0].y, g.ents[0].anim.vz).1 - 20.0 * render::ZS * g.zoom
 }
 /// -1 when no player corpse exists
 #[no_mangle]

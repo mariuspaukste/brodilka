@@ -864,11 +864,11 @@ impl Game {
                     "slime" => return Some(Look::creature(bake::Body::Slime, 0x5aa83aff, 100)),
                     "dragon" => return Some(Look::creature(bake::Body::Dragon, 0x9a2e24ff, 160)),
                     "horse" => {
-                        let (coat, mane) = HORSE_COATS[e.coat as usize % HORSE_COATS.len()];
+                        let (coat, mane) = HORSE_COATS[e.coat() as usize % HORSE_COATS.len()];
                         let mut h = Look::creature(bake::Body::Horse, coat, 100);
                         h.mane = mane;
                         // the player's horse is saddled, the stable's wear halters
-                        h.tack = match e.tame {
+                        h.tack = match e.tame() {
                             1 => 2,
                             2 => 1,
                             _ => 0,
@@ -996,8 +996,8 @@ impl Game {
             };
             return (Anim::Die, ph);
         }
-        if e.kick > 0.0 {
-            return (Anim::Kick, 1.0 - e.kick);
+        if e.anim.kick > 0.0 {
+            return (Anim::Kick, 1.0 - e.anim.kick);
         }
         let is_player = e.k == EK::Player;
         if is_player {
@@ -1011,36 +1011,36 @@ impl Game {
                 return (Anim::Work, (self.clock * 1.5).fract());
             }
         }
-        if e.atk > 0.0 {
-            return (Anim::Attack, 1.0 - e.atk);
+        if e.anim.atk > 0.0 {
+            return (Anim::Attack, 1.0 - e.anim.atk);
         }
-        if e.ready > 0.0 {
-            return (Anim::Ready, 1.0 - e.ready);
+        if e.anim.ready > 0.0 {
+            return (Anim::Ready, 1.0 - e.anim.ready);
         }
-        if e.hurt > 0.45 {
-            return (Anim::Hit, if e.hurt > 0.75 { 0.0 } else { 0.6 });
+        if e.anim.hurt > 0.45 {
+            return (Anim::Hit, if e.anim.hurt > 0.75 { 0.0 } else { 0.6 });
         }
         let fighting = match e.k {
             EK::Player => self.pl.war,
-            EK::Mon(_) => e.target != 0,
+            EK::Mon(_) => e.combat.target != 0,
             EK::Npc(_) => false,
         };
         if !e.path.is_empty() {
-            let ph = (e.walk.rem_euclid(tau)) / tau;
+            let ph = (e.anim.walk.rem_euclid(tau)) / tau;
             let near_foe = fighting
                 && self
-                    .find(e.target)
+                    .find(e.combat.target)
                     .map(|i| self.ents[i].dist(e.x, e.y) < 2.6)
                     .unwrap_or(false);
             if near_foe {
                 return (Anim::Advance, ph);
             }
-            if e.running || (matches!(e.k, EK::Mon(_)) && e.target != 0) {
+            if e.running || (matches!(e.k, EK::Mon(_)) && e.combat.target != 0) {
                 return (Anim::Run, ph);
             }
             return (Anim::Walk, ph);
         }
-        if e.say_t > 0.0 && matches!(e.k, EK::Npc(_)) {
+        if e.say.t > 0.0 && matches!(e.k, EK::Npc(_)) {
             return (Anim::Talk, cyc(1.2));
         }
         if fighting {
@@ -1063,7 +1063,7 @@ impl Game {
             return false;
         };
         let (a, ph) = self.anim_of(e);
-        let (frame, flip) = bake::frame_index(&look, a, ph, e.vdir);
+        let (frame, flip) = bake::frame_index(&look, a, ph, e.anim.vdir);
         let ghost = e.k == EK::Player && self.pl.ghost;
         let lift = if ghost {
             4.0 * z + (self.clock * 2.0).sin() * 2.0 * z
@@ -1277,7 +1277,7 @@ impl Game {
             }
             while oi < order.len() && order[oi].0 <= s {
                 let e = &self.ents[order[oi].1];
-                let (sx, sy) = self.scr_h(e.x, e.y, e.vz);
+                let (sx, sy) = self.scr_h(e.x, e.y, e.anim.vz);
                 if sx > -150.0 && sx < self.w + 150.0 && sy > -150.0 && sy < self.h + 250.0 {
                     c.outline(INK, self.pix.max(z));
                     self.entity(c, e, sx, sy, z, t);
@@ -1342,12 +1342,12 @@ impl Game {
         let _ = &lights;
 
         // ---- overhead texts, bars, floats (above everything)
-        let tid = p.target;
+        let tid = p.combat.target;
         for e in self.ents.iter() {
             if e.dead {
                 continue;
             }
-            let (sx, sy) = self.scr_h(e.x, e.y, e.vz);
+            let (sx, sy) = self.scr_h(e.x, e.y, e.anim.vz);
             if sx < -100.0 || sx > self.w + 100.0 || sy < -100.0 || sy > self.h + 200.0 {
                 continue;
             }
@@ -1392,16 +1392,16 @@ impl Game {
                 c.stroke(with_a(col, 0.9), 2.0);
                 c.ell_s(sx, sy, 16.0 * z * size.max(0.7), 7.0 * z * size.max(0.7));
             }
-            if e.say_t > 0.0 && !e.say.is_empty() {
-                let a = (e.say_t * 2.0).min(1.0);
+            if e.say.t > 0.0 && !e.say.text.is_empty() {
+                let a = (e.say.t * 2.0).min(1.0);
                 c.alpha(a);
-                c.fill(e.say_col);
+                c.fill(e.say.col);
                 c.text(
                     sx,
                     top - if targeted { 22.0 } else { 8.0 } * z,
                     ts,
                     0,
-                    &e.say,
+                    &e.say.text,
                     0x000000ff,
                 );
                 c.alpha(1.0);
@@ -2725,8 +2725,8 @@ impl Game {
             return;
         }
         let moving = !e.path.is_empty();
-        let wk = if moving { e.walk.sin() } else { 0.0 };
-        let flash = e.hurt > 0.5;
+        let wk = if moving { e.anim.walk.sin() } else { 0.0 };
+        let flash = e.anim.hurt > 0.5;
         match e.k {
             EK::Player => {
                 let pl = &self.pl;
@@ -2804,7 +2804,7 @@ impl Game {
                 }
                 if let Action::Cast { .. } = pl.action {
                     c.fill(with_a(0x80b0ffff, 0.4 + (t * 12.0).sin() * 0.2));
-                    let (hx, hy) = (sx + e.face * 10.0 * z, sy - 30.0 * z);
+                    let (hx, hy) = (sx + e.anim.face * 10.0 * z, sy - 30.0 * z);
                     c.ell(hx, hy, 5.0 * z, 5.0 * z);
                 }
             }
@@ -3050,15 +3050,15 @@ impl Game {
         let t = self.clock;
         let ink = self.pix.max(z);
         let moving = !e.path.is_empty();
-        let recoil = e.hurt * e.hurt * 3.0;
-        let sx = sx - e.face * recoil * z;
+        let recoil = e.anim.hurt * e.anim.hurt * 3.0;
+        let sx = sx - e.anim.face * recoil * z;
         let breathe = if moving {
             0.0
         } else {
             (t * 2.2 + e.id as f32 * 0.7).sin() * 0.7
         };
         let bob = if moving {
-            -(e.walk.sin()).abs() * 1.8
+            -(e.anim.walk.sin()).abs() * 1.8
         } else {
             0.0
         };
@@ -3067,7 +3067,7 @@ impl Game {
             x: sx,
             y: sy,
             s: z * scale * 1.12,
-            f: e.face,
+            f: e.anim.face,
         };
         let s = p.s;
         let tint = |col: u32| {
@@ -3108,8 +3108,8 @@ impl Game {
             let l = (dx * dx + dy * dy).sqrt().max(0.01);
             (hand.0 + dx / l * blade_len, hand.1 + dy / l * blade_len)
         };
-        let attacking = e.atk > 0.0 && !casting;
-        let phase = 1.0 - e.atk;
+        let attacking = e.anim.atk > 0.0 && !casting;
+        let phase = 1.0 - e.anim.atk;
         let hand = if casting {
             (7.0, -41.0 + up)
         } else if attacking {
@@ -3185,7 +3185,7 @@ impl Game {
         }
         c.outline(INK, ink);
 
-        if e.back {
+        if e.anim.back {
             draw_weapon_arm(c);
         }
         // legs / robe
@@ -3244,7 +3244,7 @@ impl Game {
                 c.ell(x, y, 1.5 * s, 2.0 * s);
             }
         }
-        if !e.back {
+        if !e.anim.back {
             draw_weapon_arm(c);
         }
         // heads
@@ -3267,7 +3267,7 @@ impl Game {
             c.outline(0, 0.0);
             c.fill(0x00000040);
             c.ell(hx + 2.0 * s, hy + 1.0 * s, 3.0 * s, 4.0 * s);
-            if !e.back {
+            if !e.anim.back {
                 if let Some(ec) = h.eyes {
                     c.fill(ec);
                     let (ex, ey) = p.at(ox + 2.5, -34.5 + up);
@@ -3279,7 +3279,7 @@ impl Game {
             c.outline(INK, ink);
             if let Some(hc) = h.hair {
                 c.fill(hc);
-                if e.back {
+                if e.anim.back {
                     c.ell(hx, hy - 0.5 * s, 5.5 * s, 5.2 * s);
                 } else {
                     let (x, y) = p.at(ox - 0.5, -37.5 + up);
@@ -3290,7 +3290,7 @@ impl Game {
                 c.fill(hc);
                 let (x, y) = p.at(ox, -36.5 + up);
                 c.ell(x, y, 6.0 * s, 4.5 * s);
-                if !e.back {
+                if !e.anim.back {
                     c.stroke(shade(hc, 0.5), 1.2 * s);
                     let (a, b) = (p.at(ox + 2.5, -37.0 + up), p.at(ox + 2.5, -32.0 + up));
                     c.line(a.0, a.1, b.0, b.1);
@@ -3324,7 +3324,7 @@ impl Game {
             x: sx,
             y: sy,
             s,
-            f: e.face,
+            f: e.anim.face,
         };
         c.fill(0x00000050);
         c.ell(sx, sy, 13.0 * s, 5.0 * s);
@@ -3398,7 +3398,7 @@ impl Game {
             x: sx,
             y: sy,
             s,
-            f: e.face,
+            f: e.anim.face,
         };
         let bob = (t * 5.0 + e.id as f32).sin() * 3.0;
         let flap = (t * 16.0 + e.id as f32).sin();
@@ -3452,8 +3452,8 @@ impl Game {
         c.fill(0xffffff90);
         c.ell(sx - 4.0 * s, sy - 10.0 * s, 3.0 * s, 2.0 * s);
         c.fill(0x102010ff);
-        c.ell(sx + e.face * 3.0 * s, sy - 8.0 * s, 1.2 * s, 1.6 * s);
-        c.ell(sx + e.face * 6.5 * s, sy - 8.0 * s, 1.2 * s, 1.6 * s);
+        c.ell(sx + e.anim.face * 3.0 * s, sy - 8.0 * s, 1.2 * s, 1.6 * s);
+        c.ell(sx + e.anim.face * 6.5 * s, sy - 8.0 * s, 1.2 * s, 1.6 * s);
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -3462,7 +3462,7 @@ impl Game {
             x: sx,
             y: sy,
             s,
-            f: e.face,
+            f: e.anim.face,
         };
         let flap = (t * 2.5).sin();
         c.fill(0x00000060);
