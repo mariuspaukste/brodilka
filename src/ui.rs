@@ -86,6 +86,8 @@ struct WinJ {
     rows: Vec<Row>,
     foot: Vec<(String, String)>,
     tabs: Vec<(String, String, bool)>,
+    /// a baked figure to show: atlas id, frame, frame size, anchor
+    doll: Option<(u32, usize, usize, usize, f32, f32)>,
 }
 impl WinJ {
     fn new(id: &'static str, title: &str) -> WinJ {
@@ -96,6 +98,7 @@ impl WinJ {
             rows: vec![],
             foot: vec![],
             tabs: vec![],
+            doll: None,
         }
     }
     fn foot(&mut self, l: &str, c: &str) {
@@ -142,7 +145,11 @@ impl WinJ {
                 .collect::<Vec<_>>()
                 .join(","),
         );
-        s.push_str("]}");
+        s.push(']');
+        if let Some((id, f, fw, fh, ax, ay)) = self.doll {
+            let _ = write!(s, ",\"doll\":[{id},{f},{fw},{fh},{ax},{ay}]");
+        }
+        s.push('}');
         s
     }
 }
@@ -283,6 +290,14 @@ impl Game {
             Win::None => return None,
             Win::Paperdoll => {
                 let mut w = WinJ::new("paperdoll", &pl.name);
+                // the hero as baked, in their gear, facing out of the window
+                if let Some(look) = self.look_for_ent(p) {
+                    if let Some(info) = self.sprites.ids.get(&look.key()) {
+                        let (f, _) =
+                            crate::bake::frame_index(&look, crate::bake::Anim::Idle, 0.0, 3);
+                        w.doll = Some((info.id, f, info.fw, info.fh, info.ax, info.ay));
+                    }
+                }
                 w.head.push(pl.title());
                 w.head.push(format!(
                     "Str {}  ·  Dex {}  ·  Int {}",

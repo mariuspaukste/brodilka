@@ -579,9 +579,24 @@ function renderUI(u) {
     for (const [l, c, on] of w.tabs) { const b = btn(l, c); if (on) b.classList.add('on'); tabs.appendChild(b); }
     win.appendChild(tabs);
   }
-  if (w.head.length) {
+  if (w.head.length || w.doll) {
     const hd = el('div', 'head');
-    for (const line of w.head) hd.appendChild(el('div', '', line));
+    // the paperdoll: the hero as the game baked them, in their gear
+    if (w.doll && atlases.get(w.doll[0])) {
+      const [id, f, fw, fh] = w.doll;
+      const src = atlases.get(id);
+      const cv = document.createElement('canvas');
+      cv.width = fw; cv.height = fh;
+      cv.getContext('2d').drawImage(src, (f % 16) * fw, Math.floor(f / 16) * fh, fw, fh, 0, 0, fw, fh);
+      cv.className = 'doll';
+      cv.style.width = `${fw * 3}px`;
+      cv.style.height = `${fh * 3 * ASPECT}px`;
+      hd.classList.add('withdoll');
+      hd.appendChild(cv);
+    }
+    const lines = el('div', 'lines');
+    for (const line of w.head) lines.appendChild(el('div', '', line));
+    hd.appendChild(lines);
     win.appendChild(hd);
   }
   if (w.rows.length) {

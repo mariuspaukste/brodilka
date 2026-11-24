@@ -153,3 +153,8 @@ body.painted #status { width: 186px; }
 #win.talk .foot button::before { content: '• '; color: #e83a2a; }
 
 body.arrowcursor #c { cursor: none; }
+
+#win .head.withdoll { display: flex; gap: 10px; align-items: center; }
+#win .head .doll { image-rendering: pixelated; flex: none; margin: -30px -40px -26px -36px;
+  background: radial-gradient(ellipse at 50% 85%, rgba(0,0,0,.45), transparent 60%); }
+#win .head .lines { flex: 1; min-width: 0; }
