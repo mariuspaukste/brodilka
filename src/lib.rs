@@ -4,6 +4,7 @@
 pub mod bake;
 pub mod data;
 pub mod game;
+pub mod pack;
 pub mod render;
 mod rng;
 pub mod save;
@@ -72,6 +73,8 @@ pub extern "C" fn init(seed: u32) {
             .map(|g| (g.w, g.h, g.zoom_mul, g.pix))
             .unwrap_or((800.0, 600.0, 1.0, 1.0))
     };
+    // a world pack may fix the seed, so its places always lie where it says
+    let seed = pack::get().seed.unwrap_or(seed);
     let mut game = Game::new(seed);
     game.w = w;
     game.h = h;
@@ -267,6 +270,58 @@ pub extern "C" fn radar_dots() -> usize {
         s.push_str(&format!("{}{:.1},{:.1};", k, e.x, e.y));
     }
     out(s)
+}
+
+// ---------------------------------------------------------------- world packs
+static mut PACK_BUF: Vec<u8> = Vec::new();
+/// Room for a world pack's text of `len` bytes; the host writes it there.
+#[no_mangle]
+pub extern "C" fn pack_buf(len: usize) -> *mut u8 {
+    unsafe {
+        let b = &mut *(&raw mut PACK_BUF);
+        *b = vec![0; len];
+        b.as_mut_ptr()
+    }
+}
+fn pack_text(len: usize) -> String {
+    unsafe {
+        let b = &*(&raw const PACK_BUF);
+        String::from_utf8_lossy(&b[..len.min(b.len())]).into_owned()
+    }
+}
+fn pack_report(r: Result<pack::Pack, String>) -> String {
+    match r {
+        Ok(p) => {
+            let w: Vec<String> = data::pack_warnings(&p).iter().map(|s| ui::esc(s)).collect();
+            format!(
+                "{{\"ok\":true,\"pack\":{},\"warnings\":[{}]}}",
+                p.info_json(),
+                w.join(",")
+            )
+        }
+        Err(e) => format!("{{\"ok\":false,\"error\":{}}}", ui::esc(&e)),
+    }
+}
+/// Read the pack in the pack buffer without using it: a JSON report in OUT.
+#[no_mangle]
+pub extern "C" fn pack_check(len: usize) -> usize {
+    out(pack_report(pack::Pack::parse(&pack_text(len))))
+}
+/// Put the pack in the pack buffer in play. Call before `init`: the game's
+/// tables are built from it once. A JSON report in OUT.
+#[no_mangle]
+pub extern "C" fn pack_set(len: usize) -> usize {
+    let src = pack_text(len);
+    let rep = pack_report(pack::Pack::parse(&src));
+    if let Err(e) = pack::set(&src) {
+        return out(format!("{{\"ok\":false,\"error\":{}}}", ui::esc(&e)));
+    }
+    out(rep)
+}
+/// The pack in play, as JSON in OUT.
+#[no_mangle]
+pub extern "C" fn pack_info() -> usize {
+    out(pack::get().info_json())
 }
 
 // ---------------------------------------------------------------- art assets

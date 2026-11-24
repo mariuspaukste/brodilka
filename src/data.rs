@@ -94,6 +94,7 @@ pub enum K {
     Mount,
 }
 
+#[derive(Clone)]
 pub struct ItemDef {
     pub id: &'static str,
     pub name: &'static str,
@@ -131,7 +132,7 @@ const B: ItemDef = ItemDef {
     color: 0x9a9a9aff,
 };
 
-pub static ITEMS: &[ItemDef] = &[
+static ITEMS_DEF: &[ItemDef] = &[
     ItemDef {
         id: "fists",
         name: "fists",
@@ -665,6 +666,7 @@ pub const FX_RES: u8 = 10;
 pub const FX_SPARK: u8 = 11;
 pub const FX_BLOOD: u8 = 12;
 
+#[derive(Clone)]
 pub struct SpellDef {
     pub id: &'static str,
     pub name: &'static str,
@@ -677,7 +679,7 @@ pub struct SpellDef {
     pub range: f32,
 }
 
-pub static SPELLS: &[SpellDef] = &[
+static SPELLS_DEF: &[SpellDef] = &[
     SpellDef {
         id: "magicarrow",
         name: "Magic Arrow",
@@ -787,6 +789,7 @@ pub fn spell_idx(id: &str) -> Option<usize> {
 }
 
 // ---------------------------------------------------------------- monsters
+#[derive(Clone)]
 pub struct MonDef {
     pub id: &'static str,
     pub name: &'static str,
@@ -835,7 +838,7 @@ const MB: MonDef = MonDef {
     flies: false,
 };
 
-pub static MONS: &[MonDef] = &[
+static MONS_DEF: &[MonDef] = &[
     MonDef {
         id: "rabbit",
         name: "a rabbit",
@@ -1081,6 +1084,7 @@ pub const V_LORD: usize = 9;
 /// the stablemaster by the town's east side: sells horses, fetches lost ones
 pub const V_STABLE: usize = 10;
 
+#[derive(Clone)]
 pub struct VendorDef {
     pub title: &'static str,
     pub names: &'static [&'static str],
@@ -1091,7 +1095,7 @@ pub struct VendorDef {
     pub chatter: &'static [&'static str],
 }
 
-pub static VENDORS: &[VendorDef] = &[
+static VENDORS_DEF: &[VendorDef] = &[
     VendorDef {
         title: "the blacksmith",
         names: &["Gareth", "Bryn", "Hilda"],
@@ -1313,6 +1317,7 @@ pub static VENDORS: &[VendorDef] = &[
 ];
 
 // ---------------------------------------------------------------- templates
+#[derive(Clone)]
 pub struct Template {
     pub id: &'static str,
     pub name: &'static str,
@@ -1323,7 +1328,7 @@ pub struct Template {
     pub spells: u32,
 }
 
-pub static TEMPLATES: &[Template] = &[
+static TEMPLATES_DEF: &[Template] = &[
     Template {
         id: "warrior",
         name: "Warrior",
@@ -1404,3 +1409,252 @@ pub static RECIPES: &[(&str, u32, i32)] = &[
 pub const HAIR: [u32; 6] = [
     0x3b2414ff, 0x8a5a2bff, 0xd8b45aff, 0x1a1a1aff, 0xa83a1eff, 0xd0d0d0ff,
 ];
+
+// ---------------------------------------------------------------- world packs
+/// Vendor ids as a world pack names them in `[vendor.<id>]`, by V_* index.
+pub const VENDOR_IDS: [&str; 11] = [
+    "smith",
+    "mage",
+    "provisioner",
+    "healer",
+    "banker",
+    "guard",
+    "folk",
+    "barkeep",
+    "librarian",
+    "lord",
+    "stablemaster",
+];
+
+/// A game table built once from the engine's data and the active world pack
+/// (see `pack.rs`), then read like a plain slice.
+pub struct Table<T: 'static> {
+    cell: std::sync::OnceLock<Vec<T>>,
+    init: fn() -> Vec<T>,
+}
+impl<T> Table<T> {
+    const fn new(init: fn() -> Vec<T>) -> Table<T> {
+        Table {
+            cell: std::sync::OnceLock::new(),
+            init,
+        }
+    }
+}
+impl<T> std::ops::Deref for Table<T> {
+    type Target = [T];
+    fn deref(&self) -> &[T] {
+        self.cell.get_or_init(self.init)
+    }
+}
+
+pub static ITEMS: Table<ItemDef> = Table::new(|| items_for(crate::pack::get()));
+pub static SPELLS: Table<SpellDef> = Table::new(|| spells_for(crate::pack::get()));
+pub static MONS: Table<MonDef> = Table::new(|| mons_for(crate::pack::get()));
+pub static VENDORS: Table<VendorDef> = Table::new(|| vendors_for(crate::pack::get()));
+pub static TEMPLATES: Table<Template> = Table::new(|| templates_for(crate::pack::get()));
+
+use crate::pack::{leak, leak_list, Pack};
+
+fn name_of(p: &Pack, sec: &str, key: &str, dflt: &'static str) -> &'static str {
+    p.str(sec, key).map(|s| leak(s.to_string())).unwrap_or(dflt)
+}
+
+pub fn items_for(p: &Pack) -> Vec<ItemDef> {
+    ITEMS_DEF
+        .iter()
+        .map(|d| {
+            let sec = format!("item.{}", d.id);
+            ItemDef {
+                name: name_of(p, &sec, "name", d.name),
+                icon: name_of(p, &sec, "icon", d.icon),
+                ..d.clone()
+            }
+        })
+        .collect()
+}
+pub fn spells_for(p: &Pack) -> Vec<SpellDef> {
+    SPELLS_DEF
+        .iter()
+        .map(|d| {
+            let sec = format!("spell.{}", d.id);
+            SpellDef {
+                name: name_of(p, &sec, "name", d.name),
+                words: name_of(p, &sec, "words", d.words),
+                ..d.clone()
+            }
+        })
+        .collect()
+}
+pub fn mons_for(p: &Pack) -> Vec<MonDef> {
+    MONS_DEF
+        .iter()
+        .map(|d| {
+            let sec = format!("mon.{}", d.id);
+            MonDef {
+                name: name_of(p, &sec, "name", d.name),
+                color: p.color(&sec, "color").unwrap_or(d.color),
+                hp: p
+                    .int(&sec, "hp")
+                    .map(|n| n.clamp(1, 100_000) as i32)
+                    .unwrap_or(d.hp),
+                ..d.clone()
+            }
+        })
+        .collect()
+}
+pub fn vendors_for(p: &Pack) -> Vec<VendorDef> {
+    VENDORS_DEF
+        .iter()
+        .zip(VENDOR_IDS)
+        .map(|(d, id)| {
+            let sec = format!("vendor.{id}");
+            VendorDef {
+                title: name_of(p, &sec, "title", d.title),
+                names: p.strs(&sec, "names").map(leak_list).unwrap_or(d.names),
+                chatter: p.strs(&sec, "chatter").map(leak_list).unwrap_or(d.chatter),
+                robe: p.color(&sec, "robe").unwrap_or(d.robe),
+                ..d.clone()
+            }
+        })
+        .collect()
+}
+pub fn templates_for(p: &Pack) -> Vec<Template> {
+    TEMPLATES_DEF
+        .iter()
+        .map(|d| {
+            let sec = format!("template.{}", d.id);
+            Template {
+                name: name_of(p, &sec, "name", d.name),
+                desc: name_of(p, &sec, "desc", d.desc),
+                ..d.clone()
+            }
+        })
+        .collect()
+}
+
+/// What in a pack the engine will not use: unknown ids, sections and keys.
+pub fn pack_warnings(p: &Pack) -> Vec<String> {
+    let known: [(&str, Vec<&str>, &[&str]); 5] = [
+        (
+            "mon",
+            MONS_DEF.iter().map(|d| d.id).collect(),
+            &["name", "color", "hp"],
+        ),
+        (
+            "item",
+            ITEMS_DEF.iter().map(|d| d.id).collect(),
+            &["name", "icon"],
+        ),
+        (
+            "spell",
+            SPELLS_DEF.iter().map(|d| d.id).collect(),
+            &["name", "words"],
+        ),
+        (
+            "template",
+            TEMPLATES_DEF.iter().map(|d| d.id).collect(),
+            &["name", "desc"],
+        ),
+        (
+            "vendor",
+            VENDOR_IDS.to_vec(),
+            &["title", "names", "chatter", "robe"],
+        ),
+    ];
+    let mut w = vec![];
+    for sec in p.sections.keys() {
+        let (kind, id) = sec.split_once('.').unwrap_or((sec.as_str(), ""));
+        if id.is_empty() {
+            if !matches!(kind, "pack" | "text" | "words") {
+                w.push(format!("[{sec}] is not a section the engine reads"));
+            }
+            continue;
+        }
+        let Some((_, ids, keys)) = known.iter().find(|(k, _, _)| *k == kind) else {
+            w.push(format!("[{sec}] is not a section the engine reads"));
+            continue;
+        };
+        if !ids.contains(&id) {
+            w.push(format!("[{sec}]: no {kind} with id \"{id}\""));
+            continue;
+        }
+        let mut ks: Vec<&String> = p.sections[sec].keys().collect();
+        ks.sort();
+        for k in ks {
+            if !keys.contains(&k.as_str()) {
+                w.push(format!(
+                    "[{sec}] {k}: not used (known: {})",
+                    keys.join(", ")
+                ));
+            }
+        }
+    }
+    w.sort();
+    w
+}
+
+#[cfg(test)]
+mod pack_tests {
+    use super::*;
+
+    #[test]
+    fn a_pack_renames_without_touching_rules() {
+        let p = Pack::parse(
+            r##"[pack]
+id = "t"
+[mon.wolf]
+name = "a warg"
+color = "#102030"
+hp = 40
+[vendor.guard]
+title = "the watchman"
+names = ["Ned"]
+[item.katana]
+name = "long knife"
+[spell.fireball]
+words = "Naur"
+[template.mage]
+name = "Loremaster"
+[mon.balrog]
+name = "nope"
+[vendor.guard2]
+title = "x"
+[mon.rat]
+speed = 3
+"##,
+        )
+        .unwrap();
+        let m = mons_for(&p);
+        let w = &m[MONS_DEF.iter().position(|d| d.id == "wolf").unwrap()];
+        assert_eq!((w.name, w.color, w.hp), ("a warg", 0x102030ff, 40));
+        assert_eq!(w.dmg, (3, 8));
+        let v = vendors_for(&p);
+        assert_eq!(v[V_GUARD].title, "the watchman");
+        assert_eq!(v[V_GUARD].names, &["Ned"]);
+        assert_eq!(v[V_GUARD].chatter, VENDORS_DEF[V_GUARD].chatter);
+        let it = items_for(&p);
+        assert_eq!(
+            it.iter().find(|d| d.id == "katana").unwrap().name,
+            "long knife"
+        );
+        let sp = spells_for(&p);
+        assert_eq!(
+            sp.iter().find(|d| d.id == "fireball").unwrap().words,
+            "Naur"
+        );
+        assert_eq!(templates_for(&p)[1].name, "Loremaster");
+        let warn = pack_warnings(&p);
+        assert_eq!(warn.len(), 3, "{warn:?}");
+        assert!(warn.iter().any(|s| s.contains("balrog")));
+        assert!(warn.iter().any(|s| s.contains("guard2")));
+        assert!(warn.iter().any(|s| s.contains("speed")));
+    }
+
+    #[test]
+    fn the_engine_world_is_unchanged_without_a_pack() {
+        let p = crate::pack::builtin();
+        assert_eq!(mons_for(&p).len(), MONS_DEF.len());
+        assert_eq!(vendors_for(&p)[V_LORD].title, "of Duskhold");
+        assert!(pack_warnings(&p).is_empty());
+    }
+}

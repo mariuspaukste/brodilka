@@ -266,8 +266,9 @@ impl Ent {
         ((self.x - x).powi(2) + (self.y - y).powi(2)).sqrt()
     }
     pub fn talk(&mut self, s: &str, col: u32) {
+        let s = crate::pack::t(s);
         self.say = Speech {
-            text: s.to_string(),
+            text: s.clone(),
             t: 3.0 + s.len() as f32 * 0.04,
             col,
         };
@@ -1736,7 +1737,7 @@ impl Game {
             }
             let id = match dr {
                 "gems" => self.rng.pick(&GEMS).to_string(),
-                "scroll" => format!("scroll_{}", self.rng.pick(SPELLS).id),
+                "scroll" => format!("scroll_{}", self.rng.pick(&SPELLS).id),
                 o => o.to_string(),
             };
             let q = if ITEMS[item_idx(&id)].stack {

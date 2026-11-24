@@ -6,7 +6,10 @@ const WORLD_SEED = 1997;
 // Pagan's 320×200 filled a 4:3 screen, so its pixels stood 20% taller than
 // wide; the world is drawn squeezed and stretched back by this much.
 const ASPECT = 1.2;
-const SAVE_KEY = 'brodilka.save.v1';
+// each world pack keeps its own save, so heroes never cross between worlds
+let SAVE_KEY = 'brodilka.save.v1';
+// the world pack picked on the title screen: its text, kept in this browser
+const PACK_KEY = 'brodilka.pack';
 const $ = (id) => document.getElementById(id);
 const canvas = $('c');
 const txt = $('txt');
@@ -524,6 +527,64 @@ function writeIn(s) {
   return b.length;
 }
 function outStr(len) { return readStr(ex.out_ptr(), len); }
+// hand a world pack's text to the core: 'pack_check' reads it, 'pack_set' uses it
+function packCall(fn, text) {
+  const b = enc.encode(text);
+  const ptr = ex.pack_buf(b.length);
+  new Uint8Array(mem(), ptr, b.length).set(b);
+  return JSON.parse(outStr(ex[fn](b.length)));
+}
+function lsGet(k) { try { return localStorage.getItem(k); } catch (_) { return null; } }
+function lsSet(k, v) { try { localStorage.setItem(k, v); return true; } catch (_) { return false; } }
+function lsDel(k) { try { localStorage.removeItem(k); } catch (_) { /* storage may be unavailable */ } }
+
+// ------------------------------------------------------------------ world packs
+let packInfo = null, packError = '';
+function usePack() {
+  const src = lsGet(PACK_KEY);
+  if (src) {
+    const r = packCall('pack_set', src);
+    if (r.ok) {
+      packInfo = r.pack;
+      if (r.warnings.length) console.warn('World pack: ' + r.warnings.join('\n'));
+    } else {
+      packError = r.error;
+      console.error('World pack not used: ' + r.error);
+    }
+  }
+  if (!packInfo) packInfo = JSON.parse(outStr(ex.pack_info()));
+  if (packInfo.id !== 'brodilka') SAVE_KEY += '.' + packInfo.id;
+  document.title = packInfo.subtitle ? `${packInfo.name} — ${packInfo.subtitle}` : packInfo.name;
+  document.querySelector('.create h1').textContent = packInfo.name;
+  document.querySelector('.create .sub').textContent = packInfo.subtitle;
+}
+function setupWorld() {
+  $('worldname').textContent = packInfo.name;
+  const msg = (t) => { $('worldmsg').textContent = t; $('worldmsg').classList.toggle('hidden', !t); };
+  if (packError) msg('Thy world pack could not be read, so the default world is in play: ' + packError);
+  $('bworlddef').classList.toggle('hidden', !lsGet(PACK_KEY));
+  $('bworld').onclick = () => $('fworld').click();
+  $('fworld').onchange = async () => {
+    const f = $('fworld').files[0];
+    $('fworld').value = '';
+    if (!f) return;
+    const text = await f.text();
+    const r = packCall('pack_check', text);
+    if (!r.ok) { msg('That pack cannot be read: ' + r.error); return; }
+    let q = `Play in the world "${r.pack.name}"? Each world keeps its own hero.`;
+    if (r.warnings.length) q += `\n\nThe engine will ignore:\n${r.warnings.slice(0, 8).join('\n')}`;
+    if (!confirm(q)) return;
+    saveGame();
+    if (!lsSet(PACK_KEY, text)) { msg('This browser would not store the pack.'); return; }
+    location.reload();
+  };
+  $('bworlddef').onclick = () => {
+    if (!confirm('Return to the default world? Thy hero in this world stays saved.')) return;
+    saveGame();
+    lsDel(PACK_KEY);
+    location.reload();
+  };
+}
 function cmd(s) {
   ex.ui_cmd(writeIn(s));
   refreshUI(true);
@@ -724,7 +785,8 @@ let createReady = false, gender = 'm', hair = 0, tmpl = 'warrior';
 function setupCreate(u) {
   if (createReady) return;
   createReady = true;
-  const save = localStorage.getItem(SAVE_KEY);
+  setupWorld();
+  const save = lsGet(SAVE_KEY);
   if (save) {
     const m = save.match(/^name=(.*)$/m);
     $('cont').classList.remove('hidden');
@@ -883,6 +945,7 @@ async function boot() {
   const bytes = await res.arrayBuffer();
   const { instance } = await WebAssembly.instantiate(bytes, imports);
   ex = instance.exports;
+  usePack();
   ex.init(WORLD_SEED);
   const texs = [];
   for (let k = 0; k < ex.tex_count(); k++) {

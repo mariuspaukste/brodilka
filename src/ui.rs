@@ -19,6 +19,10 @@ pub fn esc(s: &str) -> String {
     o.push('"');
     o
 }
+/// shown text, as the world pack words it, escaped for JSON
+fn tx(s: &str) -> String {
+    esc(&crate::pack::t(s))
+}
 fn hex(c: u32) -> String {
     format!("\"#{:06x}\"", c >> 8)
 }
@@ -58,8 +62,8 @@ impl Row {
         let mut s = format!(
             "{{\"i\":{},\"t\":{},\"s\":{}",
             esc(&self.icon),
-            esc(&self.text),
-            esc(&self.sub)
+            tx(&self.text),
+            tx(&self.sub)
         );
         if self.bar >= 0.0 {
             let _ = write!(s, ",\"bar\":{:.3}", self.bar);
@@ -72,7 +76,7 @@ impl Row {
             if k > 0 {
                 s.push(',');
             }
-            let _ = write!(s, "[{},{}]", esc(l), esc(c));
+            let _ = write!(s, "[{},{}]", tx(l), esc(c));
         }
         s.push_str("]}");
         s
@@ -108,13 +112,13 @@ impl WinJ {
         let mut s = format!(
             "{{\"id\":{},\"title\":{},\"head\":[",
             esc(self.id),
-            esc(&self.title)
+            tx(&self.title)
         );
         s.push_str(
             &self
                 .head
                 .iter()
-                .map(|h| esc(h))
+                .map(|h| tx(h))
                 .collect::<Vec<_>>()
                 .join(","),
         );
@@ -132,7 +136,7 @@ impl WinJ {
             &self
                 .foot
                 .iter()
-                .map(|(l, c)| format!("[{},{}]", esc(l), esc(c)))
+                .map(|(l, c)| format!("[{},{}]", tx(l), esc(c)))
                 .collect::<Vec<_>>()
                 .join(","),
         );
@@ -141,7 +145,7 @@ impl WinJ {
             &self
                 .tabs
                 .iter()
-                .map(|(l, c, a)| format!("[{},{},{}]", esc(l), esc(c), a))
+                .map(|(l, c, a)| format!("[{},{},{}]", tx(l), esc(c), a))
                 .collect::<Vec<_>>()
                 .join(","),
         );
@@ -179,7 +183,7 @@ impl Game {
             let e = &self.ents[i];
             format!(
                 "{{\"name\":{},\"hp\":{},\"mhp\":{}}}",
-                esc(&e.name),
+                tx(&e.name),
                 e.hp.max(0),
                 e.mhp
             )
@@ -200,7 +204,7 @@ impl Game {
             if k > 0 {
                 j.push(',');
             }
-            let _ = write!(j, "[{},{},{}]", id, esc(t), hex(*c));
+            let _ = write!(j, "[{},{},{}]", id, tx(t), hex(*c));
         }
         j.push(']');
         let last = if self.pl.last_spell >= 0 {
@@ -225,13 +229,13 @@ impl Game {
             self.pl.war,
             self.pl.ghost,
             tgt.unwrap_or("null".into()),
-            esc(act),
-            esc(last),
-            esc(targeting),
+            tx(act),
+            tx(last),
+            tx(targeting),
             self.pl.count(item_idx("bandage")),
             self.pl.count(item_idx("healpotion")),
             self.is_night(),
-            esc(self.period()),
+            tx(self.period()),
             self.pl.blocking,
             p.down_t > 0.0,
             j
