@@ -82,6 +82,116 @@ pub enum EK {
     Mon(usize),
 }
 
+/// How a figure is drawn: facing as shown and the animation timers. The
+/// simulation sets these; apart from facing, it seldom reads them back.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Anim {
+    /// -1 or 1: which way the figure faces on screen
+    pub face: f32,
+    /// facing away from the viewer
+    pub back: bool,
+    /// facing as drawn: turns one step at a time towards `Ent::dir8`
+    pub vdir: u8,
+    pub turn_t: f32,
+    /// walk cycle phase
+    pub walk: f32,
+    /// attack swing animation timer (1 -> 0)
+    pub atk: f32,
+    /// kick animation timer (1 -> 0)
+    pub kick: f32,
+    /// flinch after a hit (1 -> 0)
+    pub hurt: f32,
+    /// weapon-drawing animation timer (1 -> 0)
+    pub ready: f32,
+    /// drawn height above level 0, following the ground (in levels)
+    pub vz: f32,
+}
+
+impl Default for Anim {
+    fn default() -> Anim {
+        Anim {
+            face: 1.0,
+            back: false,
+            vdir: 3,
+            turn_t: 0.0,
+            walk: 0.0,
+            atk: 0.0,
+            kick: 0.0,
+            hurt: 0.0,
+            ready: 0.0,
+            vz: 0.0,
+        }
+    }
+}
+
+/// An overhead line of speech.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Speech {
+    pub text: String,
+    /// seconds left on screen
+    pub t: f32,
+    pub col: u32,
+}
+
+impl Default for Speech {
+    fn default() -> Speech {
+        Speech {
+            text: String::new(),
+            t: 0.0,
+            col: 0xffffffff,
+        }
+    }
+}
+
+/// Fighting state: who it is after and its attack and ability timers.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Combat {
+    /// entity id being fought, 0 for none
+    pub target: u32,
+    /// seconds until the next swing
+    pub swing: f32,
+    /// has been attacked, so fights back
+    pub provoked: bool,
+    pub cast_t: f32,
+    pub breath_t: f32,
+}
+
+impl Default for Combat {
+    fn default() -> Combat {
+        Combat {
+            target: 0,
+            swing: 1.0,
+            provoked: false,
+            cast_t: 3.0,
+            breath_t: 6.0,
+        }
+    }
+}
+
+/// What only a horse has.
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
+pub struct Horse {
+    /// in whose keeping: 0 wild, 1 the player's own, 2 the stablemaster's
+    pub tame: u8,
+    /// an index into HORSE_COATS
+    pub coat: u8,
+}
+
+/// Index of the living entity with this id, by binary search. `ents` stays
+/// sorted by id: ids are handed out in increasing order (`Game::nid`), new
+/// entities are pushed at the end, and removals keep the order.
+pub fn find_ent(ents: &[Ent], id: u32) -> Option<usize> {
+    debug_assert!(
+        ents.windows(2).all(|w| w[0].id < w[1].id),
+        "ents out of id order"
+    );
+    if id == 0 {
+        return None;
+    }
+    let i = ents.binary_search_by_key(&id, |e| e.id).ok()?;
+    (!ents[i].dead).then_some(i)
+}
+
 pub struct Ent {
     pub id: u32,
     pub k: EK,
@@ -89,49 +199,28 @@ pub struct Ent {
     pub x: f32,
     pub y: f32,
     pub path: Vec<(i32, i32)>,
+    /// 8-way facing in tile space, index into DIRS (3 = towards the viewer)
+    pub dir8: u8,
+    pub running: bool,
     pub hp: i32,
     pub mhp: i32,
     pub mana: i32,
     pub mmana: i32,
-    pub target: u32,
-    pub swing: f32,
-    pub face: f32,
-    pub walk: f32,
-    pub atk: f32,
-    pub hurt: f32,
-    pub say: String,
-    pub say_t: f32,
-    pub say_col: u32,
-    pub home: (i32, i32),
-    pub spawner: i32,
-    pub ai_t: f32,
-    pub cast_t: f32,
-    pub breath_t: f32,
     pub regen_t: f32,
     pub dead: bool,
-    pub provoked: bool,
-    pub look: u32,
-    /// facing away from the viewer
-    pub back: bool,
-    /// 8-way facing in tile space, index into DIRS (3 = towards the viewer)
-    pub dir8: u8,
-    /// kick animation timer (1 -> 0)
-    pub kick: f32,
     /// knocked down: time left lying / getting up, and the total
     pub down_t: f32,
     pub down_total: f32,
-    /// facing as drawn: turns one step at a time towards dir8
-    pub vdir: u8,
-    pub turn_t: f32,
-    /// weapon-drawing animation timer (1 -> 0)
-    pub ready: f32,
-    pub running: bool,
-    /// drawn height above level 0, following the ground (in levels)
-    pub vz: f32,
-    /// a horse in someone's keeping: 0 wild, 1 the player's own, 2 the stablemaster's
-    pub tame: u8,
-    /// a horse's coat, an index into HORSE_COATS
-    pub coat: u8,
+    pub home: (i32, i32),
+    pub spawner: i32,
+    pub ai_t: f32,
+    /// seed for a person's clothes and features
+    pub look: u32,
+    pub combat: Combat,
+    pub anim: Anim,
+    pub say: Speech,
+    /// set for horses only
+    pub horse: Option<Horse>,
 }
 
 impl Ent {
@@ -143,41 +232,32 @@ impl Ent {
             x: x as f32,
             y: y as f32,
             path: vec![],
+            dir8: 3,
+            running: false,
             hp,
             mhp: hp,
             mana: 0,
             mmana: 0,
-            target: 0,
-            swing: 1.0,
-            face: 1.0,
-            walk: 0.0,
-            atk: 0.0,
-            hurt: 0.0,
-            say: String::new(),
-            say_t: 0.0,
-            say_col: 0xffffffff,
+            regen_t: 0.0,
+            dead: false,
+            down_t: 0.0,
+            down_total: 1.0,
             home: (x, y),
             spawner: -1,
             ai_t: 0.0,
-            cast_t: 3.0,
-            breath_t: 6.0,
-            regen_t: 0.0,
-            dead: false,
-            provoked: false,
             look: 0,
-            back: false,
-            dir8: 3,
-            kick: 0.0,
-            down_t: 0.0,
-            down_total: 1.0,
-            vdir: 3,
-            turn_t: 0.0,
-            ready: 0.0,
-            running: false,
-            vz: 0.0,
-            tame: 0,
-            coat: 0,
+            combat: Combat::default(),
+            anim: Anim::default(),
+            say: Speech::default(),
+            horse: None,
         }
+    }
+    /// 0 wild (or not a horse), 1 the player's own, 2 the stablemaster's
+    pub fn tame(&self) -> u8 {
+        self.horse.map_or(0, |h| h.tame)
+    }
+    pub fn coat(&self) -> u8 {
+        self.horse.map_or(0, |h| h.coat)
     }
     pub fn tile(&self) -> (i32, i32) {
         (self.x.round() as i32, self.y.round() as i32)
@@ -186,9 +266,11 @@ impl Ent {
         ((self.x - x).powi(2) + (self.y - y).powi(2)).sqrt()
     }
     pub fn talk(&mut self, s: &str, col: u32) {
-        self.say = s.to_string();
-        self.say_t = 3.0 + s.len() as f32 * 0.04;
-        self.say_col = col;
+        self.say = Speech {
+            text: s.to_string(),
+            t: 3.0 + s.len() as f32 * 0.04,
+            col,
+        };
     }
     pub fn mon(&self) -> Option<&'static MonDef> {
         match self.k {
@@ -639,9 +721,11 @@ impl Game {
         let paddock = g.map.paddock.clone();
         for (k, (x, y)) in paddock.into_iter().enumerate() {
             let i = g.spawn_horse(x, y, "the stablemaster's horse", (k % 5) as u8);
-            g.ents[i].tame = 2;
+            if let Some(h) = &mut g.ents[i].horse {
+                h.tame = 2;
+            }
             g.ents[i].dir8 = (k as u8 * 3) % 8;
-            g.ents[i].vdir = g.ents[i].dir8;
+            g.ents[i].anim.vdir = g.ents[i].dir8;
         }
         g.build_minimap();
         let (px, py) = (g.ents[0].x, g.ents[0].y);
@@ -674,11 +758,9 @@ impl Game {
         self.ui_ver += 1;
         self.hud_ver += 1;
     }
+    /// Index of the living entity with this id.
     pub fn find(&self, id: u32) -> Option<usize> {
-        if id == 0 {
-            return None;
-        }
-        self.ents.iter().position(|e| e.id == id && !e.dead)
+        find_ent(&self.ents, id)
     }
     pub fn p(&self) -> &Ent {
         &self.ents[0]
@@ -710,7 +792,10 @@ impl Game {
                 e.mmana = 200;
             }
             if d.id == "horse" {
-                e.coat = 3 + self.rng.range(0, 1) as u8;
+                e.horse = Some(Horse {
+                    tame: 0,
+                    coat: 3 + self.rng.range(0, 1) as u8,
+                });
             }
             self.ents.push(e);
             return;
@@ -796,7 +881,7 @@ impl Game {
             pl.add(it);
         }
         self.pl = pl;
-        self.ents.retain(|e| e.tame != 1);
+        self.ents.retain(|e| e.tame() != 1);
         // auto-equip best starting gear
         let mut k = 0;
         while k < self.pl.pack.len() {
@@ -978,24 +1063,25 @@ impl Game {
             let (tx, ty) = self.ents[i].tile();
             let ground = self.map.surface(tx, ty);
             let e = &mut self.ents[i];
-            if (ground - e.vz).abs() > 1.2 {
-                e.vz = ground; // spawned or moved by a jump in position
+            if (ground - e.anim.vz).abs() > 1.2 {
+                e.anim.vz = ground; // spawned or moved by a jump in position
             }
-            e.vz += (ground - e.vz) * (dt * 9.0).min(1.0);
-            e.atk = (e.atk - dt * 3.0).max(0.0);
-            e.kick = (e.kick - dt * 2.6).max(0.0);
+            e.anim.vz += (ground - e.anim.vz) * (dt * 9.0).min(1.0);
+            e.anim.atk = (e.anim.atk - dt * 3.0).max(0.0);
+            e.anim.kick = (e.anim.kick - dt * 2.6).max(0.0);
             e.down_t = (e.down_t - dt).max(0.0);
-            e.ready = (e.ready - dt * 2.5).max(0.0);
+            e.anim.ready = (e.anim.ready - dt * 2.5).max(0.0);
             // turn through the in-between directions, as Pagan's figures do
-            e.turn_t += dt;
-            if e.vdir != e.dir8 && e.turn_t > 0.045 {
-                e.turn_t = 0.0;
-                let diff = (e.dir8 as i32 - e.vdir as i32).rem_euclid(8);
-                e.vdir = ((e.vdir as i32 + if diff <= 4 { 1 } else { -1 }).rem_euclid(8)) as u8;
+            e.anim.turn_t += dt;
+            if e.anim.vdir != e.dir8 && e.anim.turn_t > 0.045 {
+                e.anim.turn_t = 0.0;
+                let diff = (e.dir8 as i32 - e.anim.vdir as i32).rem_euclid(8);
+                e.anim.vdir =
+                    ((e.anim.vdir as i32 + if diff <= 4 { 1 } else { -1 }).rem_euclid(8)) as u8;
             }
-            e.hurt = (e.hurt - dt * 3.0).max(0.0);
-            if e.say_t > 0.0 {
-                e.say_t -= dt;
+            e.anim.hurt = (e.anim.hurt - dt * 3.0).max(0.0);
+            if e.say.t > 0.0 {
+                e.say.t -= dt;
             }
         }
         self.fx_tick(dt);
@@ -1061,16 +1147,16 @@ impl Game {
         let step = speed * dt;
         let sdx = dx - dy;
         if sdx.abs() > 0.01 {
-            e.face = sdx.signum();
+            e.anim.face = sdx.signum();
         }
         let sdy = dx + dy;
         if sdy.abs() > 0.01 {
-            e.back = sdy < 0.0;
+            e.anim.back = sdy < 0.0;
         }
         if d > 0.01 {
             e.dir8 = dir8_of(dx, dy);
         }
-        e.walk += dt * speed * 2.4 * stride;
+        e.anim.walk += dt * speed * 2.4 * stride;
         if d <= step {
             e.x = tx as f32;
             e.y = ty as f32;
@@ -1116,7 +1202,7 @@ impl Game {
         }
         let mut dir: Option<(f32, f32)> = None;
         if self.steering {
-            let (px, py) = self.scr_h(self.ents[0].x, self.ents[0].y, self.ents[0].vz);
+            let (px, py) = self.scr_h(self.ents[0].x, self.ents[0].y, self.ents[0].anim.vz);
             let (dx, dy) = (self.ptr_x - px, self.ptr_y - (py - 20.0 * self.zoom));
             if dx * dx + dy * dy > 200.0 {
                 dir = Some((dx, dy));
@@ -1184,7 +1270,7 @@ impl Game {
         }
         // run when heading somewhere far, or steering with the pointer far away
         let far_steer = self.steering && {
-            let (px, py) = self.scr_h(self.ents[0].x, self.ents[0].y, self.ents[0].vz);
+            let (px, py) = self.scr_h(self.ents[0].x, self.ents[0].y, self.ents[0].anim.vz);
             ((self.ptr_x - px).powi(2) + (self.ptr_y - py).powi(2)).sqrt() > 140.0
         };
         let run = !self.pl.ghost && !self.pl.blocking && (far_steer || self.ents[0].path.len() > 5);
@@ -1282,14 +1368,14 @@ impl Game {
 
         // melee
         let p = &mut self.ents[0];
-        p.swing = (p.swing - dt).max(0.0);
+        p.combat.swing = (p.combat.swing - dt).max(0.0);
         if ghost || !self.pl.war {
             return;
         }
-        let tid = self.ents[0].target;
+        let tid = self.ents[0].combat.target;
         let Some(ti) = self.find(tid) else {
             if tid != 0 {
-                self.ents[0].target = 0;
+                self.ents[0].combat.target = 0;
                 self.hud_ver += 1;
             }
             return;
@@ -1297,22 +1383,22 @@ impl Game {
         let (tx, ty) = (self.ents[ti].x, self.ents[ti].y);
         let d = self.ents[0].dist(tx, ty);
         if d > 22.0 {
-            self.ents[0].target = 0;
+            self.ents[0].combat.target = 0;
             self.hud_ver += 1;
             return;
         }
         if d <= 1.5 {
             let sdx = (tx - ty) - (self.ents[0].x - self.ents[0].y);
             if sdx.abs() > 0.05 {
-                self.ents[0].face = sdx.signum();
+                self.ents[0].anim.face = sdx.signum();
             }
             let sdy = (tx + ty) - (self.ents[0].x + self.ents[0].y);
             if sdy.abs() > 0.05 {
-                self.ents[0].back = sdy < 0.0;
+                self.ents[0].anim.back = sdy < 0.0;
             }
             let (ddx, ddy) = (tx - self.ents[0].x, ty - self.ents[0].y);
             self.ents[0].dir8 = dir8_of(ddx, ddy);
-            if self.ents[0].swing <= 0.0
+            if self.ents[0].combat.swing <= 0.0
                 && !matches!(self.pl.action, Action::Cast { .. })
                 && !self.pl.blocking
                 && self.ents[0].down_t <= 0.0
@@ -1336,7 +1422,7 @@ impl Game {
                     self.ents[0].path = path;
                 } else {
                     self.pl.chase = false;
-                    self.ents[0].target = 0;
+                    self.ents[0].combat.target = 0;
                     self.msg("Thou canst not reach that.", C_WARN);
                 }
             }
@@ -1347,16 +1433,16 @@ impl Game {
         let wd = self.pl.weapon_def();
         let wskill = wd.skill;
         let delay = wd.speed * 140.0 / (self.pl.dex as f32 + 100.0);
-        self.ents[0].swing = delay;
-        self.ents[0].atk = 1.0;
+        self.ents[0].combat.swing = delay;
+        self.ents[0].anim.atk = 1.0;
         let mon = self.ents[ti].mon().unwrap_or(&MONS[0]);
         let atk = self.pl.sk(wskill);
         let def = mon.skill as f32;
         let hit = ((atk + 50.0) / ((def + 50.0) * 2.0)).clamp(0.05, 0.95);
         self.gain(wskill, atk < def + 40.0);
-        self.ents[ti].provoked = true;
-        if self.ents[ti].target == 0 {
-            self.ents[ti].target = self.ents[0].id;
+        self.ents[ti].combat.provoked = true;
+        if self.ents[ti].combat.target == 0 {
+            self.ents[ti].combat.target = self.ents[0].id;
         }
         if !self.rng.chance(hit) {
             let (x, y) = (self.ents[ti].x, self.ents[ti].y);
@@ -1380,7 +1466,7 @@ impl Game {
     pub fn bleed(&mut self, i: usize, dmg: i32) {
         let (x, y) = (self.ents[i].x, self.ents[i].y);
         let col = blood_color(&self.ents[i]);
-        let dir = self.ents[i].face;
+        let dir = self.ents[i].anim.face;
         self.fx.push(Fx {
             kind: FX_BLOOD,
             x0: x,
@@ -1405,7 +1491,7 @@ impl Game {
         if self.decals.len() > 160 {
             self.decals.remove(0);
         }
-        self.ents[i].hurt = 1.0;
+        self.ents[i].anim.hurt = 1.0;
     }
 
     fn knockable(&self, i: usize) -> bool {
@@ -1421,8 +1507,8 @@ impl Game {
         e.down_t = t;
         e.down_total = t;
         e.path.truncate(1);
-        e.atk = 0.0;
-        e.kick = 0.0;
+        e.anim.atk = 0.0;
+        e.anim.kick = 0.0;
         if i == 0 {
             self.pl.action = Action::None;
             self.pl.blocking = false;
@@ -1463,14 +1549,14 @@ impl Game {
         let (px, py) = (self.ents[0].x, self.ents[0].y);
         // the current target, else the nearest hostile in reach
         let mut ti = self
-            .find(self.ents[0].target)
+            .find(self.ents[0].combat.target)
             .filter(|&i| self.ents[i].dist(px, py) <= 1.6);
         if ti.is_none() {
             ti = (1..self.ents.len())
                 .filter(|&i| {
                     !self.ents[i].dead
                         && matches!(self.ents[i].k, EK::Mon(_))
-                        && self.ents[i].tame == 0
+                        && self.ents[i].tame() == 0
                         && self.ents[i].dist(px, py) <= 1.6
                 })
                 .min_by(|&a, &b| {
@@ -1481,14 +1567,14 @@ impl Game {
                 });
         }
         self.pl.kick_cd = 1.4;
-        self.ents[0].kick = 1.0;
-        self.ents[0].swing = self.ents[0].swing.max(0.5);
+        self.ents[0].anim.kick = 1.0;
+        self.ents[0].combat.swing = self.ents[0].combat.swing.max(0.5);
         let Some(ti) = ti else {
             self.msg("Thou kickest at the air.", C_SYS);
             return;
         };
         self.enter_war();
-        self.ents[0].target = self.ents[ti].id;
+        self.ents[0].combat.target = self.ents[ti].id;
         let (tx, ty) = (self.ents[ti].x, self.ents[ti].y);
         self.ents[0].dir8 = dir8_of(tx - px, ty - py);
         let mon = self.ents[ti].mon().unwrap_or(&MONS[0]);
@@ -1514,7 +1600,7 @@ impl Game {
             e.path.clear();
             e.path.push((mx + dx, my + dy));
         }
-        self.ents[ti].swing += 1.2;
+        self.ents[ti].combat.swing += 1.2;
         let floored = self.knockable(ti) && self.rng.chance(0.3);
         self.damage(ti, dmg, true);
         if floored && !self.ents[ti].dead && self.ents[ti].down_t <= 0.0 {
@@ -1536,7 +1622,7 @@ impl Game {
 
     /// Damage any entity by index.
     pub fn damage(&mut self, i: usize, dmg: i32, by_player: bool) {
-        if self.ents[i].dead || self.ents[i].tame != 0 {
+        if self.ents[i].dead || self.ents[i].tame() != 0 {
             return;
         }
         if i == 0 {
@@ -1549,11 +1635,11 @@ impl Game {
         let pid = self.ents[0].id;
         let e = &mut self.ents[i];
         e.hp -= dmg;
-        e.hurt = 1.0;
+        e.anim.hurt = 1.0;
         if by_player {
-            e.provoked = true;
-            if e.target == 0 {
-                e.target = pid;
+            e.combat.provoked = true;
+            if e.combat.target == 0 {
+                e.combat.target = pid;
             }
         }
         if self.ents[i].hp <= 0 {
@@ -1604,7 +1690,7 @@ impl Game {
         }
         let p = self.pm();
         p.hp -= dmg;
-        p.hurt = 1.0;
+        p.anim.hurt = 1.0;
         self.hud_ver += 1;
         if self.ents[0].hp <= 0 {
             self.kill_player();
@@ -1703,8 +1789,8 @@ impl Game {
                 self.msg("You have gained some karma.", C_GOOD);
             }
         }
-        if self.ents[0].target == self.ents[i].id {
-            self.ents[0].target = 0;
+        if self.ents[0].combat.target == self.ents[i].id {
+            self.ents[0].combat.target = 0;
         }
         self.hud_ver += 1;
     }
@@ -1760,9 +1846,9 @@ impl Game {
         let p = self.pm();
         p.hp = 0;
         p.mana = 0;
-        p.target = 0;
+        p.combat.target = 0;
         for e in self.ents.iter_mut() {
-            e.target = 0;
+            e.combat.target = 0;
         }
         self.msg("You have died.", C_WARN);
         self.msg(
@@ -1866,7 +1952,7 @@ impl Game {
     }
 
     fn mon_tick(&mut self, i: usize, mi: usize, dt: f32) {
-        if self.ents[i].tame != 0 {
+        if self.ents[i].tame() != 0 {
             self.horse_tick(i, dt);
             return;
         }
@@ -1874,9 +1960,9 @@ impl Game {
         self.move_ent(i, d.mv, dt);
         {
             let e = &mut self.ents[i];
-            e.swing = (e.swing - dt).max(0.0);
-            e.cast_t -= dt;
-            e.breath_t -= dt;
+            e.combat.swing = (e.combat.swing - dt).max(0.0);
+            e.combat.cast_t -= dt;
+            e.combat.breath_t -= dt;
             e.ai_t -= dt;
             if d.regen > 0 {
                 e.regen_t += dt;
@@ -1904,8 +1990,8 @@ impl Game {
         let pid = self.ents[0].id;
 
         if d.passive {
-            self.ents[i].running = self.ents[i].provoked;
-            if self.ents[i].provoked && pd < 10.0 && !ghost {
+            self.ents[i].running = self.ents[i].combat.provoked;
+            if self.ents[i].combat.provoked && pd < 10.0 && !ghost {
                 if self.ents[i].path.is_empty() {
                     if let Some(s) = self.greedy_step(i, px, py, true) {
                         self.ents[i].path.push(s);
@@ -1913,24 +1999,24 @@ impl Game {
                 }
                 return;
             }
-            self.ents[i].provoked = false;
+            self.ents[i].combat.provoked = false;
             self.wander(i);
             return;
         }
 
         // acquire / drop target
         if !ghost
-            && self.ents[i].target == 0
+            && self.ents[i].combat.target == 0
             && pd < 7.0
             && !self.map.guarded(px.round() as i32, py.round() as i32)
         {
-            self.ents[i].target = pid;
+            self.ents[i].combat.target = pid;
         }
-        if self.ents[i].target != 0 && (ghost || home_d > 22.0 || pd > 16.0) {
-            self.ents[i].target = 0;
-            self.ents[i].provoked = false;
+        if self.ents[i].combat.target != 0 && (ghost || home_d > 22.0 || pd > 16.0) {
+            self.ents[i].combat.target = 0;
+            self.ents[i].combat.provoked = false;
         }
-        if self.ents[i].target != pid {
+        if self.ents[i].combat.target != pid {
             if home_d > 12.0 && self.ents[i].path.is_empty() {
                 if let Some(s) = self.greedy_step(i, hx as f32, hy as f32, false) {
                     self.ents[i].path.push(s);
@@ -1945,19 +2031,19 @@ impl Game {
         // face target
         let sdx = (px - py) - (self.ents[i].x - self.ents[i].y);
         if sdx.abs() > 0.05 {
-            self.ents[i].face = sdx.signum();
+            self.ents[i].anim.face = sdx.signum();
         }
         let sdy = (px + py) - (self.ents[i].x + self.ents[i].y);
         if sdy.abs() > 0.05 {
-            self.ents[i].back = sdy < 0.0;
+            self.ents[i].anim.back = sdy < 0.0;
         }
         let (ddx, ddy) = (px - self.ents[i].x, py - self.ents[i].y);
         if ddx.abs() + ddy.abs() > 0.05 {
             self.ents[i].dir8 = dir8_of(ddx, ddy);
         }
         // dragon breath
-        if d.breath && pd < 6.0 && self.ents[i].breath_t <= 0.0 {
-            self.ents[i].breath_t = 9.0 + self.rng.f() * 5.0;
+        if d.breath && pd < 6.0 && self.ents[i].combat.breath_t <= 0.0 {
+            self.ents[i].combat.breath_t = 9.0 + self.rng.f() * 5.0;
             self.ents[i].talk("*breathes fire*", 0xff9040ff);
             let (x0, y0) = (self.ents[i].x, self.ents[i].y);
             let dmg = self.rng.range(20, 34);
@@ -1976,8 +2062,8 @@ impl Game {
             return;
         }
         // spellcasting
-        if !d.caster.is_empty() && pd < 10.0 && pd > 1.2 && self.ents[i].cast_t <= 0.0 {
-            self.ents[i].cast_t = 3.5 + self.rng.f() * 3.0;
+        if !d.caster.is_empty() && pd < 10.0 && pd > 1.2 && self.ents[i].combat.cast_t <= 0.0 {
+            self.ents[i].combat.cast_t = 3.5 + self.rng.f() * 3.0;
             let sp = *self.rng.pick(d.caster);
             let s = &SPELLS[sp];
             self.ents[i].talk(s.words, C_SPELL);
@@ -2003,9 +2089,9 @@ impl Game {
                     }
                 }
             }
-        } else if self.ents[i].swing <= 0.0 {
-            self.ents[i].swing = d.speed;
-            self.ents[i].atk = 1.0;
+        } else if self.ents[i].combat.swing <= 0.0 {
+            self.ents[i].combat.swing = d.speed;
+            self.ents[i].anim.atk = 1.0;
             let def = self.pl.sk(self.pl.weapon_def().skill);
             let hit = ((d.skill as f32 + 50.0) / ((def + 50.0) * 2.0)).clamp(0.05, 0.95);
             let wsk = self.pl.weapon_def().skill;
@@ -2085,8 +2171,8 @@ impl Game {
             g.x = mx.round() + 1.0;
             g.y = my.round();
             g.path.clear();
-            g.atk = 1.0;
-            g.face = -1.0;
+            g.anim.atk = 1.0;
+            g.anim.face = -1.0;
             g.talk("Halt, foul creature!", 0xffffffff);
         }
         self.fx.push(Fx {
@@ -2155,14 +2241,14 @@ impl Game {
             }
         }
         for f in self.fx.iter_mut() {
-            if let Some(e) = self.ents.iter().find(|e| e.id == f.tgt && !e.dead) {
-                f.x1 = e.x;
-                f.y1 = e.y;
+            if let Some(i) = find_ent(&self.ents, f.tgt) {
+                f.x1 = self.ents[i].x;
+                f.y1 = self.ents[i].y;
             }
         }
         self.fx.retain(|f| f.t < f.dur);
         for (tgt, dmg, byp, kind) in hits {
-            if let Some(i) = self.ents.iter().position(|e| e.id == tgt && !e.dead) {
+            if let Some(i) = self.find(tgt) {
                 if i == 0 && self.pl.ghost {
                     continue;
                 }
@@ -2207,7 +2293,7 @@ impl Game {
         self.win = Win::None;
         if s.hostile {
             // auto-target current opponent if valid, else ask for a target
-            let t = self.ents[0].target;
+            let t = self.ents[0].combat.target;
             if let Some(ti) = self.find(t) {
                 if self.ents[ti].dist(self.ents[0].x, self.ents[0].y) <= s.range {
                     self.start_cast(sp, t);
@@ -2233,9 +2319,9 @@ impl Game {
             t: 0.4 + s.circle as f32 * 0.25,
         };
         self.ents[0].talk(s.words, C_SPELL);
-        self.ents[0].atk = 0.6;
+        self.ents[0].anim.atk = 0.6;
         if s.hostile && tgt != 0 {
-            self.ents[0].target = tgt;
+            self.ents[0].combat.target = tgt;
         }
         self.hud_ver += 1;
     }
@@ -2482,10 +2568,10 @@ impl Game {
         let (px, py) = (self.ents[0].x, self.ents[0].y);
         let sdx = (x - y) as f32 - (px - py);
         if sdx.abs() > 0.05 {
-            self.ents[0].face = sdx.signum();
+            self.ents[0].anim.face = sdx.signum();
         }
         self.ents[0].dir8 = dir8_of(x as f32 - px, y as f32 - py);
-        self.ents[0].atk = 1.0;
+        self.ents[0].anim.atk = 1.0;
         self.hud_ver += 1;
     }
 
@@ -2789,15 +2875,14 @@ impl Game {
     }
     /// the player's horse while it stands in the world (not while ridden)
     pub fn my_horse(&self) -> Option<usize> {
-        self.ents.iter().position(|e| e.tame == 1 && !e.dead)
+        self.ents.iter().position(|e| e.tame() == 1 && !e.dead)
     }
     /// Put a horse in the world; returns its index.
     pub fn spawn_horse(&mut self, x: i32, y: i32, name: &str, coat: u8) -> usize {
         let id = self.nid();
         let mi = mon_idx("horse");
         let mut e = Ent::new(id, EK::Mon(mi), name.to_string(), x, y, MONS[mi].hp);
-        e.coat = coat;
-        e.tame = 1;
+        e.horse = Some(Horse { tame: 1, coat });
         e.ai_t = self.rng.f() * 2.0;
         self.ents.push(e);
         self.ents.len() - 1
@@ -2849,7 +2934,7 @@ impl Game {
     }
     /// Get on the player's horse at `i`: it leaves the world and carries them.
     pub fn mount(&mut self, i: usize) {
-        if self.ents[i].tame != 1 || self.pl.riding {
+        if self.ents[i].tame() != 1 || self.pl.riding {
             return;
         }
         if self.pl.ghost {
@@ -2871,7 +2956,7 @@ impl Game {
             p.y = h.y.round();
         }
         p.dir8 = h.dir8;
-        p.vdir = h.dir8;
+        p.anim.vdir = h.dir8;
         self.pl.riding = true;
         self.pl.blocking = false;
         self.msg(&format!("You mount {}.", h.name), C_SYS);
@@ -2890,7 +2975,7 @@ impl Game {
         let dir = self.ents[0].dir8;
         let i = self.spawn_horse(x, y, &st.name, st.coat);
         self.ents[i].dir8 = dir;
-        self.ents[i].vdir = dir;
+        self.ents[i].anim.vdir = dir;
         self.ents[i].ai_t = 2.0;
         // step off to the side, as a rider does
         let (bx, by) = self.beside(x, y);
@@ -2956,7 +3041,7 @@ impl Game {
         self.ents[i].ai_t -= dt;
         let (px, py) = (self.ents[0].x, self.ents[0].y);
         let pd = self.ents[i].dist(px, py);
-        if self.ents[i].tame == 1 && pd > 3.0 && pd < 40.0 {
+        if self.ents[i].tame() == 1 && pd > 3.0 && pd < 40.0 {
             if self.ents[i].ai_t <= 0.0 || self.ents[i].path.is_empty() {
                 self.ents[i].ai_t = 0.6;
                 self.ents[i].running = pd > 6.0;
@@ -2992,7 +3077,7 @@ impl Game {
         let (x, y) = self.ents[i].tile();
         let (dx, dy) = *self.rng.pick(&DIRS);
         let (nx, ny) = (x + dx, y + dy);
-        let (hx, hy) = if self.ents[i].tame == 2 {
+        let (hx, hy) = if self.ents[i].tame() == 2 {
             self.ents[i].home
         } else {
             (px.round() as i32, py.round() as i32)
@@ -3018,7 +3103,7 @@ impl Game {
                 continue;
             }
             let size = self.ent_size(e);
-            let (ex, ey) = self.scr_h(e.x, e.y, e.vz);
+            let (ex, ey) = self.scr_h(e.x, e.y, e.anim.vz);
             let cy = ey - 16.0 * size * self.zoom;
             let rw = (16.0 * size + 8.0) * self.zoom;
             let rh = (19.0 * size + 8.0) * self.zoom;
@@ -3039,7 +3124,7 @@ impl Game {
                     self.msg("Thou canst not target thyself with that.", C_WARN);
                     return;
                 }
-                if SPELLS[sp].hostile && self.ents[i].tame != 0 {
+                if SPELLS[sp].hostile && self.ents[i].tame() != 0 {
                     self.msg("Thou wouldst not harm a horse in a man's keeping.", C_WARN);
                     return;
                 }
@@ -3060,11 +3145,11 @@ impl Game {
                     self.win = Win::Paperdoll;
                     self.touch_ui();
                 }
-                EK::Mon(_) if self.ents[i].tame == 1 => {
+                EK::Mon(_) if self.ents[i].tame() == 1 => {
                     self.cancel_activity();
                     self.approach_horse(i);
                 }
-                EK::Mon(_) if self.ents[i].tame == 2 => {
+                EK::Mon(_) if self.ents[i].tame() == 2 => {
                     self.msg("That horse belongs to the stablemaster.", C_SYS);
                 }
                 EK::Npc(v) => {
@@ -3088,7 +3173,7 @@ impl Game {
                     }
                     self.cancel_activity();
                     self.enter_war();
-                    self.ents[0].target = id;
+                    self.ents[0].combat.target = id;
                     self.pl.chase = true;
                     self.pl.repath_t = 0.0;
                     let nm = self.ents[i].name.clone();
@@ -3181,7 +3266,7 @@ impl Game {
     pub fn enter_war(&mut self) {
         if !self.pl.war {
             self.pl.war = true;
-            self.ents[0].ready = 1.0;
+            self.ents[0].anim.ready = 1.0;
             self.touch_ui();
         }
     }
@@ -3196,7 +3281,7 @@ impl Game {
         }
         self.pl.war = false;
         if !self.pl.war {
-            self.ents[0].target = 0;
+            self.ents[0].combat.target = 0;
             self.pl.chase = false;
         }
         self.touch_ui();
@@ -3342,7 +3427,7 @@ mod tests {
             let gd = g
                 .ents
                 .iter()
-                .find(|e| e.k == EK::Npc(V_GUARD) && e.atk > 0.0)
+                .find(|e| e.k == EK::Npc(V_GUARD) && e.anim.atk > 0.0)
                 .expect("no guard answered");
             assert!(gd.dist(mx as f32, my as f32) < 2.0);
             let home = gd.home;
@@ -3389,7 +3474,7 @@ mod tests {
             let gd = g
                 .ents
                 .iter()
-                .find(|e| e.k == EK::Npc(V_GUARD) && e.atk > 0.0)
+                .find(|e| e.k == EK::Npc(V_GUARD) && e.anim.atk > 0.0)
                 .expect("no guard answered");
             assert!((gd.home.0 - px).abs() <= 3 && (gd.home.1 - py).abs() <= 3);
             // the city's pub faces the castle, beside the main street
@@ -3417,12 +3502,12 @@ mod tests {
             assert!(g.pl.armor.is_some());
             // simulate some minutes of play: attack nearest monster repeatedly
             for step in 0..20000 {
-                if step % 50 == 0 && g.ents[0].target == 0 && !g.pl.ghost {
+                if step % 50 == 0 && g.ents[0].combat.target == 0 && !g.pl.ghost {
                     let p = (g.ents[0].x, g.ents[0].y);
                     if let Some(m) = g
                         .ents
                         .iter()
-                        .filter(|e| matches!(e.k, EK::Mon(_)) && !e.dead && e.tame == 0)
+                        .filter(|e| matches!(e.k, EK::Mon(_)) && !e.dead && e.tame() == 0)
                         .min_by(|a, b| a.dist(p.0, p.1).partial_cmp(&b.dist(p.0, p.1)).unwrap())
                     {
                         // too far to give chase from here: walk towards it first
@@ -3433,7 +3518,7 @@ mod tests {
                             }
                         } else {
                             g.pl.war = true;
-                            g.ents[0].target = id;
+                            g.ents[0].combat.target = id;
                             g.pl.chase = true;
                         }
                     }
@@ -3486,7 +3571,7 @@ mod tests {
         let i = g.ents.len() - 1;
         g.pl.war = true;
         g.kick();
-        assert!(g.ents[0].kick > 0.0);
+        assert!(g.ents[0].anim.kick > 0.0);
         assert!(g.pl.kick_cd > 0.0);
         // knock-down puts the target on the ground and stops it acting
         g.knock_down(i, 1.5);
@@ -3543,7 +3628,7 @@ mod tests {
             g.update(0.05);
         }
         let (tx, ty) = g.ents[0].tile();
-        assert!((g.ents[0].vz - g.map.surface(tx, ty)).abs() < 0.05);
+        assert!((g.ents[0].anim.vz - g.map.surface(tx, ty)).abs() < 0.05);
     }
 
     #[test]
@@ -3564,8 +3649,8 @@ mod tests {
                 "seed {seed}: stables unreachable"
             );
             assert!(g.map.guarded(tx, ty));
-            assert_eq!(g.ents.iter().filter(|e| e.tame == 2).count(), 3);
-            for e in g.ents.iter().filter(|e| e.tame == 2) {
+            assert_eq!(g.ents.iter().filter(|e| e.tame() == 2).count(), 3);
+            for e in g.ents.iter().filter(|e| e.tame() == 2) {
                 let (x, y) = e.tile();
                 assert!(
                     g.map.passable(x, y) && g.map.guarded(x, y),
@@ -3573,7 +3658,7 @@ mod tests {
                 );
             }
             assert!(
-                g.ents.iter().any(|e| g.is_horse_ent(e) && e.tame == 0),
+                g.ents.iter().any(|e| g.is_horse_ent(e) && e.tame() == 0),
                 "seed {seed}: no wild horses"
             );
             // buy one
@@ -3586,12 +3671,12 @@ mod tests {
             assert_eq!(g.pl.gold, 2000 - 620);
             assert!(g.pl.horse.is_some());
             let hi = g.my_horse().expect("horse led out");
-            assert_eq!(g.ents[hi].coat, 1);
+            assert_eq!(g.ents[hi].coat(), 1);
             g.ui_cmd("buy:horse_bay:1");
             assert_eq!(g.pl.gold, 2000 - 620, "only one horse");
             // tap it: walk over and mount
             let (hx, hy) = (g.ents[hi].x, g.ents[hi].y);
-            let vz = g.ents[hi].vz;
+            let vz = g.ents[hi].anim.vz;
             let (px, py) = g.scr_h(hx, hy, vz);
             g.win = Win::None;
             g.tap(px, py - 21.0 * g.zoom);
@@ -3660,7 +3745,7 @@ mod tests {
             assert!(h.pl.riding && h.my_horse().is_none());
             // no kicking from the saddle; a heavy blow throws the rider
             g.kick();
-            assert_eq!(g.ents[0].kick, 0.0);
+            assert_eq!(g.ents[0].anim.kick, 0.0);
             g.ents[0].hp = 1000;
             g.ents[0].mhp = 1000;
             while g.pl.riding {

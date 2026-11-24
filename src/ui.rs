@@ -175,7 +175,7 @@ fn dir_name(dx: f32, dy: f32) -> &'static str {
 impl Game {
     pub fn hud_json(&self) -> String {
         let p = &self.ents[0];
-        let tgt = self.find(p.target).map(|i| {
+        let tgt = self.find(p.combat.target).map(|i| {
             let e = &self.ents[i];
             format!(
                 "{{\"name\":{},\"hp\":{},\"mhp\":{}}}",
