@@ -553,6 +553,8 @@ enum Mat {
     Membrane,
     /// foliage: lit like cloth, broken up into clumps of light and dark leaves
     Leaf,
+    /// clothing: deeper shadows than plain matte, with faint fold streaks
+    Cloth,
 }
 
 /// a primitive in local model space (metres): a tapered chain of spheres
@@ -607,7 +609,7 @@ fn build(look: &Look, q: &Pose) -> Vec<Prim> {
     } else if look.skeleton {
         Mat::Bone
     } else {
-        Mat::Matte
+        Mat::Cloth
     };
 
     // legs
@@ -624,7 +626,7 @@ fn build(look: &Look, q: &Pose) -> Vec<Prim> {
             0.08 * bulk * thin,
             0.06 * bulk * thin,
             leg_col,
-            if look.skeleton { Mat::Bone } else { Mat::Matte },
+            if look.skeleton { Mat::Bone } else { Mat::Cloth },
         );
         p(
             knee,
@@ -632,7 +634,7 @@ fn build(look: &Look, q: &Pose) -> Vec<Prim> {
             0.058 * bulk * thin,
             0.045 * bulk * thin,
             leg_col,
-            if look.skeleton { Mat::Bone } else { Mat::Matte },
+            if look.skeleton { Mat::Bone } else { Mat::Cloth },
         );
         let toe = add(
             ankle,
@@ -694,7 +696,7 @@ fn build(look: &Look, q: &Pose) -> Vec<Prim> {
             0.17 * bulk,
             0.3 * bulk,
             look.body,
-            Mat::Matte,
+            Mat::Cloth,
         );
     } else if look.skirt {
         p(
@@ -716,6 +718,76 @@ fn build(look: &Look, q: &Pose) -> Vec<Prim> {
             0x2a1c10ff,
             Mat::Matte,
         );
+    }
+    // the small things that make a figure read as dressed
+    if !look.skeleton {
+        let dark_leather = 0x2a1c10ff;
+        if !look.robe {
+            // boot shafts up the shin
+            for (i, side) in [(0usize, 1.0f32), (1, -1.0)] {
+                let hip = add(pel, [0.0, side * 0.1 * bulk, -0.06]);
+                let d1 = limb_dir(q.hip[i], 0.03, side, 0.0);
+                let knee = add(hip, mul(d1, 0.44));
+                let d2 = limb_dir(q.hip[i] - q.knee[i], 0.03, side, 0.0);
+                let ankle = add(knee, mul(d2, 0.44));
+                let cuff = add(knee, mul(d2, 0.2));
+                p(
+                    cuff,
+                    ankle,
+                    0.056 * bulk,
+                    0.05 * bulk,
+                    look.boots,
+                    Mat::Hair,
+                );
+                p(
+                    cuff,
+                    cuff,
+                    0.062 * bulk,
+                    0.062 * bulk,
+                    shade_col(look.boots, 0.8),
+                    Mat::Hair,
+                );
+            }
+            // a buckle at the front of the belt and a pouch at the hip
+            let fwd = rotz([1.0, 0.0, 0.0], q.twist * 0.5);
+            let buckle = add(pel, mul(fwd, 0.12 * bulk));
+            p(buckle, buckle, 0.028, 0.028, 0xc8a050ff, Mat::Metal);
+            let pouch = add(add(pel, mul(la, -0.14 * bulk)), [0.0, 0.0, -0.08]);
+            p(
+                pouch,
+                add(pouch, [0.0, 0.0, -0.06]),
+                0.05,
+                0.045,
+                0x5a3c22ff,
+                Mat::Hair,
+            );
+        }
+        if look.metal_body {
+            // shoulder plates
+            for sh in [shl, shr] {
+                let c = add(sh, [0.0, 0.0, 0.03]);
+                p(
+                    c,
+                    c,
+                    0.095 * bulk,
+                    0.095 * bulk,
+                    shade_col(look.body, 1.1),
+                    Mat::Metal,
+                );
+            }
+        } else {
+            // a collar where the tunic meets the neck
+            let neck = add(chest, mul(sd, 0.07));
+            p(
+                add(neck, mul(la, -0.07)),
+                add(neck, mul(la, 0.07)),
+                0.045,
+                0.045,
+                shade_col(look.body, 0.7),
+                Mat::Cloth,
+            );
+        }
+        let _ = dark_leather;
     }
     // arms (0 = right / weapon)
     let mut hands = [[0.0f32; 3]; 2];
@@ -752,6 +824,28 @@ fn build(look: &Look, q: &Pose) -> Vec<Prim> {
             skin_mat,
         );
         p(wr, wr, 0.048 * bulk, 0.048 * bulk, look.skin, skin_mat);
+        if !look.skeleton && !look.robe {
+            // leather bracer above the wrist
+            let b0 = add(el, mul(d2, 0.12));
+            let b1 = add(el, mul(d2, 0.23));
+            let bc = if look.metal_body {
+                0x8a8e96ff
+            } else {
+                0x4a3220ff
+            };
+            p(
+                b0,
+                b1,
+                0.052 * bulk * thin,
+                0.047 * bulk * thin,
+                bc,
+                if look.metal_body {
+                    Mat::Metal
+                } else {
+                    Mat::Hair
+                },
+            );
+        }
         hands[i] = wr;
         fdir[i] = d2;
     }
@@ -919,6 +1013,47 @@ fn build(look: &Look, q: &Pose) -> Vec<Prim> {
                     Mat::Hair,
                 );
             }
+        }
+        if look.eyes == 0 && !look.skeleton && look.helm == 0 {
+            // a face: shadowed brows and eyes, a nose catching the light
+            for es in [-0.038f32, 0.038] {
+                let e = add(
+                    add(hc, mul(fwd, 0.088)),
+                    add(mul(la, es), [0.0, 0.0, 0.012]),
+                );
+                p(e, e, 0.017, 0.017, shade_col(look.skin, 0.35), Mat::Matte);
+                let brow = add(e, add(mul(fwd, 0.004), [0.0, 0.0, 0.022]));
+                p(
+                    add(brow, mul(la, -0.015)),
+                    add(brow, mul(la, 0.015)),
+                    0.011,
+                    0.011,
+                    if look.hair != 0 {
+                        shade_col(look.hair, 0.7)
+                    } else {
+                        shade_col(look.skin, 0.6)
+                    },
+                    Mat::Matte,
+                );
+            }
+            let nose = add(add(hc, mul(fwd, 0.1)), [0.0, 0.0, -0.012]);
+            p(
+                nose,
+                add(nose, [0.0, 0.0, -0.02]),
+                0.014,
+                0.016,
+                shade_col(look.skin, 1.05),
+                Mat::Matte,
+            );
+            let mouth = add(add(hc, mul(fwd, 0.085)), [0.0, 0.0, -0.05]);
+            p(
+                add(mouth, mul(la, -0.02)),
+                add(mouth, mul(la, 0.02)),
+                0.008,
+                0.008,
+                shade_col(look.skin, 0.5),
+                Mat::Matte,
+            );
         }
         if look.eyes != 0 {
             for es in [-0.04f32, 0.04] {
@@ -3723,7 +3858,7 @@ pub fn bake_props() -> Atlas {
     let (w, h) = (fw * COLS, fh * rows);
     let mut rgba = vec![0u8; w * h * 4];
     for k in 0..N_PROPS {
-        NO_INK.with(|f| f.set(k >= P_FX_EXPLO));
+        NO_INK.with(|f| f.set((P_FX_EXPLO..P_FX_BALL + 4).contains(&k)));
         render_frame(
             1.0,
             PROP_ANCHOR,
@@ -3873,6 +4008,7 @@ fn shade_px(color: u32, n: [f32; 3], mat: u8) -> [f32; 3] {
         3 => (0.4 + 0.62 * diff, spec_dot.powi(10) * 0.2),
         4 => (0.42 + 0.66 * diff, spec_dot.powi(12) * 0.3),
         6 => (0.22 + 0.95 * diff, 0.0),
+        7 => (0.3 + 0.88 * diff, spec_dot.powi(6) * 0.04),
         _ => (0.4 + 0.72 * diff, spec_dot.powi(8) * 0.06),
     };
     [
@@ -3925,6 +4061,7 @@ fn mat_code(m: Mat) -> u8 {
         Mat::Bone => 4,
         Mat::Membrane => 5,
         Mat::Leaf => 6,
+        Mat::Cloth => 7,
     }
 }
 
@@ -4077,6 +4214,15 @@ fn render_frame(
                             let f = 0.62
                                 + hsh2(lx, ly, 7) * 0.5
                                 + hsh2(x as u32, ry as u32 / 2, 9) * 0.16;
+                            c = [c[0] * f, c[1] * f, c[2] * f];
+                        } else if ras.mat[i] == 7 {
+                            // folds: short vertical streaks of light and shade
+                            let mut h = (x as u32).wrapping_mul(0x8da6_b343)
+                                ^ ((ry / 7) as u32).wrapping_mul(0xd816_3841)
+                                ^ 77;
+                            h ^= h >> 13;
+                            h = h.wrapping_mul(0x5bd1_e995);
+                            let f = 0.9 + ((h >> 8) & 0xffff) as f32 / 65535.0 * 0.2;
                             c = [c[0] * f, c[1] * f, c[2] * f];
                         }
                         acc = [acc[0] + c[0], acc[1] + c[1], acc[2] + c[2]];

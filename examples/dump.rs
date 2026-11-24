@@ -243,6 +243,12 @@ fn main() {
         g.update(1.0 / 30.0);
     }
     dump(&mut g, &dir, "folk");
+    g.zoom_mul = 2.0;
+    g.apply_zoom();
+    for _ in 0..3 {
+        g.update(1.0 / 30.0);
+    }
+    dump(&mut g, &dir, "folk_zoom");
     // the big spells, caught mid-cast
     tp(&mut g, 70, 100);
     g.zoom_mul = 1.3;
