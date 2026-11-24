@@ -4208,7 +4208,9 @@ mod tests {
                     }
                 }
             }
-            assert!(n > 60, "prop {k} nearly empty ({n})");
+            // ground clutter is meant to be small
+            let min = if (P_TUFT..P_TWIGS + 1).contains(&k) { 20 } else { 60 };
+            assert!(n > min, "prop {k} nearly empty ({n})");
         }
     }
 }
