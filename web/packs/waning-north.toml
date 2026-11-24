@@ -32,6 +32,8 @@ name = "the Witch-realm of Vathmor"
 strength = 62
 drift = 4
 min = 20
+# its places darken the land around them, further as it grows
+shadow = true
 rise = "Riders bring word: {name} gathers its strength in the north."
 fall = "The Roadwardens say {name} is shaken. Its fires burn lower on the fells."
 

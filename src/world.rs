@@ -132,6 +132,10 @@ pub struct Map {
     pub buildings: Vec<Building>,
     pub pois: Vec<(&'static str, i32, i32)>,
     pub roads: Vec<Road>,
+    /// the Shadow over each tile, 0 (none) to `GLOOM_MAX`; see `game/shadow.rs`
+    pub gloom: Vec<u8>,
+    /// trees the Shadow has withered (they green again when it lifts)
+    pub withered: Vec<bool>,
     // pathfinding scratch
     pf_g: Vec<f32>,
     pf_par: Vec<i32>,
@@ -885,6 +889,8 @@ pub fn generate(seed: u32) -> Map {
         buildings: vec![],
         pois: vec![],
         roads: vec![],
+        gloom: vec![0; N],
+        withered: vec![false; N],
         pf_g: vec![0.0; N],
         pf_par: vec![-1; N],
         pf_stamp: vec![0; N],
@@ -1393,6 +1399,9 @@ fn city(m: &mut Map) {
 }
 
 /// Minimap colour for a tile, RGBA bytes.
+/// the deepest Shadow
+pub const GLOOM_MAX: u8 = 6;
+
 pub fn mini_color(m: &Map, i: usize) -> [u8; 4] {
     let c: u32 = match (m.t[i], m.o[i]) {
         (_, O_WALL) => 0x5a4a3aff,
@@ -1409,7 +1418,8 @@ pub fn mini_color(m: &Map, i: usize) -> [u8; 4] {
         (T_CAVE, _) => 0x40382fff,
         _ => 0x000000ff,
     };
-    let s = m.shade[i] as f32 / 255.0 * 0.15 + 0.86 + m.lv[i] as f32 * 0.06;
+    let s = (m.shade[i] as f32 / 255.0 * 0.15 + 0.86 + m.lv[i] as f32 * 0.06)
+        * (1.0 - m.gloom[i] as f32 / GLOOM_MAX as f32 * 0.55);
     [
         (((c >> 24) & 255) as f32 * s).min(255.0) as u8,
         (((c >> 16) & 255) as f32 * s).min(255.0) as u8,

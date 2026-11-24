@@ -664,6 +664,7 @@ window.addEventListener('resize', resize);
 const radar = $('radar');
 const rctx = radar.getContext('2d');
 const mapCanvas = document.createElement('canvas');
+let miniVer = -1;
 function buildMinimap() {
   const W = ex.map_w();
   mapCanvas.width = W; mapCanvas.height = W;
@@ -992,6 +993,7 @@ function loop(now) {
   const F = new Float32Array(mem(), ex.cmd_ptr(), ex.cmd_len());
   const S = new Uint8Array(mem(), ex.str_ptr(), ex.str_len());
   present(U, F, S);
+  if (ex.mini_ver && ex.mini_ver() !== miniVer) { miniVer = ex.mini_ver(); buildMinimap(); }
   if (created && (frameNo++ % 3 === 0)) drawRadar();
   refreshUI();
   requestAnimationFrame(loop);

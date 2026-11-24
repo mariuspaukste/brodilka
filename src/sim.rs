@@ -21,7 +21,8 @@ use crate::pack::{Pack, Value};
 pub const DAY: f32 = 480.0;
 /// Sites the engine's map has, in the order spawners are grouped.
 pub const SITE_IDS: [&str; 5] = ["graveyard", "orcs", "hills", "lair", "wilds"];
-const SITE_NAMES: [&str; 5] = [
+/// the labels the engine's map gives the sites' places
+pub const SITE_NAMES: [&str; 5] = [
     "Graveyard",
     "Orc Camp",
     "Troll Hills",
@@ -39,7 +40,7 @@ const SITE_PROSE: [&str; 5] = [
 /// Keys a pack may give each section (checked by `data::pack_warnings`).
 pub const SIM_KEYS: [&str; 3] = ["start", "era", "months"];
 /// `drift` is in tenths of a point a day: 5 is half a point a day.
-pub const REGION_KEYS: [&str; 6] = ["name", "strength", "drift", "rise", "fall", "min"];
+pub const REGION_KEYS: [&str; 7] = ["name", "strength", "drift", "rise", "fall", "min", "shadow"];
 pub const SITE_KEYS: [&str; 10] = [
     "name", "region", "strength", "base", "regrow", "rise", "fall", "raid", "hit", "broken",
 ];
@@ -86,6 +87,8 @@ pub struct Region {
     pub min: f32,
     pub rise: String,
     pub fall: String,
+    /// its places cast the Shadow over the land around them
+    pub shadow: bool,
     band: i32,
 }
 
@@ -188,6 +191,7 @@ impl Sim {
                     min: num(p.get(&sec, "min")).unwrap_or(5.0).clamp(0.0, 100.0),
                     rise: p.str(&sec, "rise").unwrap_or("").to_string(),
                     fall: p.str(&sec, "fall").unwrap_or("").to_string(),
+                    shadow: p.get(&sec, "shadow") == Some(&Value::Bool(true)),
                     band: band_of(s),
                 }
             })

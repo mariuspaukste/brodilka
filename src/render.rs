@@ -63,6 +63,14 @@ pub struct GroundCache {
     frame: u32,
     /// frame the zoom last changed on
     zoomed: u32,
+    /// tiles whose ground changed: their chunks are drawn again
+    stale: Vec<(i32, i32)>,
+}
+impl GroundCache {
+    /// Mark the chunks over these tiles to be drawn again.
+    pub fn stale_tiles(&mut self, tiles: &[(i32, i32)]) {
+        self.stale.extend_from_slice(tiles);
+    }
 }
 impl Default for GroundCache {
     fn default() -> Self {
@@ -72,6 +80,7 @@ impl Default for GroundCache {
             chunks: HashMap::new(),
             frame: 0,
             zoomed: 0,
+            stale: vec![],
         }
     }
 }
@@ -91,6 +100,8 @@ fn chunk_id() -> u32 {
     NEXT.fetch_add(1, Ordering::Relaxed)
 }
 const BG: u32 = 0x1d3a57ff;
+/// the Shadow's colour over the land: a bruised violet-black
+const GLOOM: u32 = 0x160b20ff;
 
 fn weapon_of(id: Option<&str>) -> Weapon {
     match id {
@@ -436,10 +447,31 @@ impl Game {
             self.ground.key = key;
             self.ground.zoomed = frame;
         }
+        let (pix, a) = (self.pix, self.zoom / self.pix);
+        // chunks under changed ground (the Shadow moving) are drawn again;
+        // a tile's art reaches a diamond's half-width aside and up to four
+        // levels of raised ground above
+        if !self.ground.stale.is_empty() {
+            let k = CHUNK as f32;
+            let mut keys = std::collections::HashSet::new();
+            for (x, y) in std::mem::take(&mut self.ground.stale) {
+                let (ix, iy) = (((x - y) * 32) as f32 * a, ((x + y) * 16) as f32 * a);
+                let (rx, up) = (36.0 * a, (4.0 * LH + 20.0) * a);
+                for i in ((ix - rx) / k).floor() as i32..=((ix + rx) / k).floor() as i32 {
+                    for j in ((iy - up) / k).floor() as i32..=((iy + 20.0 * a) / k).floor() as i32 {
+                        keys.insert((i, j));
+                    }
+                }
+            }
+            for ij in keys {
+                if let Some((id, _)) = self.ground.chunks.remove(&ij) {
+                    c.chunk_free(id);
+                }
+            }
+        }
         if !self.ground.enabled || frame.wrapping_sub(self.ground.zoomed) < CHUNK_SETTLE {
             return None;
         }
-        let (pix, a) = (self.pix, self.zoom / self.pix);
         // art-pixel position of the screen's top-left corner, a whole number
         let ox = (self.camx * a - self.w / (2.0 * pix)).round();
         let oy = (self.camy * a - self.h / (2.0 * pix)).round();
@@ -621,6 +653,27 @@ impl Game {
                         self.fringe(c, x, y, sx, sy, tl, dir, z);
                     }
                 }
+            }
+        }
+        // ---- the Shadow, laid over the land it holds (baked into the chunks,
+        // which are drawn again where it moves)
+        for s in s0..=s1 {
+            for d in d0..=d1 {
+                if (s + d) & 1 != 0 {
+                    continue;
+                }
+                let (x, y) = ((s + d) / 2, (s - d) / 2);
+                if !inb(x, y) {
+                    continue;
+                }
+                let g = self.map.gloom[idx(x, y)];
+                if g == 0 || (holes && self.map.tile(x, y) == T_WATER) {
+                    continue;
+                }
+                let (sx, sy) = scr(x, y);
+                let cn = self.map.corners(x, y);
+                c.fill(with_a(GLOOM, g as f32 / GLOOM_MAX as f32 * 0.46));
+                c.poly(&self.diamond(sx, sy, &cn));
             }
         }
     }
@@ -1299,28 +1352,38 @@ impl Game {
 
         // ---- Pagan-style perpetual twilight: violet haze and a dark vignette
         c.outline(0, 0.0);
-        // drifting fog banks
-        for i in 0..6 {
+        // drifting fog banks, thick and dark in the Shadow
+        let gv = self.gloom_view;
+        let fog = if gv > 0.02 {
+            with_a(0x4a3a58ff, (10.0 + gv * 26.0) / 255.0)
+        } else {
+            0xa8a0900a
+        };
+        for i in 0..6 + (gv * 6.0) as i32 {
             let fi = i as f32;
             let fx = (h2(i, 3, 1) * (self.w + 500.0) + t * (5.0 + fi)) % (self.w + 500.0) - 250.0;
             let fy = h2(i, 5, 2) * self.h;
-            c.fill(0xa8a0900a);
+            c.fill(fog);
             c.ell(fx, fy, 260.0 * z, 70.0 * z);
             c.ell(fx + 90.0 * z, fy + 20.0 * z, 180.0 * z, 50.0 * z);
         }
         c.fill(0x2a120a16);
         c.rect(-10.0, -10.0, self.w + 20.0, self.h + 20.0);
+        if gv > 0.02 {
+            c.fill(with_a(GLOOM, gv * 0.3));
+            c.rect(-10.0, -10.0, self.w + 20.0, self.h + 20.0);
+        }
         c.dark(
             self.w / 2.0,
             self.h / 2.0,
-            self.w.min(self.h) * 0.34,
+            self.w.min(self.h) * (0.34 - gv * 0.1),
             self.w.max(self.h) * 0.75,
-            0.38,
+            0.38 + gv * 0.3,
             0x050302ff,
         );
         // falling ash and the odd ember
         let px1 = self.pix.max(1.0);
-        for i in 0..44 {
+        for i in 0..44 + (gv * 90.0) as i32 {
             let (a, b) = (h2(i, 11, 3), h2(i, 13, 4));
             let ax = (a * self.w + t * (6.0 + b * 10.0) + (t * 0.7 + fi32(i)).sin() * 12.0)
                 .rem_euclid(self.w);

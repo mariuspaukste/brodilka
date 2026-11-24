@@ -243,7 +243,11 @@ impl Game {
             self.pl.count(item_idx("bandage")),
             self.pl.count(item_idx("healpotion")),
             self.is_night(),
-            tx(self.period()),
+            if self.in_shadow {
+                esc(&format!("{} · {}", crate::pack::t(self.period()), crate::pack::t("in the Shadow")))
+            } else {
+                tx(self.period())
+            },
             self.pl.blocking,
             p.down_t > 0.0,
             j
@@ -487,7 +491,7 @@ impl Game {
                     ("📖", "Spells need reagents and mana. Buy scrolls from the mage to learn more."),
                     ("☠️", "Death leaves thy belongings on thy corpse. Find a healer or an ankh, then go back for them."),
                     ("🛡️", "Town guards slay any monster that enters the town."),
-                    ("📜", "The world moves without thee: the Chronicle (C, or the radar) tells the date, how strong each dark place is, and the news. Slay its creatures and it weakens; leave it and it grows back. Strong places raid the farms; caravans bring cheaper goods."),
+                    ("📜", "The world moves without thee: the Chronicle (C, or the radar) tells the date, how strong each dark place is, and the news. Slay its creatures and it weakens; leave it and it grows back. Strong places raid the farms; caravans bring cheaper goods; a dark power's Shadow spreads from its places."),
                     ("🐎", "The stablemaster east of town sells horses. Tap thy horse to mount, tap thyself to get down; riding is fast, but a heavy blow throws thee."),
                     ("🛡️", "In war mode hold BLOCK to catch blows; KICK shoves a foe back and may floor it. Heavy blows can knock thee down."),
                     ("⌨️", "Keys: WASD/arrows move · Tab war · Space block · F kick · B bandage · P pack · K skills · E mount · C chronicle · 1-9 cast · Esc close"),
@@ -520,6 +524,16 @@ impl Game {
                 );
                 row.bar = sim.trade / 100.0;
                 w.rows.push(row);
+                if sim.regions.iter().any(|r| r.shadow) {
+                    let share = self.shadow_share();
+                    let mut row = Row::new(
+                        "🌑",
+                        "The Shadow",
+                        &format!("lies over {}% of the land", (share * 100.0).round() as i32),
+                    );
+                    row.bar = share;
+                    w.rows.push(row);
+                }
                 for (icon, what, (x, y)) in self.travel_rows() {
                     let (dx, dy) = (x - p.x, y - p.y);
                     let d = (dx * dx + dy * dy).sqrt();

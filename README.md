@@ -199,6 +199,15 @@ The roads carry the world's traffic (`src/game/travel.rs`):
   on a caravan on the road: drive them off within a minute (the merchant pays
   for the help) or the caravan is lost.
 
+**The Shadow** (`src/game/shadow.rs`). A region marked `shadow = true`
+darkens the land around each of its places, further as the region and the
+place grow strong, and draws back as they are cleared. The walls and hedges
+of the town and city keep it out, road posts and waystones thin it. In it the
+ground darkens and the fog and ash thicken, trees wither (and green again when
+it lifts), the creatures of the dark mend their wounds, and the player's heal
+slowly. The radar shows it, and the Chronicle tells how much of the land it
+holds. The ground chunks under it are drawn again wherever it moves.
+
 A world pack sets this up:
 
 ```toml
@@ -207,10 +216,11 @@ start = "640-03-01"          # year-month-day; months are 30 days
 era = "W.Y."
 months = ["Frostmonth", …]   # all twelve
 
-[region.vathmor]             # any id: name, strength, drift, min, rise, fall
+[region.vathmor]             # any id: name, strength, drift, min, rise, fall, shadow
 name = "the Witch-realm of Vathmor"
 strength = 62
 drift = 4                    # tenths of a point a day
+shadow = true                # its places cast the Shadow
 rise = "{name} gathers its strength."
 
 [site.orcs]                  # graveyard orcs hills lair wilds: name, region,

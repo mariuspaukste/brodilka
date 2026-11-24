@@ -213,6 +213,11 @@ pub extern "C" fn load(len: usize) -> u32 {
 pub extern "C" fn mini_ptr() -> *const u8 {
     g().mini.as_ptr()
 }
+/// bumped when the minimap changed (the Shadow moving): redraw the radar
+#[no_mangle]
+pub extern "C" fn mini_ver() -> u32 {
+    g().mini_ver
+}
 #[no_mangle]
 pub extern "C" fn map_w() -> i32 {
     world::W

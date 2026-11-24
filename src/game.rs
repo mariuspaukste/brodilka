@@ -5,6 +5,7 @@ use crate::rng::Rng;
 use crate::world::*;
 use std::collections::VecDeque;
 
+pub mod shadow;
 pub mod travel;
 
 pub const C_SYS: u32 = 0xe8e0c8ff;
@@ -622,6 +623,16 @@ pub struct Game {
     pub sim: crate::sim::Sim,
     /// raids and caravans on the roads
     pub travels: Vec<travel::Travel>,
+    /// seconds until the Shadow is worked out again
+    pub shadow_t: f32,
+    /// how dark the view is about the player, 0..1, eased
+    pub gloom_view: f32,
+    /// the player stands in deep Shadow
+    pub in_shadow: bool,
+    /// tenths of the land under the Shadow, as last told (-1: not yet)
+    pub shadow_band: i32,
+    /// bumped when the minimap changes, so the host redraws the radar
+    pub mini_ver: u32,
     pub journal: VecDeque<(u32, String, u32)>,
     pub jid: u32,
     pub time: f32,
@@ -675,6 +686,11 @@ impl Game {
             spawners: vec![],
             sim: crate::sim::Sim::new(crate::pack::get()),
             travels: vec![],
+            shadow_t: 0.0,
+            gloom_view: 0.0,
+            in_shadow: false,
+            shadow_band: -1,
+            mini_ver: 0,
             journal: VecDeque::new(),
             jid: 0,
             time: 60.0,
@@ -1324,7 +1340,9 @@ impl Game {
         let ghost = self.pl.ghost;
         // regeneration
         if !ghost {
-            self.pl.hp_t += dt;
+            // the deep Shadow wearies: wounds and mana come back slowly
+            let weary = if self.in_shadow { 0.6 } else { 1.0 };
+            self.pl.hp_t += dt * weary;
             if self.pl.hp_t > 5.0 {
                 self.pl.hp_t = 0.0;
                 let p = self.pm();
@@ -1336,7 +1354,7 @@ impl Game {
             let med = self.pl.sk(MEDITATION);
             let still = self.pl.still_t > 1.0 && !self.pl.war;
             let rate = (3.2 - med / 40.0) / if still { 2.0 } else { 1.0 };
-            self.pl.mana_t += dt;
+            self.pl.mana_t += dt * weary;
             if self.pl.mana_t > rate {
                 self.pl.mana_t = 0.0;
                 let p = self.pm();
@@ -1930,6 +1948,7 @@ impl Game {
             self.msg(&n, C_LORE);
         }
         self.travel_tick(dt);
+        self.shadow_tick(dt);
         let day = crate::sim::Sim::day(self.time);
         if day > self.sim.day_seen {
             self.sim.day_seen = day;
@@ -2028,11 +2047,15 @@ impl Game {
             e.combat.cast_t -= dt;
             e.combat.breath_t -= dt;
             e.ai_t -= dt;
-            if d.regen > 0 {
+            // the creatures of the dark mend in the deep Shadow
+            let (tx, ty) = e.tile();
+            let dark = !d.passive && inb(tx, ty) && self.map.gloom[idx(tx, ty)] >= shadow::DEEP;
+            let regen = d.regen + dark as i32;
+            if regen > 0 {
                 e.regen_t += dt;
                 if e.regen_t > 2.0 {
                     e.regen_t = 0.0;
-                    e.hp = (e.hp + d.regen).min(e.mhp);
+                    e.hp = (e.hp + regen).min(e.mhp);
                 }
             }
         }
@@ -4014,6 +4037,94 @@ mod tests {
         assert!(g.sim.trade < trade);
         g.sim.trade = 0.0;
         assert!(g.buy_price(kat) > kat.price);
+    }
+
+    #[test]
+    fn the_shadow_creeps_from_dark_places_and_draws_back() {
+        let pack = crate::pack::Pack::parse(
+            r##"[pack]
+id = "t"
+[region.dark]
+strength = 90
+shadow = true
+[site.graveyard]
+region = "dark"
+[site.orcs]
+region = "dark"
+[site.hills]
+region = "dark"
+"##,
+        )
+        .unwrap();
+        let mut g = Game::new(7);
+        g.sim = crate::sim::Sim::new(&pack);
+        g.create("Sim", false, 0, "warrior", [0, 0, 0]);
+        g.update(1.0 / 30.0);
+        let orcs = g.map.pois.iter().find(|p| p.0 == "Orc Camp").unwrap();
+        let (ox, oy) = (orcs.1, orcs.2);
+        assert_eq!(g.gloom_at(ox, oy), GLOOM_MAX, "deepest at the camp");
+        // the town and the city are kept clear
+        let (x0, y0, x1, y1) = g.map.town;
+        assert_eq!(g.gloom_at((x0 + x1) / 2, (y0 + y1) / 2), 0);
+        let (cx0, cy0, cx1, cy1) = g.map.city;
+        assert_eq!(g.gloom_at((cx0 + cx1) / 2, (cy0 + cy1) / 2), 0);
+        // waystones thin it
+        let &(ax, ay) = g
+            .map
+            .ankhs
+            .iter()
+            .min_by_key(|&&(x, y)| (x - ox).pow(2) + (y - oy).pow(2))
+            .unwrap();
+        assert!(g.gloom_at(ax, ay) < GLOOM_MAX);
+        let wide = g.shadow_share();
+        assert!(wide > 0.2, "{wide}");
+        let withered = g.map.withered.iter().filter(|&&w| w).count();
+        assert!(withered > 20, "{withered}");
+        assert!(g.mini_ver > 0);
+        // break the dark power: the Shadow draws back and the woods green
+        g.sim.regions[0].strength = 25.0;
+        for s in g.sim.sites.iter_mut() {
+            s.strength = 0.0;
+        }
+        g.shadow_t = 0.0;
+        g.update(1.0 / 30.0);
+        assert!(g.shadow_share() < 0.01, "{}", g.shadow_share());
+        assert_eq!(g.map.withered.iter().filter(|&&w| w).count(), 0);
+        assert!(g.journal.iter().any(|(_, t, _)| t.contains("draws back")));
+        // and the trees are as they were
+        let mut h = Game::new(7);
+        h.update(0.0);
+        assert_eq!(g.map.style, h.map.style);
+        g.ui_cmd("open:chronicle");
+        assert!(g.ui_json().contains("The Shadow"));
+    }
+
+    #[test]
+    fn walking_into_deep_shadow_wearies_the_player() {
+        let pack = crate::pack::Pack::parse(
+            "[pack]\nid = \"t\"\n[region.dark]\nstrength = 90\nshadow = true\n[site.orcs]\nregion = \"dark\"\n",
+        )
+        .unwrap();
+        let mut g = Game::new(7);
+        g.sim = crate::sim::Sim::new(&pack);
+        g.create("Sim", false, 0, "warrior", [0, 0, 0]);
+        g.update(1.0 / 30.0);
+        assert!(!g.in_shadow);
+        let orcs = g.map.pois.iter().find(|p| p.0 == "Orc Camp").unwrap();
+        let (ox, oy) = (orcs.1 + 12, orcs.2);
+        g.ents[0].x = ox as f32;
+        g.ents[0].y = oy as f32;
+        for _ in 0..90 {
+            g.update(1.0 / 30.0);
+        }
+        assert!(g.in_shadow, "gloom {}", g.gloom_at(ox, oy));
+        assert!(g.gloom_view > 0.3);
+        assert!(g
+            .journal
+            .iter()
+            .any(|(_, t, _)| t.contains("Shadow lies heavy")));
+        assert!(g.hud_json().contains("in the Shadow"));
+        let _ = g.render();
     }
 
     #[test]
