@@ -56,6 +56,9 @@ pub const O_LONGTABLE: u8 = 33;
 pub const O_CART: u8 = 34;
 pub const O_THRONE: u8 = 35;
 
+/// how far a road post's guards keep the peace, in tiles (chebyshev)
+pub const POST_R: i32 = 6;
+
 /// wall styles of the castle: curtain walls, and the taller towers
 pub const WALL_CASTLE: u8 = 5;
 pub const WALL_TOWER: u8 = 6;
@@ -108,6 +111,8 @@ pub struct Map {
     pub town: (i32, i32, i32, i32),
     /// the walled city of Duskhold and its castle, north of the town
     pub city: (i32, i32, i32, i32),
+    /// guard posts along the roads: monsters near one are struck down too
+    pub posts: Vec<(i32, i32)>,
     pub start: (i32, i32),
     pub npcs: Vec<(usize, i32, i32)>,
     pub spawns: Vec<(&'static str, i32, i32, i32, usize)>,
@@ -305,6 +310,15 @@ impl Map {
             .any(|&(x0, y0, x1, y1)| x >= x0 - 3 && y >= y0 - 3 && x < x1 + 3 && y < y1 + 3)
     }
 
+    /// Ground the guards keep: the town, the city and around each road post.
+    pub fn guarded(&self, x: i32, y: i32) -> bool {
+        self.in_town(x, y)
+            || self
+                .posts
+                .iter()
+                .any(|&(px, py)| (x - px).abs() <= POST_R && (y - py).abs() <= POST_R)
+    }
+
     /// A* to any passable tile within `range` (chebyshev) of goal.
     pub fn find_path(
         &mut self,
@@ -401,7 +415,9 @@ impl Map {
         }
     }
 
-    fn carve_road(&mut self, a: (i32, i32), b: (i32, i32), seed: u32) {
+    /// Lay a wobbling dirt road (bridging water) and return its centre line.
+    fn carve_road(&mut self, a: (i32, i32), b: (i32, i32), seed: u32) -> Vec<(i32, i32)> {
+        let mut line = vec![];
         let (ax, ay) = (a.0 as f32, a.1 as f32);
         let (bx, by) = (b.0 as f32, b.1 as f32);
         let len = ((bx - ax).powi(2) + (by - ay).powi(2)).sqrt();
@@ -412,6 +428,9 @@ impl Map {
             let wob = (vnoise(t * 6.0, 0.5, seed) - 0.5) * 8.0 * (t * std::f32::consts::PI).sin();
             let x = (ax + (bx - ax) * t + nx * wob).round() as i32;
             let y = (ay + (by - ay) * t + ny * wob).round() as i32;
+            if line.last() != Some(&(x, y)) {
+                line.push((x, y));
+            }
             for (ox, oy) in [(0, 0), (1, 0), (0, 1)] {
                 let (px, py) = (x + ox, y + oy);
                 if !inb(px, py) {
@@ -429,6 +448,36 @@ impl Map {
                 }
             }
         }
+        line
+    }
+
+    /// A guard post halfway along a road: two guards and a lamp beside it.
+    fn road_post(&mut self, road: &[(i32, i32)]) {
+        let n = road.len();
+        if n < 6 {
+            return;
+        }
+        let (px, py) = road[n / 2];
+        let (qx, qy) = road[n / 2 + 2];
+        self.npcs.push((V_GUARD, px, py));
+        self.npcs.push((V_GUARD, qx, qy));
+        for (dx, dy) in [(2, -1), (-2, 1), (-1, 2), (1, -2)] {
+            let (lx, ly) = (px + dx, py + dy);
+            if inb(lx, ly) {
+                let i = idx(lx, ly);
+                if !self.road[i] && !matches!(self.t[i], T_WATER | T_MOUNT | T_BRIDGE) {
+                    self.o[i] = O_LAMP;
+                    if inb(lx, ly + 1)
+                        && self.o[idx(lx, ly + 1)] == O_NONE
+                        && !self.road[idx(lx, ly + 1)]
+                    {
+                        self.o[idx(lx, ly + 1)] = O_CRATE;
+                    }
+                    break;
+                }
+            }
+        }
+        self.posts.push((px, py));
     }
 
     fn building(&mut self, bx: i32, by: i32, style: u8, vendor: usize) {
@@ -598,9 +647,9 @@ impl Map {
             (side(by + 3), O_SHELF),
             (side(by + 4), O_SHELF),
             // the great hall: two long tables with benches either side of the aisle
-            ((door - 4, by + 6, false), O_LONGTABLE),
-            ((door - 3, by + 6, true), O_CHAIR),
-            ((door - 3, by + 5, true), O_CHAIR),
+            ((door - 3, by + 6, false), O_LONGTABLE),
+            ((door - 2, by + 6, true), O_CHAIR),
+            ((door - 2, by + 5, true), O_CHAIR),
             ((door + 2, by + 6, false), O_LONGTABLE),
             ((door + 3, by + 6, true), O_CHAIR),
             ((door + 3, by + 5, true), O_CHAIR),
@@ -801,7 +850,8 @@ pub fn generate(seed: u32) -> Map {
         res: vec![12; N],
         regrow: vec![],
         town: (62, 64, 98, 104),
-        city: (60, 14, 100, 50),
+        city: (60, 14, 100, 56),
+        posts: vec![],
         start: (80, 79),
         npcs: vec![],
         spawns: vec![],
@@ -822,7 +872,7 @@ pub fn generate(seed: u32) -> Map {
     let orcs = (32, 124);
     let hills = (34, 34);
     let lair = (128, 128);
-    let city_c = (80, 32);
+    let city_c = (80, 35);
     let pois: [((i32, i32), f32); 6] = [
         (town_c, 30.0),
         (city_c, 30.0),
@@ -1014,9 +1064,15 @@ pub fn generate(seed: u32) -> Map {
     m.carve_road((lair.0 - 13, lair.1), (lair.0 - 7, lair.1), seed ^ 5);
     // and from the city's gates: south to the town, east to the graveyard, west to the hills
     let (cx0, cy0, cx1, cy1) = m.city;
-    m.carve_road(((cx0 + cx1) / 2, cy1), ((x0 + x1) / 2, y0), seed ^ 6);
-    m.carve_road((cx1, cy0 + 18), (grave.0 - 12, grave.1), seed ^ 7);
-    m.carve_road((cx0 - 1, cy0 + 18), (hills.0 + 12, hills.1 + 4), seed ^ 8);
+    // each with a guard post halfway
+    for (a, b, sd) in [
+        (((cx0 + cx1) / 2, cy1), ((x0 + x1) / 2, y0), 6),
+        ((cx1, cy0 + 18), (grave.0 - 12, grave.1), 7),
+        ((cx0 - 1, cy0 + 18), (hills.0 + 12, hills.1 + 4), 8),
+    ] {
+        let road = m.carve_road(a, b, seed ^ sd);
+        m.road_post(&road);
+    }
 
     // --- ankh shrines along the roads
     for &(ax, ay) in &[
@@ -1132,8 +1188,9 @@ pub fn generate(seed: u32) -> Map {
 fn city(m: &mut Map) {
     let (x0, y0, x1, y1) = m.city;
     let (xe, ye) = (x1 - 1, y1 - 1);
-    let mid = (x0 + x1) / 2; // the south gate and the main street
-                             // a cleared field around the walls
+    // the south gate and the main street
+    let mid = (x0 + x1) / 2;
+    // a cleared field around the walls
     for y in y0 - 3..y1 + 3 {
         for x in x0 - 3..x1 + 3 {
             if inb(x, y) && matches!(m.o[idx(x, y)], O_TREE | O_BUSH | O_MUSHROOM | O_BOULDER) {
@@ -1216,33 +1273,43 @@ fn city(m: &mut Map) {
     m.npcs.push((V_GUARD, mid + 2, y0 + 12));
     m.npcs.push((V_GUARD, bx0 + 3, y0 + 8));
 
-    // houses along the street below the castle, doors to the market square
+    // the first row of houses faces the castle across the street, the pub
+    // right beside its gate; a second row and the market square lie below
     let hy = y0 + 21;
     m.building(x0 + 2, hy, 4, V_SMITH);
-    m.building(x0 + 11, hy, 3, V_HEALER);
+    m.building(x0 + 11, hy, 3, V_BARKEEP);
     m.building(x0 + 22, hy, 2, V_PROV);
     m.building(x0 + 31, hy, 1, V_MAGE);
-    m.set_o(x0 + 9, hy + 7, O_FORGE);
-    m.set_o(x0 + 9, hy + 9, O_ANVIL);
+    // drinkers' benches out in the street, under the castle walls
+    m.place(x0 + 13, y0 + 19, O_LONGTABLE, false);
+    m.place(x0 + 14, y0 + 19, O_CHAIR, true);
+    m.place(x0 + 14, y0 + 18, O_CHAIR, true);
+    m.set_o(x0 + 16, y0 + 19, O_BARREL);
+    let hy2 = y0 + 30;
+    m.building(x0 + 2, hy2, 3, V_HEALER);
+    m.building(x0 + 31, hy2, 4, V_PROV);
+    m.set_o(x0 + 11, y0 + 31, O_FORGE);
+    m.set_o(x0 + 13, y0 + 31, O_ANVIL);
     // the market square: a fountain, lamps and a few stalls
     for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
-        m.set_o(mid - 1 + dx, y0 + 30 + dy, O_FOUNTAIN);
+        m.set_o(mid - 1 + dx, y0 + 34 + dy, O_FOUNTAIN);
     }
-    for (dx, dy) in [(3, 18), (36, 18), (14, 29), (25, 29), (3, 32), (36, 32)] {
+    for (dx, dy) in [(3, 18), (36, 18), (10, 28), (30, 28), (12, 39), (27, 39)] {
         m.set_o(x0 + dx, y0 + dy, O_LAMP);
     }
-    for (dx, o) in [(6, O_SACKS), (9, O_CRATE), (29, O_BARREL), (32, O_SACKS)] {
-        m.set_o(x0 + dx, y0 + 31, O_TABLE);
-        m.set_o(x0 + dx + 1, y0 + 31, o);
+    for (dx, o) in [(12, O_SACKS), (15, O_CRATE), (24, O_BARREL), (27, O_SACKS)] {
+        m.set_o(x0 + dx, y0 + 37, O_TABLE);
+        m.set_o(x0 + dx + 1, y0 + 37, o);
     }
-    m.place(x0 + 13, y0 + 33, O_CART, true);
+    m.place(x0 + 15, y0 + 40, O_CART, true);
     m.npcs.push((V_GUARD, mid + 2, ye - 2));
     m.npcs.push((V_GUARD, x0 + 2, gy + 1));
     m.npcs.push((V_GUARD, xe - 2, gy + 1));
-    for (dx, dy) in [(8, 19), (30, 18), (16, 30), (24, 33), (6, 33)] {
+    for (dx, dy) in [(8, 19), (30, 18), (16, 33), (24, 36), (10, 38), (33, 38)] {
         m.npcs.push((V_FOLK, x0 + dx, y0 + dy));
     }
-    m.pois.push(("Duskhold", mid, y0 + 26));
+    m.pois.push(("Duskhold", mid, y0 + 30));
+    m.pois.push(("Duskhold Pub", x0 + 15, y0 + 28));
     m.pois.push(("Castle", mid, y0 + 12));
 }
 

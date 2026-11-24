@@ -662,7 +662,7 @@ impl Game {
         for _ in 0..30 {
             let x = sx + self.rng.range(-r, r);
             let y = sy + self.rng.range(-r, r);
-            if !self.map.passable(x, y) || self.map.in_town(x, y) || !self.map.reach[idx(x, y)] {
+            if !self.map.passable(x, y) || self.map.guarded(x, y) || !self.map.reach[idx(x, y)] {
                 continue;
             }
             if self.created && self.ents[0].dist(x as f32, y as f32) < 9.0 {
@@ -1829,9 +1829,9 @@ impl Game {
             self.ents[i].path.truncate(1);
             return;
         }
-        // guards protect the town
+        // guards protect the town, the city and the ground around road posts
         let (mx, my) = self.ents[i].tile();
-        if self.map.in_town(mx, my) && !d.passive {
+        if self.map.guarded(mx, my) && !d.passive {
             self.guard_strike(i);
             return;
         }
@@ -1860,7 +1860,7 @@ impl Game {
         if !ghost
             && self.ents[i].target == 0
             && pd < 7.0
-            && !self.map.in_town(px.round() as i32, py.round() as i32)
+            && !self.map.guarded(px.round() as i32, py.round() as i32)
         {
             self.ents[i].target = pid;
         }
@@ -2001,7 +2001,7 @@ impl Game {
         if (nx - hx).abs() <= r
             && (ny - hy).abs() <= r
             && self.map.can_step(x, y, dx, dy)
-            && !self.map.in_town(nx, ny)
+            && !self.map.guarded(nx, ny)
             && !self.occupied(nx, ny, i)
         {
             self.ents[i].path.push((nx, ny));
@@ -3004,7 +3004,8 @@ mod tests {
                 .filter(|b| b.x > x0 && b.x < x1 && b.y > y0 && b.y < y1)
                 .map(|b| (b.x + 3, b.y + 2))
                 .collect();
-            assert_eq!(shops.len(), 5);
+            // six houses and the keep
+            assert_eq!(shops.len(), 7);
             for (x, y) in shops {
                 assert!(g.map.find_path(sx, sy, x, y, 1).is_some());
             }
@@ -3032,6 +3033,64 @@ mod tests {
             assert!(gd.dist(mx as f32, my as f32) < 2.0);
             let home = gd.home;
             assert!(home.0 >= x0 && home.0 < x1 && home.1 >= y0 && home.1 < y1);
+        }
+    }
+
+    #[test]
+    fn roads_to_the_city_are_guarded() {
+        for seed in [1u32, 1997, 12345] {
+            let mut g = Game::new(seed);
+            let (sx, sy) = g.map.start;
+            let (x0, y0, x1, _) = g.map.city;
+            // one post on each road out of the city, two guards on each
+            assert_eq!(g.map.posts.len(), 3);
+            let posts = g.map.posts.clone();
+            for &(px, py) in &posts {
+                let guards = g
+                    .ents
+                    .iter()
+                    .filter(|e| e.k == EK::Npc(V_GUARD))
+                    .filter(|e| (e.home.0 - px).abs() <= 3 && (e.home.1 - py).abs() <= 3)
+                    .count();
+                assert_eq!(guards, 2, "seed {seed}: post at ({px},{py})");
+                assert!(g.map.find_path(sx, sy, px, py, 1).is_some());
+            }
+            // the graveyard and hill roads' posts stand out on open road
+            assert!(posts.iter().filter(|&&(x, y)| !g.map.in_town(x, y)).count() >= 2);
+            // no monster spawns or wanders onto a post's ground, and one that
+            // is there is struck by the post's own guards
+            let (px, py) = *posts.iter().find(|&&(x, y)| !g.map.in_town(x, y)).unwrap();
+            assert!(g.map.guarded(px + POST_R, py) && g.map.guarded(px, py - POST_R));
+            let id = g.nid();
+            let mi = mon_idx("wolf");
+            g.ents.push(Ent::new(
+                id,
+                EK::Mon(mi),
+                "wolf".into(),
+                px + 2,
+                py,
+                MONS[mi].hp,
+            ));
+            g.guard_strike(g.ents.len() - 1);
+            let gd = g
+                .ents
+                .iter()
+                .find(|e| e.k == EK::Npc(V_GUARD) && e.atk > 0.0)
+                .expect("no guard answered");
+            assert!((gd.home.0 - px).abs() <= 3 && (gd.home.1 - py).abs() <= 3);
+            // the city's pub faces the castle, beside the main street
+            let pubs: Vec<(i32, i32)> = g
+                .map
+                .buildings
+                .iter()
+                .filter(|b| b.vendor == V_BARKEEP && b.x >= x0 && b.x < x1 && b.y < g.map.city.3)
+                .map(|b| (b.x, b.y))
+                .collect();
+            assert_eq!(pubs.len(), 1);
+            let (bx, by) = pubs[0];
+            assert_eq!(by, y0 + 21);
+            assert_eq!(bx + 8, (x0 + x1) / 2 - 1);
+            assert!(g.map.find_path(sx, sy, bx + 3, by + 2, 1).is_some());
         }
     }
 
