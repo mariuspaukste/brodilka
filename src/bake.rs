@@ -1681,7 +1681,8 @@ pub const P_TUFT: usize = 91; // 3
 pub const P_FERN: usize = 94;
 pub const P_PEBBLES: usize = 95; // 2
 pub const P_TWIGS: usize = 97;
-pub const N_PROPS: usize = 98;
+pub const P_THRONE: usize = 98;
+pub const N_PROPS: usize = 99;
 
 /// flames licking up from `base`, varied by animation frame `f`
 fn flames(p: &mut Vec<Prim>, base: V3, size: f32, f: usize) {
@@ -1843,6 +1844,69 @@ fn prop(kind: usize) -> Figure {
                 wood,
                 Mat::Matte,
             );
+        }
+        P_THRONE => {
+            // a high-backed oak throne on a stone step, crimson seat, gilt finials
+            let gold = 0xd8b050ff;
+            let red = 0x7a1a1aff;
+            bx(
+                &mut b,
+                [0.0, 0.0, 0.06],
+                [0.38, 0.38, 0.06],
+                0x5a5852ff,
+                Mat::Matte,
+            );
+            bx(
+                &mut b,
+                [0.02, 0.0, 0.3],
+                [0.24, 0.26, 0.18],
+                wood,
+                Mat::Matte,
+            );
+            bx(
+                &mut b,
+                [0.04, 0.0, 0.5],
+                [0.22, 0.24, 0.03],
+                red,
+                Mat::Matte,
+            );
+            // the back
+            bx(
+                &mut b,
+                [-0.2, 0.0, 0.95],
+                [0.05, 0.26, 0.5],
+                wood,
+                Mat::Matte,
+            );
+            bx(
+                &mut b,
+                [-0.16, 0.0, 0.95],
+                [0.02, 0.18, 0.4],
+                red,
+                Mat::Matte,
+            );
+            // arms
+            for y in [-0.24f32, 0.24] {
+                bx(
+                    &mut b,
+                    [0.02, y, 0.66],
+                    [0.22, 0.04, 0.03],
+                    dark,
+                    Mat::Matte,
+                );
+                bx(&mut b, [0.2, y, 0.58], [0.03, 0.035, 0.1], dark, Mat::Matte);
+            }
+            for y in [-0.22f32, 0.0, 0.22] {
+                prim(
+                    &mut p,
+                    [-0.2, y, 1.45],
+                    [-0.2, y, 1.53],
+                    0.045,
+                    0.02,
+                    gold,
+                    Mat::Metal,
+                );
+            }
         }
         P_SHELF => {
             bx(

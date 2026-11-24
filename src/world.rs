@@ -54,6 +54,11 @@ pub const O_WELL: u8 = 31;
 pub const O_PART: u8 = 32;
 pub const O_LONGTABLE: u8 = 33;
 pub const O_CART: u8 = 34;
+pub const O_THRONE: u8 = 35;
+
+/// wall styles of the castle: curtain walls, and the taller towers
+pub const WALL_CASTLE: u8 = 5;
+pub const WALL_TOWER: u8 = 6;
 
 /// An object's footprint in tiles (along y unless mirrored with FACE_S, then
 /// along x) and its height in metres, for blocking, drawing and see-through.
@@ -69,6 +74,7 @@ pub fn size(o: u8) -> (i32, f32) {
         O_HEARTH => (1, 1.8),
         O_SHELF => (1, 1.9),
         O_LAMP => (1, 2.0),
+        O_THRONE => (1, 1.6),
         _ => (1, 0.6),
     }
 }
@@ -78,6 +84,9 @@ pub const FACE_S: u8 = 0x80;
 pub struct Building {
     pub x: i32,
     pub y: i32,
+    /// footprint in tiles, walls included (shops are 8×6)
+    pub w: i32,
+    pub h: i32,
     pub vendor: usize,
     pub style: u8,
 }
@@ -97,6 +106,8 @@ pub struct Map {
     /// walkable from the town
     pub reach: Vec<bool>,
     pub town: (i32, i32, i32, i32),
+    /// the walled city of Duskhold and its castle, north of the town
+    pub city: (i32, i32, i32, i32),
     pub start: (i32, i32),
     pub npcs: Vec<(usize, i32, i32)>,
     pub spawns: Vec<(&'static str, i32, i32, i32, usize)>,
@@ -287,9 +298,11 @@ impl Map {
         let c = self.corners(x, y);
         (c[0] + c[1] + c[2] + c[3]) / 4.0
     }
+    /// Inside the town or the castle city (with a margin): guarded ground.
     pub fn in_town(&self, x: i32, y: i32) -> bool {
-        let (x0, y0, x1, y1) = self.town;
-        x >= x0 - 3 && y >= y0 - 3 && x < x1 + 3 && y < y1 + 3
+        [self.town, self.city]
+            .iter()
+            .any(|&(x0, y0, x1, y1)| x >= x0 - 3 && y >= y0 - 3 && x < x1 + 3 && y < y1 + 3)
     }
 
     /// A* to any passable tile within `range` (chebyshev) of goal.
@@ -523,10 +536,88 @@ impl Map {
         self.buildings.push(Building {
             x: bx,
             y: by,
+            w: 8,
+            h: 6,
             vendor,
             style,
         });
         self.npcs.push((vendor, bx + 3, by + 2));
+    }
+
+    /// A run of castle wall from (ax, ay) to (bx, by), inclusive, along x or y.
+    fn castle_wall(&mut self, a: (i32, i32), b: (i32, i32)) {
+        for y in a.1.min(b.1)..=a.1.max(b.1) {
+            for x in a.0.min(b.0)..=a.0.max(b.0) {
+                if inb(x, y) && self.o[idx(x, y)] != O_WALL {
+                    let i = idx(x, y);
+                    self.t[i] = T_COBBLE;
+                    self.o[i] = O_WALL;
+                    self.style[i] = WALL_CASTLE;
+                }
+            }
+        }
+    }
+    /// A square tower of `n`×`n` wall tiles with its corner at (x, y).
+    fn tower(&mut self, x: i32, y: i32, n: i32) {
+        for ty in y..y + n {
+            for tx in x..x + n {
+                if inb(tx, ty) {
+                    let i = idx(tx, ty);
+                    self.t[i] = T_COBBLE;
+                    self.o[i] = O_WALL;
+                    self.style[i] = WALL_TOWER;
+                }
+            }
+        }
+    }
+    /// The castle keep: a 12×8 hall of castle stone under one great roof, a
+    /// throne at the back facing the double door, the lord standing by it.
+    fn keep(&mut self, bx: i32, by: i32, lord: usize) {
+        let (w, h) = (12, 8);
+        for y in by..by + h {
+            for x in bx..bx + w {
+                let edge = x == bx || x == bx + w - 1 || y == by || y == by + h - 1;
+                let i = idx(x, y);
+                self.t[i] = T_FLOOR;
+                self.o[i] = if edge { O_WALL } else { O_NONE };
+                self.style[i] = WALL_CASTLE;
+            }
+        }
+        let door = bx + w / 2;
+        self.set_o(door - 1, by + h - 1, O_DOOR);
+        self.set_o(door, by + h - 1, O_DOOR);
+        let back = |x: i32| (x, by + 1, true);
+        let side = |y: i32| (bx + 1, y, false);
+        let items: [((i32, i32, bool), u8); 15] = [
+            (back(door - 1), O_THRONE),
+            (back(door - 3), O_HEARTH),
+            (back(door + 2), O_HEARTH),
+            (back(bx + 1), O_CHEST),
+            (back(bx + 2), O_CHEST),
+            (back(bx + w - 2), O_SHELF),
+            (side(by + 3), O_SHELF),
+            (side(by + 4), O_SHELF),
+            // the great hall: two long tables with benches either side of the aisle
+            ((door - 4, by + 6, false), O_LONGTABLE),
+            ((door - 3, by + 6, true), O_CHAIR),
+            ((door - 3, by + 5, true), O_CHAIR),
+            ((door + 2, by + 6, false), O_LONGTABLE),
+            ((door + 3, by + 6, true), O_CHAIR),
+            ((door + 3, by + 5, true), O_CHAIR),
+            ((bx + w - 2, by + 6, false), O_BARREL),
+        ];
+        for ((x, y, south), o) in items {
+            self.place(x, y, o, south);
+        }
+        self.buildings.push(Building {
+            x: bx,
+            y: by,
+            w,
+            h,
+            vendor: lord,
+            style: WALL_CASTLE,
+        });
+        self.npcs.push((lord, door - 1, by + 2));
     }
 }
 
@@ -568,12 +659,13 @@ impl Map {
                 }
             }
         }
-        // the town, its buildings and the shrines sit on one flat level
-        let (x0, y0, x1, y1) = self.town;
-        for y in y0 - 3..y1 + 3 {
-            for x in x0 - 3..x1 + 3 {
-                if inb(x, y) {
-                    self.lv[idx(x, y)] = 1;
+        // the town, the city, their buildings and the shrines sit on one flat level
+        for (x0, y0, x1, y1) in [self.town, self.city] {
+            for y in y0 - 3..y1 + 3 {
+                for x in x0 - 3..x1 + 3 {
+                    if inb(x, y) {
+                        self.lv[idx(x, y)] = 1;
+                    }
                 }
             }
         }
@@ -709,6 +801,7 @@ pub fn generate(seed: u32) -> Map {
         res: vec![12; N],
         regrow: vec![],
         town: (62, 64, 98, 104),
+        city: (60, 14, 100, 50),
         start: (80, 79),
         npcs: vec![],
         spawns: vec![],
@@ -729,8 +822,10 @@ pub fn generate(seed: u32) -> Map {
     let orcs = (32, 124);
     let hills = (34, 34);
     let lair = (128, 128);
-    let pois: [((i32, i32), f32); 5] = [
+    let city_c = (80, 32);
+    let pois: [((i32, i32), f32); 6] = [
         (town_c, 30.0),
+        (city_c, 30.0),
         (grave, 15.0),
         (orcs, 14.0),
         (hills, 15.0),
@@ -917,6 +1012,11 @@ pub fn generate(seed: u32) -> Map {
     m.carve_road(((x0 + x1) / 2, y0), (hills.0 + 8, hills.1 + 8), seed ^ 3);
     m.carve_road(((x0 + x1) / 2, y1), (lair.0 - 13, lair.1), seed ^ 4);
     m.carve_road((lair.0 - 13, lair.1), (lair.0 - 7, lair.1), seed ^ 5);
+    // and from the city's gates: south to the town, east to the graveyard, west to the hills
+    let (cx0, cy0, cx1, cy1) = m.city;
+    m.carve_road(((cx0 + cx1) / 2, cy1), ((x0 + x1) / 2, y0), seed ^ 6);
+    m.carve_road((cx1, cy0 + 18), (grave.0 - 12, grave.1), seed ^ 7);
+    m.carve_road((cx0 - 1, cy0 + 18), (hills.0 + 12, hills.1 + 4), seed ^ 8);
 
     // --- ankh shrines along the roads
     for &(ax, ay) in &[
@@ -998,6 +1098,8 @@ pub fn generate(seed: u32) -> Map {
     m.pois.push(("Pub", x0 + 6, y0 + 37));
     m.pois.push(("Library", x0 + 30, y0 + 37));
 
+    city(&mut m);
+
     // --- spawn regions (monster, x, y, radius, max)
     m.assign_levels(&elev);
     m.spawns = vec![
@@ -1006,7 +1108,7 @@ pub fn generate(seed: u32) -> Map {
         ("rabbit", 108, 70, 9, 4),
         ("rat", 104, 100, 8, 3),
         ("rat", 56, 98, 8, 3),
-        ("mongbat", 70, 50, 8, 3),
+        ("mongbat", 48, 56, 7, 3),
         ("mongbat", 130, 80, 10, 3),
         ("slime", 82, 128, 10, 3),
         ("slime", 110, 52, 8, 2),
@@ -1022,6 +1124,126 @@ pub fn generate(seed: u32) -> Map {
         ("dragon", lair.0, lair.1, 2, 1),
     ];
     m
+}
+
+/// Duskhold: a walled city north of the town. Its castle fills the northern
+/// half (a bailey with corner towers around the keep), houses and a market
+/// square the southern half; gates open south, west and east.
+fn city(m: &mut Map) {
+    let (x0, y0, x1, y1) = m.city;
+    let (xe, ye) = (x1 - 1, y1 - 1);
+    let mid = (x0 + x1) / 2; // the south gate and the main street
+                             // a cleared field around the walls
+    for y in y0 - 3..y1 + 3 {
+        for x in x0 - 3..x1 + 3 {
+            if inb(x, y) && matches!(m.o[idx(x, y)], O_TREE | O_BUSH | O_MUSHROOM | O_BOULDER) {
+                m.o[idx(x, y)] = O_NONE;
+            }
+        }
+    }
+    for y in y0..y1 {
+        for x in x0..x1 {
+            m.set(x, y, T_COBBLE, O_NONE);
+            m.style[idx(x, y)] = 0;
+        }
+    }
+    // the city wall, with three-tile gates south, west and east
+    let gy = y0 + 17; // west and east gates span gy..gy+2
+    m.castle_wall((x0, y0), (xe, y0));
+    m.castle_wall((x0, ye), (mid - 2, ye));
+    m.castle_wall((mid + 2, ye), (xe, ye));
+    m.castle_wall((x0, y0), (x0, gy - 1));
+    m.castle_wall((x0, gy + 3), (x0, ye));
+    m.castle_wall((xe, y0), (xe, gy - 1));
+    m.castle_wall((xe, gy + 3), (xe, ye));
+    for (tx, ty) in [(x0, y0), (xe - 2, y0), (x0, ye - 2), (xe - 2, ye - 2)] {
+        m.tower(tx, ty, 3);
+    }
+    // gatehouse towers either side of each gate
+    m.tower(mid - 3, ye - 1, 2);
+    m.tower(mid + 2, ye - 1, 2);
+    m.tower(x0, gy - 2, 2);
+    m.tower(x0, gy + 3, 2);
+    m.tower(xe - 1, gy - 2, 2);
+    m.tower(xe - 1, gy + 3, 2);
+
+    // the castle bailey against the north wall, its gate on the main street
+    let (bx0, bx1, by1) = (x0 + 8, x0 + 31, y0 + 16);
+    m.castle_wall((bx0, y0), (bx0, by1));
+    m.castle_wall((bx1, y0), (bx1, by1));
+    m.castle_wall((bx0, by1), (mid - 2, by1));
+    m.castle_wall((mid + 1, by1), (bx1, by1));
+    for (tx, ty) in [(bx0, y0), (bx1 - 2, y0), (bx0, by1 - 2), (bx1 - 2, by1 - 2)] {
+        m.tower(tx, ty, 3);
+    }
+    m.tower(mid - 3, by1 - 1, 2);
+    m.tower(mid + 1, by1 - 1, 2);
+    m.keep(mid - 6, y0 + 3, V_LORD);
+    // the courtyard
+    m.set_o(bx0 + 4, y0 + 13, O_WELL);
+    for (dx, dy) in [(13, 11), (26, 11)] {
+        m.set_o(x0 + dx, y0 + dy, O_LAMP);
+    }
+    for (dx, dy, o) in [
+        (11, 4, O_BARREL),
+        (11, 5, O_BARREL),
+        (12, 4, O_CRATE),
+        (28, 4, O_CRATE),
+        (28, 5, O_SACKS),
+        (27, 4, O_BARREL),
+        (27, 13, O_STATUE),
+    ] {
+        m.set_o(x0 + dx, y0 + dy, o);
+    }
+    m.place(x0 + 24, y0 + 14, O_CART, true);
+    // the yards between the bailey and the city wall: a soldiers' camp and stores
+    m.set_o(x0 + 3, y0 + 5, O_TENT);
+    m.set_o(x0 + 5, y0 + 9, O_TENT);
+    m.set_o(x0 + 3, y0 + 12, O_TENT);
+    m.set_o(x0 + 5, y0 + 6, O_FIRE);
+    for (dx, dy, o) in [
+        (34, 5, O_CRATE),
+        (35, 5, O_CRATE),
+        (36, 5, O_BARREL),
+        (36, 6, O_SACKS),
+        (34, 12, O_BARREL),
+        (36, 12, O_CRATE),
+    ] {
+        m.set_o(x0 + dx, y0 + dy, o);
+    }
+    m.npcs.push((V_FOLK, x0 + 4, y0 + 8));
+    m.npcs.push((V_GUARD, mid - 1, by1 - 2));
+    m.npcs.push((V_GUARD, mid + 2, y0 + 12));
+    m.npcs.push((V_GUARD, bx0 + 3, y0 + 8));
+
+    // houses along the street below the castle, doors to the market square
+    let hy = y0 + 21;
+    m.building(x0 + 2, hy, 4, V_SMITH);
+    m.building(x0 + 11, hy, 3, V_HEALER);
+    m.building(x0 + 22, hy, 2, V_PROV);
+    m.building(x0 + 31, hy, 1, V_MAGE);
+    m.set_o(x0 + 9, hy + 7, O_FORGE);
+    m.set_o(x0 + 9, hy + 9, O_ANVIL);
+    // the market square: a fountain, lamps and a few stalls
+    for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
+        m.set_o(mid - 1 + dx, y0 + 30 + dy, O_FOUNTAIN);
+    }
+    for (dx, dy) in [(3, 18), (36, 18), (14, 29), (25, 29), (3, 32), (36, 32)] {
+        m.set_o(x0 + dx, y0 + dy, O_LAMP);
+    }
+    for (dx, o) in [(6, O_SACKS), (9, O_CRATE), (29, O_BARREL), (32, O_SACKS)] {
+        m.set_o(x0 + dx, y0 + 31, O_TABLE);
+        m.set_o(x0 + dx + 1, y0 + 31, o);
+    }
+    m.place(x0 + 13, y0 + 33, O_CART, true);
+    m.npcs.push((V_GUARD, mid + 2, ye - 2));
+    m.npcs.push((V_GUARD, x0 + 2, gy + 1));
+    m.npcs.push((V_GUARD, xe - 2, gy + 1));
+    for (dx, dy) in [(8, 19), (30, 18), (16, 30), (24, 33), (6, 33)] {
+        m.npcs.push((V_FOLK, x0 + dx, y0 + dy));
+    }
+    m.pois.push(("Duskhold", mid, y0 + 26));
+    m.pois.push(("Castle", mid, y0 + 12));
 }
 
 /// Minimap colour for a tile, RGBA bytes.

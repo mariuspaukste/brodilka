@@ -1764,6 +1764,7 @@ impl Game {
         let r = match v {
             V_GUARD => 4,
             V_FOLK => 6,
+            V_LORD => 0,
             _ => 1,
         };
         let (tx, ty) = (hx + self.rng.range(-r, r), hy + self.rng.range(-r, r));
@@ -2009,10 +2010,14 @@ impl Game {
 
     fn guard_strike(&mut self, i: usize) {
         let (mx, my) = (self.ents[i].x, self.ents[i].y);
+        // the nearest guard answers, so the town's guards stay in the town
         if let Some(gi) = self
             .ents
             .iter()
-            .position(|e| e.k == EK::Npc(V_GUARD) && !e.dead)
+            .enumerate()
+            .filter(|(_, e)| e.k == EK::Npc(V_GUARD) && !e.dead)
+            .min_by(|(_, a), (_, b)| a.dist(mx, my).total_cmp(&b.dist(mx, my)))
+            .map(|(gi, _)| gi)
         {
             let g = &mut self.ents[gi];
             g.x = mx.round() + 1.0;
@@ -2757,7 +2762,7 @@ impl Game {
                     } else if self.walk_to(x, y, 2) {
                         self.pl.pending = Pending::Talk(id);
                     }
-                    if v == V_GUARD {
+                    if v == V_GUARD || v == V_LORD {
                         let line = *self.rng.pick(VENDORS[v].chatter);
                         self.ents[i].talk(line, 0xffffffff);
                     }
@@ -2967,6 +2972,70 @@ mod tests {
     }
 
     #[test]
+    fn castle_city_is_walled_and_reachable() {
+        for seed in [1u32, 1997, 12345] {
+            let mut g = Game::new(seed);
+            let (sx, sy) = g.map.start;
+            let (x0, y0, x1, y1) = g.map.city;
+            // the lord stands by the throne in the keep, and can be walked to
+            let k = g
+                .map
+                .buildings
+                .iter()
+                .find(|b| b.vendor == V_LORD)
+                .expect("keep");
+            assert_eq!((k.w, k.h), (12, 8));
+            let e = g
+                .ents
+                .iter()
+                .find(|e| e.k == EK::Npc(V_LORD))
+                .expect("lord");
+            let (lx, ly) = e.tile();
+            assert_eq!(g.map.obj(lx, ly - 1), O_THRONE);
+            assert!(
+                g.map.find_path(sx, sy, lx, ly, 1).is_some(),
+                "seed {seed}: lord unreachable"
+            );
+            // every shop in the city can be reached too
+            let shops: Vec<(i32, i32)> = g
+                .map
+                .buildings
+                .iter()
+                .filter(|b| b.x > x0 && b.x < x1 && b.y > y0 && b.y < y1)
+                .map(|b| (b.x + 3, b.y + 2))
+                .collect();
+            assert_eq!(shops.len(), 5);
+            for (x, y) in shops {
+                assert!(g.map.find_path(sx, sy, x, y, 1).is_some());
+            }
+            // the city wall is unbroken but for its three gates
+            let gaps = (x0..x1)
+                .map(|x| (x, y1 - 1))
+                .chain((y0..y1).flat_map(|y| [(x0, y), (x1 - 1, y)]))
+                .filter(|&(x, y)| g.map.obj(x, y) != O_WALL)
+                .count();
+            assert_eq!(gaps, 9);
+            assert!(g.map.in_town((x0 + x1) / 2, y0 + 25));
+            // a monster that strays into the city is struck by a city guard,
+            // not one fetched from the town
+            let (mx, my) = (x0 + 20, y0 + 26);
+            let id = g.nid();
+            let mi = mon_idx("rat");
+            g.ents
+                .push(Ent::new(id, EK::Mon(mi), "rat".into(), mx, my, MONS[mi].hp));
+            g.guard_strike(g.ents.len() - 1);
+            let gd = g
+                .ents
+                .iter()
+                .find(|e| e.k == EK::Npc(V_GUARD) && e.atk > 0.0)
+                .expect("no guard answered");
+            assert!(gd.dist(mx as f32, my as f32) < 2.0);
+            let home = gd.home;
+            assert!(home.0 >= x0 && home.0 < x1 && home.1 >= y0 && home.1 < y1);
+        }
+    }
+
+    #[test]
     fn create_and_fight() {
         for seed in [1u32, 7, 99, 2024] {
             let mut g = Game::new(seed);
@@ -2983,10 +3052,17 @@ mod tests {
                         .filter(|e| matches!(e.k, EK::Mon(_)) && !e.dead)
                         .min_by(|a, b| a.dist(p.0, p.1).partial_cmp(&b.dist(p.0, p.1)).unwrap())
                     {
-                        let id = m.id;
-                        g.pl.war = true;
-                        g.ents[0].target = id;
-                        g.pl.chase = true;
+                        // too far to give chase from here: walk towards it first
+                        let (id, d, mt) = (m.id, m.dist(p.0, p.1), m.tile());
+                        if d > 18.0 {
+                            if g.ents[0].path.is_empty() {
+                                g.walk_to(mt.0, mt.1, 6);
+                            }
+                        } else {
+                            g.pl.war = true;
+                            g.ents[0].target = id;
+                            g.pl.chase = true;
+                        }
                     }
                 }
                 if g.pl.ghost {

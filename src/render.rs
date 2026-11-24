@@ -449,6 +449,15 @@ impl Game {
                         l.bulk = 17;
                         l.legs = 0x3a3028ff;
                     }
+                    V_LORD => {
+                        // a long crimson robe, a gilt helm and a sword at hand
+                        l.robe = true;
+                        l.legs = vd.robe;
+                        l.helm = 0xc8a040ff;
+                        l.weapon = Weapon::Sword;
+                        l.long_hair = false;
+                        l.scale = 104;
+                    }
                     V_SMITH => {
                         l.weapon = Weapon::Mace;
                         l.skin = 0xd8a070ff;
@@ -981,7 +990,7 @@ impl Game {
             }
             // roofs close over everything inside once their front corner is reached
             for b in self.map.buildings.iter() {
-                if b.x + 7 + b.y + 5 == s {
+                if b.x + b.w - 1 + b.y + b.h - 1 == s {
                     self.roof(c, b, z);
                 }
             }
@@ -1446,6 +1455,79 @@ impl Game {
 
     /// Torches and banners hung on the outside faces of a wall.
     #[allow(clippy::too_many_arguments)]
+    /// Merlons along every edge of a castle wall's walk that faces open
+    /// ground or lower wall, drawn back to front.
+    #[allow(clippy::too_many_arguments)]
+    fn battlements(
+        &self,
+        c: &mut Canvas,
+        x: i32,
+        y: i32,
+        sx: f32,
+        sy: f32,
+        style: u8,
+        hgt: f32,
+        z: f32,
+    ) {
+        let hw = 32.0 * z;
+        let hh = 16.0 * z;
+        // a point on the wall top, in tile-local units (u along x, v along y)
+        let at = |u: f32, v: f32, h: f32| (sx + (u - v) * hw, sy + (u + v) * hh - hgt - h);
+        let open = |nx: i32, ny: i32| {
+            self.map.obj(nx, ny) != O_WALL || {
+                let ns = self.map.style[idx(nx, ny)];
+                wall_h(ns) < wall_h(style)
+            }
+        };
+        let mh = 9.0 * z;
+        let ink = self.pix.max(z);
+        let stone = 0x6a6660ff;
+        // back edges first (towards -y, -x), then the front ones
+        let edges = [
+            (x, y - 1, false, -0.36f32),
+            (x - 1, y, true, -0.36),
+            (x + 1, y, true, 0.36),
+            (x, y + 1, false, 0.36),
+        ];
+        for (nx, ny, along_v, off) in edges {
+            if !open(nx, ny) {
+                continue;
+            }
+            for k in [-0.25f32, 0.25] {
+                // centre of this merlon, and its half sizes along u and v
+                let (cu, cv) = if along_v { (off, k) } else { (k, off) };
+                let (a, b) = if along_v { (0.1, 0.13) } else { (0.13, 0.1) };
+                let right = [
+                    at(cu + a, cv - b, 0.0),
+                    at(cu + a, cv + b, 0.0),
+                    at(cu + a, cv + b, mh),
+                    at(cu + a, cv - b, mh),
+                ];
+                let left = [
+                    at(cu - a, cv + b, 0.0),
+                    at(cu + a, cv + b, 0.0),
+                    at(cu + a, cv + b, mh),
+                    at(cu - a, cv + b, mh),
+                ];
+                let top = [
+                    at(cu - a, cv - b, mh),
+                    at(cu + a, cv - b, mh),
+                    at(cu + a, cv + b, mh),
+                    at(cu - a, cv + b, mh),
+                ];
+                c.outline(INK, ink);
+                c.fill(shade(stone, 0.55));
+                c.poly(&left);
+                c.fill(shade(stone, 0.75));
+                c.poly(&right);
+                c.fill(shade(stone, 1.0));
+                c.poly(&top);
+            }
+        }
+        c.outline(INK, ink);
+    }
+
+    #[allow(clippy::too_many_arguments)]
     fn wall_deco(
         &self,
         c: &mut Canvas,
@@ -1566,6 +1648,7 @@ impl Game {
                 O_BED => Some((bake::P_BED, style & FACE_S != 0)),
                 O_TABLE => Some((bake::P_TABLE, style & FACE_S != 0)),
                 O_CHAIR => Some((bake::P_CHAIR, style & FACE_S != 0)),
+                O_THRONE => Some((bake::P_THRONE, style & FACE_S != 0)),
                 O_SHELF => Some((bake::P_SHELF, style & FACE_S != 0)),
                 O_HEARTH => Some((bake::P_HEARTH, style & FACE_S != 0)),
                 O_CHEST => Some((bake::P_CHEST, style & FACE_S != 0)),
@@ -1746,10 +1829,12 @@ impl Game {
                 }
             }
             O_WALL => {
-                let hgt = 38.0 * ZS * z;
+                let castle = style == WALL_CASTLE || style == WALL_TOWER;
+                let hgt = 38.0 * ZS * z * wall_h(style);
                 let tex = match style {
                     2 => TEX_WOODWALL,
                     3 => TEX_PLASTER,
+                    WALL_CASTLE | WALL_TOWER => TEX_ASHLAR,
                     _ => TEX_BRICK,
                 };
                 let left = [
@@ -1800,7 +1885,10 @@ impl Game {
                 c.fill(0x0c080660);
                 c.poly(&top);
                 c.outline(INK, self.pix.max(z));
-                if (x + y) % 3 == 0 && style != 4 {
+                // battlements on the open walls; the keep's lie under its roof
+                if castle && self.map.tile(x, y) != T_FLOOR {
+                    self.battlements(c, x, y, sx, sy, style, hgt, z);
+                } else if (x + y) % 3 == 0 && style != 4 {
                     c.outline(0, 0.0);
                     c.fill(0x0a080cff);
                     c.poly(&[
@@ -2152,22 +2240,25 @@ impl Game {
     /// see-through while the player is just behind it.
     fn roof(&self, c: &mut Canvas, b: &Building, z: f32) {
         let (px, py) = self.ents[0].tile();
-        if px >= b.x && px <= b.x + 7 && py >= b.y && py <= b.y + 5 {
+        let (bw, bh) = (b.w - 1, b.h - 1);
+        if px >= b.x && px <= b.x + bw && py >= b.y && py <= b.y + bh {
             return;
         }
-        let behind = px >= b.x - 2 && px <= b.x + 9 && py >= b.y - 5 && py < b.y;
-        let side = py >= b.y - 2 && py <= b.y + 6 && px >= b.x - 5 && px < b.x;
+        // taller walls hide more of what is behind them
+        let reach = (wall_h(b.style) * 5.0).round() as i32;
+        let behind = px >= b.x - 2 && px <= b.x + bw + 2 && py >= b.y - reach && py < b.y;
+        let side = py >= b.y - 2 && py <= b.y + bh + 1 && px >= b.x - reach && px < b.x;
         let (x0, y0, x1, y1) = (
             b.x as f32 - 0.8,
             b.y as f32 - 0.8,
-            b.x as f32 + 7.8,
-            b.y as f32 + 5.8,
+            (b.x + bw) as f32 + 0.8,
+            (b.y + bh) as f32 + 0.8,
         );
         let ym = (y0 + y1) / 2.0;
         let hw = (y1 - y0) / 2.0;
         let (rx0, rx1) = (x0 + hw, x1 - hw);
-        let eave = 38.0 * ZS * z;
-        let ridge = eave + 34.0 * z;
+        let eave = 38.0 * ZS * z * wall_h(b.style);
+        let ridge = eave + 34.0 * z * (b.h as f32 / 6.0);
         let floor = self.map.level(b.x + 1, b.y + 1) as f32 * LH * z;
         let sp = |x: f32, y: f32, h: f32| {
             let (a, b) = self.to_screen(x, y);
@@ -2178,6 +2269,7 @@ impl Game {
             1 => 0x4a505eff,
             2 => 0x5a3a24ff,
             3 => 0x7a3a28ff,
+            WALL_CASTLE => 0x34383fff,
             _ => 0x3a3a40ff,
         };
         let faces: [(Vec<(f32, f32)>, f32); 4] = [
@@ -2248,7 +2340,7 @@ impl Game {
         c.stroke(shade(base, 0.45), 2.0 * ink);
         let (r0, r1) = (sp(rx0, ym, ridge), sp(rx1, ym, ridge));
         c.line(r0.0, r0.1, r1.0, r1.1);
-        if inn || b.vendor == V_SMITH || b.vendor == V_BARKEEP {
+        if inn || b.vendor == V_SMITH || b.vendor == V_BARKEEP || b.vendor == V_LORD {
             // a stone chimney with a wisp of smoke
             let (cx, cy) = sp(rx1 - 0.6, ym - 0.4, ridge - 6.0 * z);
             c.outline(INK, ink);
@@ -2442,6 +2534,13 @@ impl Game {
                         legs: vd.robe,
                         robe: true,
                         hair: Some(0xb0aca4ff),
+                        ..HUM
+                    },
+                    V_LORD => Hum {
+                        body: vd.robe,
+                        legs: vd.robe,
+                        robe: true,
+                        hair: Some(hair),
                         ..HUM
                     },
                     V_SMITH => Hum {
@@ -3296,5 +3395,14 @@ impl Game {
             }
             _ => {}
         }
+    }
+}
+
+/// How tall a wall of this style stands, relative to a house wall.
+fn wall_h(style: u8) -> f32 {
+    match style & !FACE_S {
+        WALL_CASTLE => 1.45,
+        WALL_TOWER => 1.9,
+        _ => 1.0,
     }
 }
