@@ -5,6 +5,8 @@ use crate::rng::Rng;
 use crate::world::*;
 use std::collections::VecDeque;
 
+pub mod travel;
+
 pub const C_SYS: u32 = 0xe8e0c8ff;
 pub const C_GAIN: u32 = 0x8fd8ffff;
 pub const C_WARN: u32 = 0xff7a66ff;
@@ -226,6 +228,10 @@ pub struct Ent {
     pub say: Speech,
     /// set for horses only
     pub horse: Option<Horse>,
+    /// the journey (raid or caravan) it travels with, or 0; see `travel.rs`
+    pub march: u32,
+    /// how far along its road it has come (a route index)
+    pub wp: usize,
 }
 
 impl Ent {
@@ -255,6 +261,8 @@ impl Ent {
             anim: Anim::default(),
             say: Speech::default(),
             horse: None,
+            march: 0,
+            wp: 0,
         }
     }
     /// 0 wild (or not a horse), 1 the player's own, 2 the stablemaster's
@@ -612,6 +620,8 @@ pub struct Game {
     pub spawners: Vec<Spawner>,
     /// the living world: calendar, powers and places (see `sim.rs`)
     pub sim: crate::sim::Sim,
+    /// raids and caravans on the roads
+    pub travels: Vec<travel::Travel>,
     pub journal: VecDeque<(u32, String, u32)>,
     pub jid: u32,
     pub time: f32,
@@ -664,6 +674,7 @@ impl Game {
             decals: vec![],
             spawners: vec![],
             sim: crate::sim::Sim::new(crate::pack::get()),
+            travels: vec![],
             journal: VecDeque::new(),
             jid: 0,
             time: 60.0,
@@ -1736,6 +1747,9 @@ impl Game {
         for n in self.sim.slain(d.id, d.fame, self.time) {
             self.msg(&n, C_LORE);
         }
+        if by_player && self.ents[i].march != 0 {
+            self.raider_slain(self.ents[i].march);
+        }
         let (x, y) = self.ents[i].tile();
         let mut items = vec![];
         let gold = if d.gold.1 > 0 {
@@ -1915,6 +1929,7 @@ impl Game {
         for n in self.sim.tick(dt, self.time) {
             self.msg(&n, C_LORE);
         }
+        self.travel_tick(dt);
         let day = crate::sim::Sim::day(self.time);
         if day > self.sim.day_seen {
             self.sim.day_seen = day;
@@ -1925,6 +1940,12 @@ impl Game {
 
     fn npc_tick(&mut self, i: usize, v: usize, dt: f32) {
         self.move_ent(i, 2.0, dt);
+        if self.ents[i].march != 0 {
+            self.ents[i].ai_t -= dt;
+            if self.march_step(i) {
+                return;
+            }
+        }
         let e = &mut self.ents[i];
         e.ai_t -= dt;
         if e.ai_t > 0.0 {
@@ -2060,6 +2081,9 @@ impl Game {
             self.ents[i].combat.provoked = false;
         }
         if self.ents[i].combat.target != pid {
+            if self.ents[i].march != 0 && self.march_step(i) {
+                return;
+            }
             if home_d > 12.0 && self.ents[i].path.is_empty() {
                 if let Some(s) = self.greedy_step(i, hx as f32, hy as f32, false) {
                     self.ents[i].path.push(s);
@@ -3888,7 +3912,108 @@ mod tests {
             .any(|(_, t, _)| t.starts_with("Dawn of the")));
         g.ui_cmd("open:chronicle");
         let u = g.ui_json();
-        assert!(u.contains("Chronicle") && u.contains("Orc Camp"), "{u}");
+        assert!(u.contains("Chronicle") && u.contains("orc camp"), "{u}");
+    }
+
+    fn run(g: &mut Game, secs: f32, until: impl Fn(&Game) -> bool) -> bool {
+        for _ in 0..(secs * 30.0) as i32 {
+            g.update(1.0 / 30.0);
+            if until(g) {
+                return true;
+            }
+        }
+        false
+    }
+    fn journal_has(g: &Game, s: &str) -> bool {
+        g.journal.iter().any(|(_, t, _)| t.contains(s))
+    }
+
+    #[test]
+    fn a_raid_marches_burns_the_farms_and_goes_home() {
+        let mut g = Game::new(7);
+        g.create("Sim", false, 0, "warrior", [0, 0, 0]);
+        g.sim.sites[1].strength = 85.0;
+        g.sim.sites[1].raid_cool = 1e9; // only the raid we launch
+        g.sim.caravan_t = 1e9;
+        assert!(g.launch_raid(1));
+        let t = &g.travels[0];
+        assert!(t.members.len() >= 4, "orcs and a captain");
+        let goal = t.route[t.goal];
+        assert!(!g.map.guarded(goal.0, goal.1));
+        assert!(journal_has(&g, "warband sets out"));
+        // it reaches the farms outside the town
+        assert!(run(&mut g, 120.0, |g| matches!(
+            g.travels.first().map(|t| t.stage),
+            Some(travel::Stage::Hold(_))
+        )));
+        let trade = g.sim.trade;
+        assert!(run(&mut g, 100.0, |g| matches!(
+            g.travels.first().map(|t| t.stage),
+            Some(travel::Stage::Return)
+        )));
+        assert!(journal_has(&g, "burned the farms"));
+        assert!(g.sim.trade < trade - 10.0);
+        // and goes home, where it is gone from the road
+        assert!(run(&mut g, 250.0, |g| g.travels.is_empty()));
+        g.ui_cmd("open:chronicle");
+        assert!(g.ui_json().contains("burned the farms"));
+    }
+
+    #[test]
+    fn a_raid_slain_on_the_road_is_broken() {
+        let mut g = Game::new(7);
+        g.create("Sim", false, 0, "warrior", [0, 0, 0]);
+        g.sim.sites[0].strength = 70.0;
+        g.sim.sites[0].raid_cool = 1e9;
+        g.sim.caravan_t = 1e9;
+        let region_before = g.sim.sites[0].strength;
+        assert!(g.launch_raid(0));
+        let fame = g.pl.fame;
+        let ids = g.travels[0].members.clone();
+        for id in ids {
+            let i = g.ents.iter().position(|e| e.id == id).unwrap();
+            g.kill_mon(i, true);
+        }
+        g.update(1.0 / 30.0);
+        assert!(g.travels.is_empty());
+        assert!(journal_has(&g, "was broken"));
+        assert!(journal_has(&g, "will speak of thy deeds"));
+        assert!(g.pl.fame > fame);
+        assert!(g.sim.sites[0].strength < region_before);
+    }
+
+    #[test]
+    fn caravans_set_prices_and_wolves_can_take_them() {
+        let mut g = Game::new(7);
+        g.create("Sim", false, 0, "warrior", [0, 0, 0]);
+        for s in g.sim.sites.iter_mut() {
+            s.raid_cool = 1e9;
+        }
+        g.sim.caravan_t = 1e9;
+        let kat = &ITEMS[item_idx("katana")];
+        assert_eq!(g.buy_price(kat), kat.price);
+        // a caravan that comes through
+        assert!(g.launch_caravan());
+        g.travels[0].ambush_at = None;
+        assert!(run(&mut g, 200.0, |g| g.travels.is_empty()));
+        assert!(journal_has(&g, "came safe"));
+        assert!(g.sim.trade > 55.0);
+        assert!(g.buy_price(kat) < kat.price);
+        // one the wolves take while no one helps
+        let trade = g.sim.trade;
+        assert!(g.launch_caravan());
+        g.travels[0].ambush_at = Some(4);
+        assert!(run(&mut g, 60.0, |g| matches!(
+            g.travels.first().map(|t| t.stage),
+            Some(travel::Stage::Hold(_))
+        )));
+        assert!(!g.travels[0].foes.is_empty());
+        assert!(journal_has(&g, "wolves have fallen on the caravan"));
+        assert!(run(&mut g, 80.0, |g| g.travels.is_empty()));
+        assert!(journal_has(&g, "lost to wolves"));
+        assert!(g.sim.trade < trade);
+        g.sim.trade = 0.0;
+        assert!(g.buy_price(kat) > kat.price);
     }
 
     #[test]

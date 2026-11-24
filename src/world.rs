@@ -94,6 +94,14 @@ pub struct Building {
     pub style: u8,
 }
 
+/// A road as it was carved, tile by tile from `from` to `to` (place ids:
+/// "town", "city", or a site id from `sim::SITE_IDS`), for travellers to follow.
+pub struct Road {
+    pub from: &'static str,
+    pub to: &'static str,
+    pub tiles: Vec<(i32, i32)>,
+}
+
 pub struct Map {
     pub t: Vec<u8>,
     pub o: Vec<u8>,
@@ -123,6 +131,7 @@ pub struct Map {
     pub ankhs: Vec<(i32, i32)>,
     pub buildings: Vec<Building>,
     pub pois: Vec<(&'static str, i32, i32)>,
+    pub roads: Vec<Road>,
     // pathfinding scratch
     pf_g: Vec<f32>,
     pf_par: Vec<i32>,
@@ -875,6 +884,7 @@ pub fn generate(seed: u32) -> Map {
         ankhs: vec![],
         buildings: vec![],
         pois: vec![],
+        roads: vec![],
         pf_g: vec![0.0; N],
         pf_par: vec![-1; N],
         pf_stamp: vec![0; N],
@@ -1076,21 +1086,38 @@ pub fn generate(seed: u32) -> Map {
 
     // --- roads from the town gates
     let (x0, y0, x1, y1) = m.town;
-    m.carve_road((x1, y0 + 13), (grave.0 - 2, grave.1 + 8), seed ^ 1);
-    m.carve_road((x0, y0 + 13), (orcs.0 + 6, orcs.1 - 8), seed ^ 2);
-    m.carve_road(((x0 + x1) / 2, y0), (hills.0 + 8, hills.1 + 8), seed ^ 3);
-    m.carve_road(((x0 + x1) / 2, y1), (lair.0 - 13, lair.1), seed ^ 4);
-    m.carve_road((lair.0 - 13, lair.1), (lair.0 - 7, lair.1), seed ^ 5);
+    for (a, b, sd, to) in [
+        ((x1, y0 + 13), (grave.0 - 2, grave.1 + 8), 1, "graveyard"),
+        ((x0, y0 + 13), (orcs.0 + 6, orcs.1 - 8), 2, "orcs"),
+        (((x0 + x1) / 2, y0), (hills.0 + 8, hills.1 + 8), 3, "hills"),
+        (((x0 + x1) / 2, y1), (lair.0 - 13, lair.1), 4, "lair"),
+    ] {
+        let tiles = m.carve_road(a, b, seed ^ sd);
+        m.roads.push(Road {
+            from: "town",
+            to,
+            tiles,
+        });
+    }
+    let last = m.carve_road((lair.0 - 13, lair.1), (lair.0 - 7, lair.1), seed ^ 5);
+    if let Some(r) = m.roads.last_mut() {
+        r.tiles.extend(last.into_iter().skip(1));
+    }
     // and from the city's gates: south to the town, east to the graveyard, west to the hills
     let (cx0, cy0, cx1, cy1) = m.city;
     // each with a guard post halfway
-    for (a, b, sd) in [
-        (((cx0 + cx1) / 2, cy1), ((x0 + x1) / 2, y0), 6),
-        ((cx1, cy0 + 18), (grave.0 - 12, grave.1), 7),
-        ((cx0 - 1, cy0 + 18), (hills.0 + 12, hills.1 + 4), 8),
+    for (a, b, sd, to) in [
+        (((cx0 + cx1) / 2, cy1), ((x0 + x1) / 2, y0), 6, "town"),
+        ((cx1, cy0 + 18), (grave.0 - 12, grave.1), 7, "graveyard"),
+        ((cx0 - 1, cy0 + 18), (hills.0 + 12, hills.1 + 4), 8, "hills"),
     ] {
         let road = m.carve_road(a, b, seed ^ sd);
         m.road_post(&road);
+        m.roads.push(Road {
+            from: "city",
+            to,
+            tiles: road,
+        });
     }
 
     // --- ankh shrines along the roads

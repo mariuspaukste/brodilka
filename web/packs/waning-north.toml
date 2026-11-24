@@ -40,17 +40,26 @@ region = "vathmor"
 strength = 55
 rise = "Cold lights burn brighter over {name}. The dead are rising."
 fall = "Fewer lights over {name} tonight."
+raid = "The dead have left {name}. They walk the road toward {town}!"
+hit = "The dead from {name} came to the farms outside {town}. No one there will speak of the night."
+broken = "The dead that walked from {name} lie still again."
 
 [site.orcs]
 region = "vathmor"
 rise = "Smoke over the south-west: more orcs have come to {name}."
 fall = "{name} has lost many of its orcs. They will be back."
+raid = "Horns in the south-west: a warband marches from {name} on {town}!"
+hit = "Orcs from {name} burned the farms outside {town} and drove off the cattle."
+broken = "The warband from {name} was cut down on the road. Vathmor will hear of it."
 
 [site.hills]
 region = "vathmor"
 strength = 45
 rise = "Drovers on the Northway speak of trolls coming down from {name}."
 fall = "The trolls of {name} keep to their caves."
+raid = "Trolls are coming down from {name} toward {town}!"
+hit = "Trolls from {name} smashed the barns outside {town}."
+broken = "The trolls that came down from {name} will not go back."
 
 [site.lair]
 base = 70

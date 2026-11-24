@@ -181,7 +181,23 @@ alone, it grows back toward the strength of the power behind it, a region
 off the map that drifts stronger or weaker day by day. Crossing a threshold
 posts news to the journal, and townsfolk repeat the latest as rumours. The
 **Chronicle** (C, or the tab beside the map) shows the date, every region
-and place, and the news. All of it is kept in the save.
+and place, trade, who is on the roads, and the news. All of it is kept in
+the save.
+
+The roads carry the world's traffic (`src/game/travel.rs`):
+
+- **Raids.** A place at strength 60 or more sends a warband down its road
+  toward the town, up to twice a day at full strength. It stops short of the
+  guards and burns the outlying farms for a minute and a half; if it lives
+  through that it marches home, the place and its region grow bolder, and
+  trade falls. Cut it down first and the raid is broken: the region is
+  shaken, and the town speaks of the one who did it.
+- **Caravans.** About once a day a merchant and a drover walk from the city
+  to the town; the merchant trades on the road like any provisioner. Each
+  arrival makes trade brisker, and shop prices follow trade, from ×1.3 when
+  it is poor to ×0.7 when brisk. When the wilds are restless, wolves may fall
+  on a caravan on the road: drive them off within a minute (the merchant pays
+  for the help) or the caravan is lost.
 
 A world pack sets this up:
 
@@ -197,9 +213,9 @@ strength = 62
 drift = 4                    # tenths of a point a day
 rise = "{name} gathers its strength."
 
-[site.orcs]                  # graveyard orcs hills lair wilds:
-region = "vathmor"           # name, region, strength, base, regrow, rise, fall
-rise = "More orcs have come to {name}."
+[site.orcs]                  # graveyard orcs hills lair wilds: name, region,
+region = "vathmor"           # strength, base, regrow, rise, fall, and for raids
+rise = "More orcs have come to {name}."   # raid, hit, broken ({town} too)
 ```
 
 ## Build

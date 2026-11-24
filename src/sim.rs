@@ -28,13 +28,25 @@ const SITE_NAMES: [&str; 5] = [
     "Dragon Lair",
     "the wilds",
 ];
+/// how the engine's own world names them in a sentence
+const SITE_PROSE: [&str; 5] = [
+    "the graveyard",
+    "the orc camp",
+    "the troll hills",
+    "the dragon's lair",
+    "the wilds",
+];
 /// Keys a pack may give each section (checked by `data::pack_warnings`).
 pub const SIM_KEYS: [&str; 3] = ["start", "era", "months"];
 /// `drift` is in tenths of a point a day: 5 is half a point a day.
 pub const REGION_KEYS: [&str; 6] = ["name", "strength", "drift", "rise", "fall", "min"];
-pub const SITE_KEYS: [&str; 7] = [
-    "name", "region", "strength", "base", "regrow", "rise", "fall",
+pub const SITE_KEYS: [&str; 10] = [
+    "name", "region", "strength", "base", "regrow", "rise", "fall", "raid", "hit", "broken",
 ];
+/// Sites that send warbands down the road when strong.
+pub const RAIDERS: [usize; 3] = [0, 1, 2];
+/// A site sends raids at or above this strength.
+pub const RAID_AT: f32 = 60.0;
 const MONTHS: [&str; 12] = [
     "January",
     "February",
@@ -89,6 +101,12 @@ pub struct Site {
     pub regrow: f32,
     pub rise: String,
     pub fall: String,
+    /// news lines for its raids: setting out, burning the farms, broken
+    pub raid: String,
+    pub hit: String,
+    pub broken: String,
+    /// seconds before it may raid again
+    pub raid_cool: f32,
     level: i32,
 }
 
@@ -104,6 +122,10 @@ pub struct Sim {
     pub events: Vec<(i64, String)>,
     /// the last day a dawn notice was given
     pub day_seen: i64,
+    /// how well goods move on the roads, 0–100: sets shop prices
+    pub trade: f32,
+    /// seconds until the next caravan sets out
+    pub caravan_t: f32,
 }
 
 /// Strength bands a site moves through; a notice marks each crossing.
@@ -174,7 +196,8 @@ impl Sim {
         let sites = SITE_IDS
             .iter()
             .zip(SITE_NAMES)
-            .map(|(&id, dname)| {
+            .zip(SITE_PROSE)
+            .map(|((&id, dname), prose)| {
                 let sec = format!("site.{id}");
                 let region = p
                     .str(&sec, "region")
@@ -191,7 +214,12 @@ impl Sim {
                         .map(|s| s.to_string())
                         .unwrap_or_else(|| {
                             // the place's own label, as the pack words it
-                            p.tr(dname)
+                            let t = p.tr(dname);
+                            if t == dname {
+                                prose.to_string()
+                            } else {
+                                t
+                            }
                         }),
                     region,
                     strength: s,
@@ -199,6 +227,10 @@ impl Sim {
                     regrow: num(p.get(&sec, "regrow")).unwrap_or(6.0).max(0.0),
                     rise: p.str(&sec, "rise").unwrap_or("").to_string(),
                     fall: p.str(&sec, "fall").unwrap_or("").to_string(),
+                    raid: p.str(&sec, "raid").unwrap_or("").to_string(),
+                    hit: p.str(&sec, "hit").unwrap_or("").to_string(),
+                    broken: p.str(&sec, "broken").unwrap_or("").to_string(),
+                    raid_cool: DAY * 0.5,
                     level: level_of(s),
                 }
             })
@@ -211,6 +243,8 @@ impl Sim {
             sites,
             events: vec![],
             day_seen: 0,
+            trade: 50.0,
+            caravan_t: DAY * 0.25,
         }
     }
 
@@ -260,6 +294,12 @@ impl Sim {
         let day = Sim::day(time);
         for r in self.regions.iter_mut() {
             r.strength = (r.strength + r.drift * f).clamp(r.min, 100.0);
+        }
+        // trade settles back toward middling, two points a day
+        self.trade += (50.0 - self.trade).clamp(-2.0 * f, 2.0 * f);
+        self.caravan_t -= dt;
+        for s in self.sites.iter_mut() {
+            s.raid_cool -= dt;
         }
         for k in 0..self.sites.len() {
             let target = match self.sites[k].region {
@@ -345,6 +385,82 @@ impl Sim {
         }
     }
 
+    /// Whether a strong site sends a warband now (`roll` in 0..1). A site at
+    /// full strength raids about twice a day; once a raid ends it rests half a
+    /// day.
+    pub fn raid_due(&mut self, dt: f32, roll: f32) -> Option<usize> {
+        for &k in RAIDERS.iter() {
+            let s = &self.sites[k];
+            if s.strength < RAID_AT || s.raid_cool > 0.0 {
+                continue;
+            }
+            let per_day = 0.5 + 1.5 * (s.strength - RAID_AT) / (100.0 - RAID_AT);
+            if roll < per_day * dt / DAY {
+                self.sites[k].raid_cool = DAY * 0.5;
+                return Some(k);
+            }
+        }
+        None
+    }
+    fn after_raid(&mut self, k: usize) {
+        self.sites[k].raid_cool = DAY * 0.5;
+    }
+    /// A raid burned the farms: trade falls, the site and its region gain.
+    pub fn raid_hit(&mut self, k: usize, day: i64, news: String) -> Vec<String> {
+        self.after_raid(k);
+        self.trade = (self.trade - 15.0).max(0.0);
+        self.sites[k].strength = (self.sites[k].strength + 8.0).min(100.0);
+        if let Some(r) = self.sites[k].region {
+            self.regions[r].strength = (self.regions[r].strength + 3.0).min(100.0);
+        }
+        let mut out = vec![];
+        self.note(day, news, &mut out);
+        self.check(day, &mut out);
+        out
+    }
+    /// A raid was destroyed before it could do harm.
+    pub fn raid_broken(&mut self, k: usize, day: i64, news: String) -> Vec<String> {
+        self.after_raid(k);
+        self.trade = (self.trade + 3.0).min(100.0);
+        if let Some(r) = self.sites[k].region {
+            let r = &mut self.regions[r];
+            r.strength = (r.strength - 4.0).max(r.min);
+        }
+        let mut out = vec![];
+        self.note(day, news, &mut out);
+        self.check(day, &mut out);
+        out
+    }
+    /// A caravan came in (trade rises) or was lost (trade falls).
+    pub fn caravan(&mut self, arrived: bool, day: i64, news: String) -> Vec<String> {
+        self.trade = if arrived {
+            (self.trade + 12.0).min(100.0)
+        } else {
+            (self.trade - 10.0).max(0.0)
+        };
+        let mut out = vec![];
+        self.note(day, news, &mut out);
+        out
+    }
+    /// Shop prices for this much trade: scarce goods cost more, and fetch more.
+    pub fn price_factor(&self) -> f32 {
+        1.3 - 0.6 * self.trade / 100.0
+    }
+    pub fn trade_word(&self) -> &'static str {
+        match self.trade {
+            t if t < 20.0 => "poor",
+            t if t < 40.0 => "lean",
+            t if t < 65.0 => "steady",
+            _ => "brisk",
+        }
+    }
+    /// Post a line of news (also used for raids setting out).
+    pub fn news(&mut self, day: i64, s: String) -> Vec<String> {
+        let mut out = vec![];
+        self.note(day, s, &mut out);
+        out
+    }
+
     /// How many of a site's creatures may roam, for a spawner made for `base`
     /// at middling strength. A lone boss stays alone; it only leaves when the
     /// site is nearly cleared.
@@ -405,6 +521,19 @@ impl Sim {
                     .join("~"),
             ),
             ("sim_day", self.day_seen.to_string()),
+            (
+                "sim_trade",
+                format!(
+                    "{}:{}:{}",
+                    f(self.trade),
+                    f(self.caravan_t),
+                    self.sites
+                        .iter()
+                        .map(|s| f(s.raid_cool))
+                        .collect::<Vec<_>>()
+                        .join(",")
+                ),
+            ),
         ]
     }
     pub fn load_line(&mut self, k: &str, v: &str) -> bool {
@@ -449,6 +578,22 @@ impl Sim {
                 self.events.drain(..n.saturating_sub(KEEP));
             }
             "sim_day" => self.day_seen = v.parse().unwrap_or(0),
+            "sim_trade" => {
+                let mut it = v.split(':');
+                self.trade = it
+                    .next()
+                    .and_then(|x| x.parse().ok())
+                    .unwrap_or(50.0f32)
+                    .clamp(0.0, 100.0);
+                self.caravan_t = it.next().and_then(|x| x.parse().ok()).unwrap_or(DAY * 0.25);
+                for (s, c) in self
+                    .sites
+                    .iter_mut()
+                    .zip(it.next().unwrap_or("").split(','))
+                {
+                    s.raid_cool = c.parse().unwrap_or(0.0);
+                }
+            }
             _ => return false,
         }
         true

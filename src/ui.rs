@@ -487,7 +487,7 @@ impl Game {
                     ("📖", "Spells need reagents and mana. Buy scrolls from the mage to learn more."),
                     ("☠️", "Death leaves thy belongings on thy corpse. Find a healer or an ankh, then go back for them."),
                     ("🛡️", "Town guards slay any monster that enters the town."),
-                    ("📜", "The world moves without thee: the Chronicle (C, or the radar) tells the date, how strong each dark place is, and the news. Slay its creatures and it weakens; leave it and it grows back."),
+                    ("📜", "The world moves without thee: the Chronicle (C, or the radar) tells the date, how strong each dark place is, and the news. Slay its creatures and it weakens; leave it and it grows back. Strong places raid the farms; caravans bring cheaper goods."),
                     ("🐎", "The stablemaster east of town sells horses. Tap thy horse to mount, tap thyself to get down; riding is fast, but a heavy blow throws thee."),
                     ("🛡️", "In war mode hold BLOCK to catch blows; KICK shoves a foe back and may floor it. Heavy blows can knock thee down."),
                     ("⌨️", "Keys: WASD/arrows move · Tab war · Space block · F kick · B bandage · P pack · K skills · E mount · C chronicle · 1-9 cast · Esc close"),
@@ -512,6 +512,22 @@ impl Game {
                     let mut row = Row::new("🏴", &cap_first(&r.name), BANDS[b]);
                     row.bar = r.strength / 100.0;
                     w.rows.push(row);
+                }
+                let mut row = Row::new(
+                    "⚖️",
+                    "Trade on the roads",
+                    &format!("{} · prices ×{:.2}", sim.trade_word(), sim.price_factor()),
+                );
+                row.bar = sim.trade / 100.0;
+                w.rows.push(row);
+                for (icon, what, (x, y)) in self.travel_rows() {
+                    let (dx, dy) = (x - p.x, y - p.y);
+                    let d = (dx * dx + dy * dy).sqrt();
+                    w.rows.push(Row::new(
+                        icon,
+                        &what,
+                        &format!("{} paces {}", d as i32, dir_name(dx, dy)),
+                    ));
                 }
                 const ICONS: [&str; 5] = ["🪦", "⛺", "🪨", "🐉", "🌲"];
                 const LABELS: [&str; 5] =
@@ -634,18 +650,21 @@ impl Game {
                         .push(("Sell".into(), format!("vendor:{}:sell", id), sell));
                 }
                 w.head.push(format!("🪙 Thou hast {} gold", pl.gold));
+                w.head
+                    .push(format!("Trade on the roads is {}.", self.sim.trade_word()));
                 if !sell {
                     for sid in vd.sells {
                         let ix = item_idx(sid);
                         let d = &ITEMS[ix];
-                        let mut sub = format!("{} gp", d.price);
+                        let price = self.buy_price(d);
+                        let mut sub = format!("{} gp", price);
                         if d.k == K::Weapon {
                             sub = format!(
                                 "{} gp · {} {}–{}",
-                                d.price, SKILL_NAME[d.skill], d.dmg.0, d.dmg.1
+                                price, SKILL_NAME[d.skill], d.dmg.0, d.dmg.1
                             );
                         } else if d.k == K::Armor || d.k == K::Shield {
-                            sub = format!("{} gp · armor {}", d.price, d.ar);
+                            sub = format!("{} gp · armor {}", price, d.ar);
                         } else if d.k == K::Scroll && pl.spells & (1 << d.spell) != 0 {
                             sub.push_str(" · known");
                         } else if d.k == K::Mount {
@@ -656,7 +675,7 @@ impl Game {
                         if d.stack {
                             r = r.btn("×10", &format!("buy:{}:10", sid));
                         }
-                        r.dim = pl.gold < d.price as i64;
+                        r.dim = pl.gold < price as i64;
                         w.rows.push(r);
                     }
                 } else {
@@ -666,7 +685,7 @@ impl Game {
                         if vd.buys.contains(&d.k) || vd.buys_ids.contains(&d.id) {
                             any = true;
                             let mut r = self.item_row(it);
-                            r.sub = format!("{} gp each", it.sell_price());
+                            r.sub = format!("{} gp each", self.sell_for(it));
                             r = r.btn("Sell 1", &format!("sell:{}:1", k));
                             if it.qty > 1 {
                                 r = r.btn("All", &format!("sell:{}:{}", k, it.qty));
@@ -953,7 +972,7 @@ impl Game {
             return;
         }
         let n = if d.stack { n } else { 1 };
-        let cost = d.price as i64 * n as i64;
+        let cost = self.buy_price(d) as i64 * n as i64;
         if self.pl.gold < cost {
             self.msg("Thou canst not afford that.", C_WARN);
             return;
@@ -986,7 +1005,7 @@ impl Game {
             return;
         }
         let n = n.min(it.qty);
-        let gold = it.sell_price() as i64 * n as i64;
+        let gold = self.sell_for(&it) as i64 * n as i64;
         self.pl.pack[k].qty -= n;
         if self.pl.pack[k].qty == 0 {
             self.pl.pack.remove(k);
