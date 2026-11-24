@@ -74,6 +74,9 @@ impl Game {
         kv("mana", p.mana.to_string());
         kv("time", (self.time as i64).to_string());
         kv("zoom", format!("{:.3}", self.zoom_mul));
+        for (k, v) in self.sim.save_lines() {
+            kv(k, v);
+        }
         kv("pack", items_str(&pl.pack));
         kv("bank", items_str(&pl.bank));
         kv(
@@ -120,6 +123,9 @@ impl Game {
             let Some((k, v)) = line.split_once('=') else {
                 continue;
             };
+            if self.sim.load_line(k, v) {
+                continue;
+            }
             let nums = |v: &str| {
                 v.split(',')
                     .map(|x| x.trim().parse::<i32>().unwrap_or(0))

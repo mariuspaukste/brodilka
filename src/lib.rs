@@ -8,6 +8,7 @@ pub mod pack;
 pub mod render;
 mod rng;
 pub mod save;
+pub mod sim;
 pub mod tex;
 pub mod ui;
 pub mod uiart;

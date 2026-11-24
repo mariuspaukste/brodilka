@@ -13,6 +13,55 @@ name = "The Waning North"
 subtitle = "The last age of the kingdom of Ardun"
 seed = 640
 
+# ------------------------------------------------------------------ the living world
+# The calendar, the power beyond the map and the dark places on it. Each
+# place has a strength 0-100: it sets how many of its creatures roam. Slaying
+# them weakens the place and, a little, the power behind it; left alone, a
+# place grows back toward that power's strength. drift is tenths of a point
+# a day, so Vathmor gains a point every two and a half days.
+[sim]
+start = "640-03-01"
+era = "W.Y."
+months = [
+  "Frostmonth", "Snowmonth", "Thawmonth", "Seedmonth", "Bloommonth", "Hayingmonth",
+  "Midsummer", "Harvestmonth", "Reapmonth", "Leafturn", "Bloodmonth", "Yulemonth",
+]
+
+[region.vathmor]
+name = "the Witch-realm of Vathmor"
+strength = 62
+drift = 4
+min = 20
+rise = "Riders bring word: {name} gathers its strength in the north."
+fall = "The Roadwardens say {name} is shaken. Its fires burn lower on the fells."
+
+[site.graveyard]
+region = "vathmor"
+strength = 55
+rise = "Cold lights burn brighter over {name}. The dead are rising."
+fall = "Fewer lights over {name} tonight."
+
+[site.orcs]
+region = "vathmor"
+rise = "Smoke over the south-west: more orcs have come to {name}."
+fall = "{name} has lost many of its orcs. They will be back."
+
+[site.hills]
+region = "vathmor"
+strength = 45
+rise = "Drovers on the Northway speak of trolls coming down from {name}."
+fall = "The trolls of {name} keep to their caves."
+
+[site.lair]
+base = 70
+regrow = 3
+rise = "The ground shakes in the south-east. The drake stirs in {name}."
+
+[site.wilds]
+base = 45
+rise = "Wolves howl close to the hedge at night."
+fall = "The woods are quieter. Game is easier to find."
+
 # ------------------------------------------------------------------ creatures
 [mon.rabbit]
 name = "a coney"

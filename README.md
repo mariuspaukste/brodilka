@@ -170,6 +170,38 @@ stats, damage, prices, the map's layout — stay the engine's; a pack changes
 names, words, colours and the seed. `src/pack.rs` has the format and parser, and
 `cargo run --example pack_check -- my-world.toml` checks a pack.
 
+## The living world
+
+The world goes on without the player (`src/sim.rs`). A calendar runs with
+the day cycle, one day per six periods. Each hostile place on the map
+(graveyard, orc camp, troll hills, the lair and the wilds) has a strength
+from 0 to 100 that sets how many of its creatures roam and how quickly they
+return. Slaying them weakens the place, and clearing it empties it; left
+alone, it grows back toward the strength of the power behind it, a region
+off the map that drifts stronger or weaker day by day. Crossing a threshold
+posts news to the journal, and townsfolk repeat the latest as rumours. The
+**Chronicle** (C, or the tab beside the map) shows the date, every region
+and place, and the news. All of it is kept in the save.
+
+A world pack sets this up:
+
+```toml
+[sim]
+start = "640-03-01"          # year-month-day; months are 30 days
+era = "W.Y."
+months = ["Frostmonth", …]   # all twelve
+
+[region.vathmor]             # any id: name, strength, drift, min, rise, fall
+name = "the Witch-realm of Vathmor"
+strength = 62
+drift = 4                    # tenths of a point a day
+rise = "{name} gathers its strength."
+
+[site.orcs]                  # graveyard orcs hills lair wilds:
+region = "vathmor"           # name, region, strength, base, regrow, rise, fall
+rise = "More orcs have come to {name}."
+```
+
 ## Build
 
 ```sh

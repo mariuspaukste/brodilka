@@ -955,6 +955,7 @@ window.addEventListener('keydown', (e) => {
   else if (k === 'KeyP' || k === 'KeyI') cmd('toggle:pack');
   else if (k === 'KeyK') cmd('toggle:skills');
   else if (k === 'KeyM') cmd('toggle:map');
+  else if (k === 'KeyC') cmd('toggle:chronicle');
   else if (k === 'KeyJ') cmd('toggle:journal');
   else if (k === 'KeyH') cmd('potion');
   else if (k === 'KeyR') cmd('lastspell');

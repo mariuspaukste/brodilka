@@ -11,6 +11,8 @@ pub const C_WARN: u32 = 0xff7a66ff;
 pub const C_GOOD: u32 = 0x9cf09cff;
 pub const C_GOLD: u32 = 0xffd35aff;
 pub const C_SPELL: u32 = 0xa9c8ffff;
+/// news of the wider world, from the simulation
+pub const C_LORE: u32 = 0xe0b878ff;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Item {
@@ -324,6 +326,8 @@ pub enum Win {
     Journal,
     Help,
     Map,
+    /// the date, the powers beyond the map, its hostile places and the news
+    Chronicle,
     Vendor(u32, bool),
     Bank,
     Loot(u32),
@@ -380,6 +384,8 @@ pub struct Decal {
 
 pub struct Spawner {
     pub mon: usize,
+    /// the place it belongs to in the world simulation (`sim::SITE_IDS`)
+    pub site: usize,
     pub x: i32,
     pub y: i32,
     pub r: i32,
@@ -604,6 +610,8 @@ pub struct Game {
     pub floats: Vec<Float>,
     pub decals: Vec<Decal>,
     pub spawners: Vec<Spawner>,
+    /// the living world: calendar, powers and places (see `sim.rs`)
+    pub sim: crate::sim::Sim,
     pub journal: VecDeque<(u32, String, u32)>,
     pub jid: u32,
     pub time: f32,
@@ -655,6 +663,7 @@ impl Game {
             floats: vec![],
             decals: vec![],
             spawners: vec![],
+            sim: crate::sim::Sim::new(crate::pack::get()),
             journal: VecDeque::new(),
             jid: 0,
             time: 60.0,
@@ -710,6 +719,7 @@ impl Game {
         for (m, x, y, r, max) in sp {
             g.spawners.push(Spawner {
                 mon: mon_idx(m),
+                site: crate::sim::site_of(m),
                 x,
                 y,
                 r,
@@ -718,7 +728,8 @@ impl Game {
             });
         }
         for si in 0..g.spawners.len() {
-            for _ in 0..g.spawners[si].max {
+            let s = &g.spawners[si];
+            for _ in 0..g.sim.cap(s.site, s.max) {
                 g.spawn(si);
             }
         }
@@ -1050,6 +1061,7 @@ impl Game {
         }
         self.time += dt;
         self.map.tick(dt);
+        self.world_tick(dt);
         self.player_input(dt);
         self.player_tick(dt);
         let n = self.ents.len();
@@ -1118,9 +1130,10 @@ impl Game {
         for si in 0..self.spawners.len() {
             self.spawners[si].t -= dt;
             if self.spawners[si].t <= 0.0 {
-                self.spawners[si].t = 25.0 + self.rng.f() * 20.0;
+                let (site, max) = (self.spawners[si].site, self.spawners[si].max);
+                self.spawners[si].t = (25.0 + self.rng.f() * 20.0) * self.sim.pace(site);
                 let alive = self.ents.iter().filter(|e| e.spawner == si as i32).count();
-                if alive < self.spawners[si].max {
+                if alive < self.sim.cap(site, max) {
                     self.spawn(si);
                 }
             }
@@ -1720,6 +1733,9 @@ impl Game {
         };
         let d = &MONS[mi];
         self.ents[i].dead = true;
+        for n in self.sim.slain(d.id, d.fame, self.time) {
+            self.msg(&n, C_LORE);
+        }
         let (x, y) = self.ents[i].tile();
         let mut items = vec![];
         let gold = if d.gold.1 > 0 {
@@ -1893,6 +1909,20 @@ impl Game {
     }
 
     // ------------------------------------------------------------ NPCs
+    /// The world beyond the player: advance the simulation, greet each dawn
+    /// and post its news to the journal.
+    fn world_tick(&mut self, dt: f32) {
+        for n in self.sim.tick(dt, self.time) {
+            self.msg(&n, C_LORE);
+        }
+        let day = crate::sim::Sim::day(self.time);
+        if day > self.sim.day_seen {
+            self.sim.day_seen = day;
+            let d = self.sim.date_str(day);
+            self.msg(&format!("Dawn of the {d}."), C_LORE);
+        }
+    }
+
     fn npc_tick(&mut self, i: usize, v: usize, dt: f32) {
         self.move_ent(i, 2.0, dt);
         let e = &mut self.ents[i];
@@ -1903,8 +1933,17 @@ impl Game {
         e.ai_t = 3.0 + self.rng.f() * 6.0;
         let pd = self.ents[0].dist(self.ents[i].x, self.ents[i].y);
         if pd < 6.0 && self.rng.chance(0.3) {
-            let line = *self.rng.pick(VENDORS[v].chatter);
-            self.ents[i].talk(line, 0xffffffff);
+            // the gossips pass on what has happened lately in the wider world
+            let day = crate::sim::Sim::day(self.time);
+            let pick = self.rng.next_u32();
+            let rumour = match v {
+                V_GUARD | V_FOLK | V_BARKEEP | V_LORD if self.rng.chance(0.4) => {
+                    self.sim.rumour(day, pick).map(|s| s.to_string())
+                }
+                _ => None,
+            };
+            let line = rumour.unwrap_or_else(|| self.rng.pick(VENDORS[v].chatter).to_string());
+            self.ents[i].talk(&line, 0xffffffff);
         }
         // wander a little around home
         let (hx, hy) = self.ents[i].home;
@@ -3787,6 +3826,72 @@ mod tests {
     }
 
     #[test]
+    fn clearing_a_camp_empties_it_until_it_grows_back() {
+        let mut g = Game::new(7);
+        g.create("Sim", false, 0, "warrior", [0, 0, 0]);
+        let orcs: Vec<usize> = (0..g.spawners.len())
+            .filter(|&s| g.spawners[s].site == 1)
+            .collect();
+        assert!(!orcs.is_empty());
+        let alive = |g: &Game| {
+            g.ents
+                .iter()
+                .filter(|e| !e.dead && orcs.contains(&(e.spawner as usize)) && e.spawner >= 0)
+                .count()
+        };
+        assert!(alive(&g) > 0);
+        // slay every orc, again and again, until the camp is spent
+        for _ in 0..30 {
+            let ids: Vec<usize> = (0..g.ents.len())
+                .filter(|&i| !g.ents[i].dead && orcs.contains(&(g.ents[i].spawner as usize)))
+                .collect();
+            for i in ids {
+                if g.ents[i].spawner >= 0 {
+                    g.kill_mon(i, true);
+                }
+            }
+            g.ents.retain(|e| !e.dead || e.k == EK::Player);
+            if g.sim.sites[1].strength <= 0.0 {
+                break;
+            }
+            for k in &orcs {
+                g.spawn(*k);
+            }
+        }
+        assert_eq!(g.sim.sites[1].strength, 0.0);
+        assert!(g.journal.iter().any(|(_, t, _)| t.contains("lies empty")));
+        // a minute later nothing has come back
+        for _ in 0..(60 * 30) {
+            g.update(1.0 / 30.0);
+        }
+        assert_eq!(alive(&g), 0, "an emptied camp stays empty for a while");
+        // the camp is kept in the save
+        let s = g.save();
+        let mut h = Game::new(7);
+        assert!(h.load(&s));
+        assert!((h.sim.sites[1].strength - g.sim.sites[1].strength).abs() < 0.01);
+        // days pass: it regrows, and orcs return
+        g.time += crate::sim::DAY * 6.0;
+        g.world_tick(crate::sim::DAY * 6.0);
+        for _ in 0..(120 * 30) {
+            g.update(1.0 / 30.0);
+        }
+        assert!(
+            g.sim.sites[1].strength > 20.0,
+            "{}",
+            g.sim.sites[1].strength
+        );
+        assert!(alive(&g) > 0);
+        assert!(g
+            .journal
+            .iter()
+            .any(|(_, t, _)| t.starts_with("Dawn of the")));
+        g.ui_cmd("open:chronicle");
+        let u = g.ui_json();
+        assert!(u.contains("Chronicle") && u.contains("Orc Camp"), "{u}");
+    }
+
+    #[test]
     fn render_and_ui_do_not_panic() {
         let mut g = Game::new(42);
         g.w = 390.0;
@@ -3805,6 +3910,7 @@ mod tests {
             Win::Craft,
             Win::Res,
             Win::Map,
+            Win::Chronicle,
         ] {
             g.win = w;
             let j = g.ui_json();

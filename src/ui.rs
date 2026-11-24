@@ -158,6 +158,14 @@ impl WinJ {
     }
 }
 
+fn cap_first(s: &str) -> String {
+    let mut c = s.chars();
+    match c.next() {
+        Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+        None => String::new(),
+    }
+}
+
 fn dir_name(dx: f32, dy: f32) -> &'static str {
     // tile axes are rotated 45° on screen: screen-up = (-1,-1)
     let sx = dx - dy;
@@ -479,16 +487,70 @@ impl Game {
                     ("📖", "Spells need reagents and mana. Buy scrolls from the mage to learn more."),
                     ("☠️", "Death leaves thy belongings on thy corpse. Find a healer or an ankh, then go back for them."),
                     ("🛡️", "Town guards slay any monster that enters the town."),
+                    ("📜", "The world moves without thee: the Chronicle (C, or the radar) tells the date, how strong each dark place is, and the news. Slay its creatures and it weakens; leave it and it grows back."),
                     ("🐎", "The stablemaster east of town sells horses. Tap thy horse to mount, tap thyself to get down; riding is fast, but a heavy blow throws thee."),
                     ("🛡️", "In war mode hold BLOCK to catch blows; KICK shoves a foe back and may floor it. Heavy blows can knock thee down."),
-                    ("⌨️", "Keys: WASD/arrows move · Tab war · Space block · F kick · B bandage · P pack · K skills · E mount · 1-9 cast · Esc close"),
+                    ("⌨️", "Keys: WASD/arrows move · Tab war · Space block · F kick · B bandage · P pack · K skills · E mount · C chronicle · 1-9 cast · Esc close"),
                 ] {
                     w.rows.push(Row::new(i, t, ""));
                 }
                 w
             }
+            Win::Chronicle => {
+                use crate::sim::{Sim, LEVELS};
+                let sim = &self.sim;
+                let day = Sim::day(self.time);
+                let mut w = WinJ::new("map", "Chronicle");
+                w.tabs.push(("Places".into(), "open:map".into(), false));
+                w.tabs
+                    .push(("Chronicle".into(), "open:chronicle".into(), true));
+                w.head
+                    .push(format!("{} · {}", sim.date_str(day), sim.season(day)));
+                const BANDS: [&str; 4] = ["weak", "holding", "strong", "mighty"];
+                for r in sim.regions.iter() {
+                    let b = (r.strength / 25.0).floor().clamp(0.0, 3.0) as usize;
+                    let mut row = Row::new("🏴", &cap_first(&r.name), BANDS[b]);
+                    row.bar = r.strength / 100.0;
+                    w.rows.push(row);
+                }
+                const ICONS: [&str; 5] = ["🪦", "⛺", "🪨", "🐉", "🌲"];
+                const LABELS: [&str; 5] =
+                    ["Graveyard", "Orc Camp", "Troll Hills", "Dragon Lair", ""];
+                for (k, s) in sim.sites.iter().enumerate() {
+                    let lv = LEVELS[match s.strength {
+                        v if v < 5.0 => 0,
+                        v if v < 25.0 => 1,
+                        v if v < 55.0 => 2,
+                        v if v < 80.0 => 3,
+                        _ => 4,
+                    }];
+                    let at = self.map.pois.iter().find(|(n, _, _)| *n == LABELS[k]);
+                    let sub = match at {
+                        Some((_, x, y)) => {
+                            let (dx, dy) = (*x as f32 - p.x, *y as f32 - p.y);
+                            let d = (dx * dx + dy * dy).sqrt();
+                            format!("{lv} · {} paces {}", d as i32, dir_name(dx, dy))
+                        }
+                        None => lv.to_string(),
+                    };
+                    let mut row = Row::new(ICONS[k], &cap_first(&s.name), &sub);
+                    row.bar = s.strength / 100.0;
+                    row.dim = s.strength < 5.0;
+                    w.rows.push(row);
+                }
+                if sim.events.is_empty() {
+                    w.rows.push(Row::new("📜", "No news yet.", ""));
+                }
+                for (d, t) in sim.events.iter().rev() {
+                    w.rows.push(Row::new("📜", t, &sim.date_str(*d)));
+                }
+                w
+            }
             Win::Map => {
                 let mut w = WinJ::new("map", "Places of note");
+                w.tabs.push(("Places".into(), "open:map".into(), true));
+                w.tabs
+                    .push(("Chronicle".into(), "open:chronicle".into(), false));
                 for (name, x, y) in self.map.pois.iter() {
                     let (dx, dy) = (*x as f32 - p.x, *y as f32 - p.y);
                     let d = (dx * dx + dy * dy).sqrt();
@@ -729,6 +791,7 @@ impl Game {
                     "journal" => Win::Journal,
                     "help" => Win::Help,
                     "map" => Win::Map,
+                    "chronicle" => Win::Chronicle,
                     "bank" => {
                         if self.near_npc(V_BANKER) {
                             self.tab = 0;
@@ -748,6 +811,7 @@ impl Game {
                     "paperdoll" => Win::Paperdoll,
                     "journal" => Win::Journal,
                     "map" => Win::Map,
+                    "chronicle" => Win::Chronicle,
                     _ => Win::Help,
                 };
                 self.win = if self.win == w { Win::None } else { w };

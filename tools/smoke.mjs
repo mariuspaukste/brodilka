@@ -61,7 +61,7 @@ for (const t of ['warrior', 'mage', 'blacksmith', 'woodsman']) {
   }
   const hud = JSON.parse(out(ex.hud_json()));
   if (!hud.created || hud.name !== 'Smoke') fail('hud after create');
-  for (const w of ['pack', 'skills', 'spells', 'paperdoll', 'journal', 'help', 'map']) {
+  for (const w of ['pack', 'skills', 'spells', 'paperdoll', 'journal', 'help', 'map', 'chronicle']) {
     cmd(`open:${w}`);
     const u = JSON.parse(out(ex.ui_json()));
     if (!u.win || !Array.isArray(u.win.rows)) fail(`window ${w}`);

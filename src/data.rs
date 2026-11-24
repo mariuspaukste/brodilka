@@ -1538,7 +1538,8 @@ pub fn templates_for(p: &Pack) -> Vec<Template> {
 
 /// What in a pack the engine will not use: unknown ids, sections and keys.
 pub fn pack_warnings(p: &Pack) -> Vec<String> {
-    let known: [(&str, Vec<&str>, &[&str]); 5] = [
+    use crate::sim::{REGION_KEYS, SIM_KEYS, SITE_IDS, SITE_KEYS};
+    let known: [(&str, Vec<&str>, &[&str]); 6] = [
         (
             "mon",
             MONS_DEF.iter().map(|d| d.id).collect(),
@@ -1564,20 +1565,52 @@ pub fn pack_warnings(p: &Pack) -> Vec<String> {
             VENDOR_IDS.to_vec(),
             &["title", "names", "chatter", "robe"],
         ),
+        ("site", SITE_IDS.to_vec(), &SITE_KEYS),
     ];
     let mut w = vec![];
     for sec in p.sections.keys() {
         let (kind, id) = sec.split_once('.').unwrap_or((sec.as_str(), ""));
-        if id.is_empty() {
+        // [sim] and any [region.<id>] have keys to check but no fixed ids
+        let free: Option<&[&str]> = match (kind, id) {
+            ("sim", "") => Some(&SIM_KEYS),
+            ("region", r) if !r.is_empty() => Some(&REGION_KEYS),
+            _ => None,
+        };
+        if id.is_empty() && free.is_none() {
             if !matches!(kind, "pack" | "text" | "words") {
                 w.push(format!("[{sec}] is not a section the engine reads"));
             }
             continue;
         }
-        let Some((_, ids, keys)) = known.iter().find(|(k, _, _)| *k == kind) else {
-            w.push(format!("[{sec}] is not a section the engine reads"));
-            continue;
+        let (ids, keys): (Vec<&str>, &[&str]) = match free {
+            Some(keys) => (vec![id], keys),
+            None => match known.iter().find(|(k, _, _)| *k == kind) {
+                Some((_, ids, keys)) => (ids.clone(), keys),
+                None => {
+                    w.push(format!("[{sec}] is not a section the engine reads"));
+                    continue;
+                }
+            },
         };
+        if kind == "site" {
+            if let Some(r) = p.str(sec, "region") {
+                if !p.sections.contains_key(&format!("region.{r}")) {
+                    w.push(format!("[{sec}] region: no [region.{r}] in this pack"));
+                }
+            }
+        }
+        if kind == "sim" {
+            if let Some(d) = p.str(sec, "start") {
+                if crate::sim::parse_date(d).is_none() {
+                    w.push(format!(
+                        "[sim] start: \"{d}\" is not a date like \"640-03-01\""
+                    ));
+                }
+            }
+            if p.strs(sec, "months").is_some_and(|m| m.len() != 12) {
+                w.push("[sim] months: needs all twelve".into());
+            }
+        }
         if !ids.contains(&id) {
             w.push(format!("[{sec}]: no {kind} with id \"{id}\""));
             continue;
