@@ -207,7 +207,7 @@ impl Game {
             ""
         };
         format!(
-            "{{\"created\":{},\"name\":{},\"hp\":{},\"mhp\":{},\"mana\":{},\"mmana\":{},\"gold\":{},\"war\":{},\"ghost\":{},\"tgt\":{},\"act\":{},\"last\":{},\"targeting\":{},\"band\":{},\"pot\":{},\"night\":{},\"blocking\":{},\"down\":{},\"j\":{}}}",
+            "{{\"created\":{},\"name\":{},\"hp\":{},\"mhp\":{},\"mana\":{},\"mmana\":{},\"gold\":{},\"war\":{},\"ghost\":{},\"tgt\":{},\"act\":{},\"last\":{},\"targeting\":{},\"band\":{},\"pot\":{},\"night\":{},\"period\":{},\"blocking\":{},\"down\":{},\"j\":{}}}",
             self.created,
             esc(&self.pl.name),
             p.hp.max(0),
@@ -224,6 +224,7 @@ impl Game {
             self.pl.count(item_idx("bandage")),
             self.pl.count(item_idx("healpotion")),
             self.is_night(),
+            esc(self.period()),
             self.pl.blocking,
             p.down_t > 0.0,
             j
@@ -512,6 +513,7 @@ impl Game {
                 if v == V_BANKER {
                     w.foot("Bank box", "open:bank");
                 }
+                w.foot("Bye", "close");
                 w
             }
             Win::Vendor(id, sell) => {

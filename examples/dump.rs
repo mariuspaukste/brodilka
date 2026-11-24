@@ -113,6 +113,11 @@ fn main() {
         g.update(1.0 / 30.0);
     }
     dump(&mut g, &dir, "vendor");
+    g.arrive(brodilka::game::Pending::Talk(sid));
+    for _ in 0..3 {
+        g.update(1.0 / 30.0);
+    }
+    dump(&mut g, &dir, "talk");
     g.win = Win::None;
     // graveyard fight
     tp(&mut g, 116, 40);

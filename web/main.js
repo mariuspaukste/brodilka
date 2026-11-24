@@ -375,6 +375,46 @@ function present(U, F, S) {
   tctx.setTransform(1, 0, 0, 1, 0, 0);
   tctx.clearRect(0, 0, lw, lh);
   drawTexts(tctx, texts);
+  drawCursor(tctx);
+}
+
+// ------------------------------------------------------------------ Pagan's direction cursor
+// With a mouse, the pointer is an arrow pointing away from the avatar. Like
+// Pagan's, it comes in three lengths: short (careful step), medium (walk) and
+// long (run), set by how far the pointer is from the avatar.
+const fineMouse = window.matchMedia && matchMedia('(pointer: fine)').matches;
+let mouseAt = null;
+if (fineMouse) document.body.classList.add('arrowcursor');
+function drawCursor(c) {
+  if (!fineMouse || !mouseAt || !ex || !ex.avatar_sx || !$('create').classList.contains('hidden')) return;
+  const ax = ex.avatar_sx(), ay = ex.avatar_sy();
+  const mx = mouseAt[0], my = mouseAt[1];
+  const dx = mx - ax, dy = my - ay;
+  const d = Math.hypot(dx, dy);
+  // eight directions, as the avatar can face
+  const a = Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) * (Math.PI / 4);
+  const len = d < 50 ? 5 : d < 140 ? 10 : 16;
+  const X = Math.round(mx / pix), Y = Math.round(my / pix);
+  const ux = Math.cos(a), uy = Math.sin(a), px = -uy, py = ux;
+  const tail = [X - ux * len, Y - uy * len];
+  const pts = [
+    [X, Y],
+    [X - ux * 5 + px * 3.5, Y - uy * 5 + py * 3.5],
+    [X - ux * 5 + px * 1.2, Y - uy * 5 + py * 1.2],
+    [tail[0] + px * 1.2, tail[1] + py * 1.2],
+    [tail[0] - px * 1.2, tail[1] - py * 1.2],
+    [X - ux * 5 - px * 1.2, Y - uy * 5 - py * 1.2],
+    [X - ux * 5 - px * 3.5, Y - uy * 5 - py * 3.5],
+  ];
+  c.setTransform(1, 0, 0, 1, 0, 0);
+  c.beginPath();
+  pts.forEach(([x, y], i) => (i ? c.lineTo(x, y) : c.moveTo(x, y)));
+  c.closePath();
+  c.fillStyle = '#c8481c';
+  c.fill();
+  c.lineWidth = 1;
+  c.strokeStyle = '#120c08';
+  c.stroke();
 }
 window.brodilkaReplay = replay;
 window.brodilkaPresent = present;
@@ -457,11 +497,14 @@ function renderHud(h) {
   created = h.created;
   $('hud').classList.toggle('hidden', !h.created);
   if (!h.created) return;
+  isGhost = !!h.ghost;
   $('pname').textContent = h.ghost ? `${h.name} (ghost)` : h.name;
-  $('hpb').style.width = `${(100 * h.hp / Math.max(1, h.mhp)).toFixed(1)}%`;
-  $('hpt').textContent = `${h.hp} / ${h.mhp}`;
-  $('mpb').style.width = `${(100 * h.mana / Math.max(1, h.mmana)).toFixed(1)}%`;
-  $('mpt').textContent = `${h.mana} / ${h.mmana}`;
+  // Pagan's status lights: red for hit points, blue for mana, shrinking toward zero
+  $('hpb').style.height = `${(100 * h.hp / Math.max(1, h.mhp)).toFixed(1)}%`;
+  $('hpt').textContent = `${h.hp}/${h.mhp}`;
+  $('mpb').style.height = `${(100 * h.mana / Math.max(1, h.mmana)).toFixed(1)}%`;
+  $('mpt').textContent = `${h.mana}/${h.mmana}`;
+  $('period').textContent = h.period || '';
   if (font) { const g = $('gold'); g.textContent = ''; g.appendChild(icon(10)); g.append(` ${h.gold}`); }
   else $('gold').textContent = `🪙 ${h.gold}`;
   const bw = $('bwar');
@@ -509,6 +552,7 @@ function btn(label, c) {
   return b;
 }
 let lastWinKey = '';
+let isGhost = false;
 function renderUI(u) {
   $('create').classList.toggle('hidden', u.screen !== 'create');
   if (u.screen === 'create') { setupCreate(u); win.classList.add('hidden'); return; }
@@ -520,6 +564,10 @@ function renderUI(u) {
   lastWinKey = scrollKey;
   win.innerHTML = '';
   win.classList.remove('hidden');
+  // conversations float over the world like Pagan's: no frame, replies as red keywords
+  win.classList.toggle('talk', w.id === 'ctx');
+  // the living hear the line spoken over the speaker's head; a ghost reads it here
+  win.classList.toggle('spoken', w.id === 'ctx' && !isGhost);
   const t = el('div', 'wt');
   t.appendChild(el('span', '', w.title));
   const x = el('button', 'x', '✕');
@@ -630,7 +678,9 @@ canvas.addEventListener('pointerdown', (e) => {
   if (pointers.size === 1) ex.ptr_down(...rel(e));
   else { ex.ptr_cancel(); pinchD = pinchDist(); }
 });
+canvas.addEventListener('pointerleave', () => { mouseAt = null; });
 canvas.addEventListener('pointermove', (e) => {
+  if (e.pointerType === 'mouse') mouseAt = rel(e);
   if (!pointers.has(e.pointerId)) return;
   pointers.set(e.pointerId, rel(e));
   if (pointers.size === 1) ex.ptr_move(...rel(e));

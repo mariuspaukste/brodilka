@@ -63,6 +63,14 @@ figures keep their proportions. Every object in the world — doors, fences,
 graves, the fountain, lamps, forges, tents, campfires — is a baked prop, and
 nothing casts a drop shadow.
 
+As in Pagan, no night falls on screen: the sky stays the same grey overcast
+and fires give only a faint glow, while the day still turns through Pagan's
+six periods (Bloodwatch, Firstebb, Daytide, Threemoons, Lastebb, Eventide).
+Hit points and mana show as a red and a blue light that shrink toward zero.
+People speak their lines over their heads, and your replies are red
+keywords. With a mouse, the pointer is Pagan's direction arrow: short, medium
+or long by how far it is from you.
+
 The ground is terraced like Pagan's: land rises in up to four levels with
 rock ledges between them. You can't climb a ledge; roads and scattered slopes
 lead up and down, and anything standing on high ground is drawn there.

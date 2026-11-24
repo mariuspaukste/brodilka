@@ -748,6 +748,18 @@ impl Game {
     pub fn is_night(&self) -> bool {
         self.darkness() > 0.3
     }
+    /// Pagan's six four-hour periods of the day
+    pub fn period(&self) -> &'static str {
+        const P: [&str; 6] = [
+            "Daytide",
+            "Threemoons",
+            "Lastebb",
+            "Eventide",
+            "Bloodwatch",
+            "Firstebb",
+        ];
+        P[(((self.time / 480.0).fract() * 6.0) as usize).min(5)]
+    }
 
     fn draw(&self, c: &mut Canvas) {
         let z = self.zoom;
@@ -1002,17 +1014,9 @@ impl Game {
             c.rect(ax, ay, 1.5 * px1, 1.5 * px1);
         }
 
-        // ---- night
-        let dk = self.darkness();
-        if dk > 0.01 {
-            let (px, py) = self.scr_h(p.x, p.y, p.vz);
-            c.dark(px, py - 20.0 * z, 50.0 * z, 300.0 * z, dk, 0x050a1eff);
-            c.alpha(dk.min(1.0) * 1.4);
-            for &(x, y, r, col) in lights.iter() {
-                c.glow(x, y, r * z, col);
-            }
-            c.alpha(1.0);
-        }
+        // No night falls on screen: Pagan's sky is always the same grey overcast,
+        // and its fires give only a faint glow (drawn with each flame).
+        let _ = &lights;
 
         // ---- overhead texts, bars, floats (above everything)
         let tid = p.target;

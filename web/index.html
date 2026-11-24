@@ -13,10 +13,16 @@
 
 <div id="hud" class="hidden">
   <div id="status" class="gump">
-    <div id="pname">—</div>
-    <div class="bar"><div id="hpb" class="fill hp"></div><span id="hpt"></span></div>
-    <div class="bar"><div id="mpb" class="fill mp"></div><span id="mpt"></span></div>
-    <div id="gold">🪙 0</div>
+    <div class="lights" title="Red light: hit points. Blue light: mana.">
+      <div class="light red"><i id="hpb"></i></div>
+      <div class="light blue"><i id="mpb"></i></div>
+    </div>
+    <div class="info">
+      <div id="pname">—</div>
+      <div class="nums"><span id="hpt" class="hpn"></span><span id="mpt" class="mpn"></span></div>
+      <div id="gold">🪙 0</div>
+      <div id="period"></div>
+    </div>
   </div>
   <div id="target" class="gump hidden">
     <div id="tname"></div>

@@ -2322,6 +2322,14 @@ impl Game {
             Pending::Talk(id) => {
                 if let Some(i) = self.find(id) {
                     if self.ents[i].dist(px, py) <= 3.0 {
+                        // they speak their line aloud, over their head, as in Pagan
+                        if let EK::Npc(v) = self.ents[i].k {
+                            let ch = VENDORS[v].chatter;
+                            if !self.pl.ghost && !ch.is_empty() {
+                                let line = ch[(self.clock as usize / 4) % ch.len()];
+                                self.ents[i].talk(line, 0xf0ead8ff);
+                            }
+                        }
                         self.win = Win::Ctx(id);
                         self.touch_ui();
                     }
