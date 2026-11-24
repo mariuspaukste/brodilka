@@ -77,5 +77,14 @@ for (const t of ['warrior', 'mage', 'blacksmith', 'woodsman']) {
   console.log(`${t}: ok, ${ops} draw ops, hp ${hud.hp}/${hud.mhp}, save ${n} bytes`);
 }
 if (baked === 0) fail('no sprites baked');
+// world packs: read one, and refuse to swap packs once the world is built
+{
+  const pk = (fn, s) => { const b = enc.encode(s); new Uint8Array(ex.memory.buffer, ex.pack_buf(b.length), b.length).set(b); return JSON.parse(out(ex[fn](b.length))); };
+  const r = pk('pack_check', '[pack]\nid = "smoke"\nname = "Smoke Wórld"\n[mon.wolf]\nname = "a warg"\n[mon.nope]\nname = "x"\n');
+  if (!r.ok || r.pack.name !== 'Smoke Wórld' || r.warnings.length !== 1) fail('pack_check: ' + JSON.stringify(r));
+  if (pk('pack_check', '[pack]\nname = "no id"\n').ok) fail('pack_check accepted a pack with no id');
+  if (pk('pack_set', '[pack]\nid = "late"\n').ok) fail('pack_set after init');
+  if (JSON.parse(out(ex.pack_info())).id !== 'brodilka') fail('pack_info');
+}
 console.log(`atlases baked: ${baked}`);
 console.log('SMOKE OK');

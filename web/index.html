@@ -60,6 +60,13 @@
   <div class="gump create">
     <h1>Brodilka</h1>
     <p class="sub">A realm of virtue and steel</p>
+    <div class="world">
+      <span>World: <b id="worldname"></b></span>
+      <button id="bworld" class="wbtn">Change world…</button>
+      <button id="bworlddef" class="wbtn hidden">Default world</button>
+      <input id="fworld" type="file" accept=".toml,.txt,text/plain" hidden>
+    </div>
+    <p id="worldmsg" class="tiny hidden"></p>
     <div id="cont" class="hidden">
       <button id="bcontinue" class="big">Continue as <b id="contname"></b></button>
       <p class="or">— or forge a new character —</p>

@@ -169,6 +169,8 @@ impl Canvas {
     }
     /// align: 0 centre, 1 left
     pub fn text(&mut self, x: f32, y: f32, size: f32, align: u32, s: &str, outline: u32) {
+        // the world's pixel font has printable ASCII only
+        let s = crate::pack::ascii_fold(s);
         let off = self.strs.len() as u32;
         self.strs.extend_from_slice(s.as_bytes());
         self.cmd.push(8);
@@ -479,11 +481,7 @@ impl Game {
                     }
                     None => self.build_chunk(c, i, j),
                 };
-                out.push((
-                    id,
-                    (i as f32 * k - ox) * pix,
-                    (j as f32 * k - oy) * pix,
-                ));
+                out.push((id, (i as f32 * k - ox) * pix, (j as f32 * k - oy) * pix));
             }
         }
         // the ring just off screen, a few a frame, so walking rarely waits
@@ -520,9 +518,7 @@ impl Game {
     /// Draw ground chunk (i, j) into a new host canvas.
     fn build_chunk(&mut self, c: &mut Canvas, i: i32, j: i32) -> u32 {
         let id = chunk_id();
-        self.ground
-            .chunks
-            .insert((i, j), (id, self.ground.frame));
+        self.ground.chunks.insert((i, j), (id, self.ground.frame));
         let a = self.zoom / self.pix;
         let (gx, gy) = ((i * CHUNK) as f32, (j * CHUNK) as f32);
         let saved = (self.camx, self.camy, self.w, self.h);

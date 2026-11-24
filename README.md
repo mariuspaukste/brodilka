@@ -119,6 +119,50 @@ Tap your horse to mount, yourself to dismount.
 Keyboard: WASD/arrows, Tab war mode, Space (hold) block, F kick, E mount/dismount, B bandage, P pack, K skills, M map,
 1–9 cast, Esc close.
 
+## World packs
+
+The engine plays its own world, but a **world pack** can rename and
+re-flavour it without touching the code: one text file, a small subset of
+TOML. On the title screen, **Change world…** picks a pack file; the game
+checks it, keeps it in this browser and reloads into that world. Each world
+keeps its own saved hero, and **Default world** goes back. Packs never need
+to be in this repository: they are loaded at run time from the player's own
+files.
+
+```toml
+[pack]
+id = "my-world"              # lowercase letters, digits and '-'
+name = "My World"
+subtitle = "A grim little realm"
+seed = 1409                  # optional: a fixed world seed
+
+[mon.wolf]                   # monsters by id: name, color ("#rrggbb"), hp
+name = "a warg"
+
+[item.katana]                # items by id: name, icon, plural
+name = "long knife"
+
+[vendor.guard]               # smith mage provisioner healer banker guard folk
+title = "the watchman"       # barkeep librarian lord stablemaster:
+names = ["Ned", "Tom"]       # title, names, chatter, robe
+chatter = ["All quiet."]
+
+[spell.fireball]             # spells by id: name, words
+[template.warrior]           # starting templates by id: name, desc
+
+[text]                       # exact replacements of any shown text
+"Graveyard" = "Barrow-downs"
+
+[words]                      # then replacements inside shown text, longest first
+"ankh shrine" = "waystone"
+```
+
+Text spoken in the world uses the pixel font, so accented letters are shown
+without their accents there (*Annúminas* → *Annuminas*). The rules —
+stats, damage, prices, the map's layout — stay the engine's; a pack changes
+names, words, colours and the seed. `src/pack.rs` has the format and parser, and
+`cargo run --example pack_check -- my-world.toml` checks a pack.
+
 ## Build
 
 ```sh
