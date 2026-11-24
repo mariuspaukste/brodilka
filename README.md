@@ -21,8 +21,9 @@ canvas and renders the windows ("gumps") from JSON; all game logic is in Rust.
   fizzles; buy scrolls to learn new spells. Meditation speeds mana regen.
 - **Gathering & crafting**: mine ore in the mountains, chop trees, fish,
   smelt at the forge, smith weapons and armour at the anvil (exceptional items).
-- **Town** with blacksmith, mage, provisioner, healer, banker (bank box) and
-  guards who strike down any monster that wanders in.
+- **Town** with blacksmith, mage, provisioner, healer, banker (bank box), an
+  inn, a pub (ale and bread) and a library (spellbooks and scrolls, and it buys
+  the scrolls you find), and guards who strike down any monster that wanders in.
 - **Death** turns you into a ghost and leaves your belongings on your corpse;
   find a healer or an ankh shrine, then run back for your things.
 - **Places**: a haunted graveyard (skeletons, zombies, a lich), an orc camp,
@@ -51,7 +52,7 @@ squash-and-stretch). Baking is spread over several frames so play never stalls.
 The same baker renders the props — oaks, pines, dead trees, stumps, giant
 mushrooms, barrels, crates, sacks, skull piles, statues, wells, wall torches,
 banners, beds, tables, chairs, bookshelves, hearths, chests and the broken
-rock of the mountains — so the world shares one lighting. Shops and the inn are furnished,
+rock of the mountains — so the world shares one lighting. Shops, the inn, the pub and the library are furnished,
 and buildings wear hipped roofs (slate, shingle or tile, with smoking
 chimneys) that lift away when you walk inside. Figures also run, glance
 around, draw their weapon when combat starts, step in a fighting stance near

@@ -2642,6 +2642,19 @@ impl Game {
                     self.msg("You eat the fish. Not bad, if a little raw.", C_SYS);
                     self.touch_ui();
                 }
+                "ale" | "bread" => {
+                    let id = self.pl.pack[k].id;
+                    self.pl.take(id, 1);
+                    let (hp, line) = if d.id == "ale" {
+                        (2, "You drain the tankard. The world seems a little warmer.")
+                    } else {
+                        (6, "You eat the bread. Dense, dark and filling.")
+                    };
+                    let p = self.pm();
+                    p.hp = (p.hp + hp).min(p.mhp);
+                    self.msg(line, C_SYS);
+                    self.touch_ui();
+                }
                 _ => {}
             },
             K::Tool => {
@@ -2916,6 +2929,41 @@ mod tests {
             assert!(g.map.find_path(sx, sy, x, y, 1).is_some());
         }
         assert!(g.ents.len() > 30);
+    }
+
+    #[test]
+    fn town_has_pub_and_library() {
+        for seed in [1u32, 1997, 12345] {
+            let mut g = Game::new(seed);
+            let (sx, sy) = g.map.start;
+            for v in [V_BARKEEP, V_LIBRARIAN] {
+                let b = g.map.buildings.iter().find(|b| b.vendor == v);
+                let (bx, by) = b.map(|b| (b.x, b.y)).expect("building missing");
+                assert!(g.map.in_town(bx, by) && g.map.in_town(bx + 7, by + 5));
+                // its keeper stands inside and can be walked to from the start
+                let e = g
+                    .ents
+                    .iter()
+                    .find(|e| e.k == EK::Npc(v))
+                    .expect("keeper missing");
+                let (nx, ny) = e.tile();
+                assert!(nx > bx && nx < bx + 7 && ny > by && ny < by + 5);
+                assert!(
+                    g.map.find_path(sx, sy, nx, ny, 1).is_some(),
+                    "seed {seed}: keeper {v} unreachable"
+                );
+            }
+            // the pub keeps shelves of ale and bread, and they can be eaten and drunk
+            g.create("Drinker", false, 0, "warrior", [0, 0, 0]);
+            g.ents[0].hp = 5;
+            for id in ["ale", "bread"] {
+                g.pl.add(Item::new(item_idx(id), 1));
+                let k = g.pl.pack.iter().position(|i| i.def().id == id).unwrap();
+                g.use_item(k);
+                assert!(!g.pl.pack.iter().any(|i| i.def().id == id));
+            }
+            assert_eq!(g.ents[0].hp, 13);
+        }
     }
 
     #[test]

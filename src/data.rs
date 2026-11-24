@@ -346,6 +346,24 @@ pub static ITEMS: &[ItemDef] = &[
         ..B
     },
     ItemDef {
+        id: "ale",
+        name: "tankard of ale",
+        k: K::Consumable,
+        price: 3,
+        stack: true,
+        icon: "🍺",
+        ..B
+    },
+    ItemDef {
+        id: "bread",
+        name: "loaf of bread",
+        k: K::Consumable,
+        price: 5,
+        stack: true,
+        icon: "🍞",
+        ..B
+    },
+    ItemDef {
         id: "ore",
         name: "iron ore",
         k: K::Resource,
@@ -995,6 +1013,8 @@ pub const V_BANKER: usize = 4;
 pub const V_GUARD: usize = 5;
 /// townsfolk with no trade, wandering the streets
 pub const V_FOLK: usize = 6;
+pub const V_BARKEEP: usize = 7;
+pub const V_LIBRARIAN: usize = 8;
 
 pub struct VendorDef {
     pub title: &'static str,
@@ -1156,6 +1176,42 @@ pub static VENDORS: &[VendorDef] = &[
             "The dead walk in the graveyard. I have seen them.",
             "Stay off the roads at night.",
             "Pray, and keep thy coin close.",
+        ],
+    },
+    VendorDef {
+        title: "the barkeep",
+        names: &["Old Hob", "Greta", "Dunstan"],
+        sells: &["ale", "bread", "fish"],
+        buys: &[],
+        buys_ids: &["fish"],
+        robe: 0x6a4a2aff,
+        chatter: &[
+            "Ale's a copper or three. Sit, warm thy bones.",
+            "A drover swore he saw the dead walking the north road.",
+            "The orcs pay no tithe, and want no ale. Ill-mannered folk.",
+            "Last fool who went for the dragon's gold drank here first.",
+            "Pay before thou drinkest. House rule.",
+        ],
+    },
+    VendorDef {
+        title: "the librarian",
+        names: &["Master Quill", "Sister Hesper", "Anselm"],
+        sells: &[
+            "spellbook",
+            "scroll_magicarrow",
+            "scroll_heal",
+            "scroll_harm",
+            "scroll_greaterheal",
+        ],
+        buys: &[K::Scroll],
+        buys_ids: &[],
+        robe: 0x3a3430ff,
+        chatter: &[
+            "Hush. This is a house of learning.",
+            "The lich was a scholar once, they say. Mind thy studies.",
+            "The chronicles name six periods of the day, Bloodwatch to Eventide.",
+            "Bring me scrolls thou hast found. I pay for knowledge.",
+            "A spell learnt from a scroll is never forgot.",
         ],
     },
 ];

@@ -359,7 +359,11 @@ impl Game {
                     r = match d.k {
                         K::Weapon | K::Armor | K::Shield => r.btn("Equip", &format!("use:{}", k)),
                         K::Consumable => r.btn(
-                            if d.id == "fish" { "Eat" } else { "Use" },
+                            match d.id {
+                                "fish" | "bread" => "Eat",
+                                "ale" => "Drink",
+                                _ => "Use",
+                            },
                             &format!("use:{}", k),
                         ),
                         K::Scroll => r.btn("Inscribe", &format!("use:{}", k)),
@@ -453,6 +457,7 @@ impl Game {
                     ("👆", "Tap the ground to walk there. Hold and drag to steer, like the mouse in the old days."),
                     ("⚔️", "Tap a creature to attack it. War mode keeps swinging; skills rise with use."),
                     ("🧑", "Tap townsfolk to trade, bank or be healed. Tap thyself for thy paperdoll."),
+                    ("🍺", "The pub sells ale and bread; the library sells spellbooks and scrolls, and buys the scrolls thou findest."),
                     ("🌲", "With a hatchet tap trees; with a pickaxe tap mountains; with a pole tap water."),
                     ("🔨", "Smelt ore at the forge, craft arms at the anvil (needs a smith's hammer)."),
                     ("📖", "Spells need reagents and mana. Buy scrolls from the mage to learn more."),

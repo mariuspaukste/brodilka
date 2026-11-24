@@ -468,6 +468,31 @@ impl Map {
                 ((bx + 6, by + 2, false), O_CRATE),
                 (back(bx + 5), O_CRATE),
             ],
+            V_BARKEEP => vec![
+                // kegs and a hearth along the back, two trestle tables with benches
+                (back(bx + 1), O_BARREL),
+                (back(bx + 2), O_BARREL),
+                (back(bx + 5), O_HEARTH),
+                (back(bx + 6), O_SHELF),
+                ((bx + 1, by + 4, false), O_LONGTABLE),
+                ((bx + 2, by + 4, true), O_CHAIR),
+                ((bx + 2, by + 3, true), O_CHAIR),
+                ((bx + 5, by + 4, false), O_LONGTABLE),
+                ((bx + 6, by + 4, true), O_CHAIR),
+                ((bx + 6, by + 3, true), O_CHAIR),
+            ],
+            V_LIBRARIAN => vec![
+                // shelves on every wall that faces the room, a reading table
+                (back(bx + 1), O_SHELF),
+                (back(bx + 2), O_SHELF),
+                (back(bx + 5), O_SHELF),
+                (back(bx + 6), O_SHELF),
+                (side(by + 3), O_SHELF),
+                (side(by + 4), O_SHELF),
+                ((bx + 5, by + 4, false), O_LONGTABLE),
+                ((bx + 6, by + 4, true), O_CHAIR),
+                ((bx + 6, by + 3, true), O_CHAIR),
+            ],
             _ if inn => vec![
                 (back(bx + 5), O_HEARTH),
                 (side(by + 1), O_BED),
@@ -683,7 +708,7 @@ pub fn generate(seed: u32) -> Map {
         style: vec![0; N],
         res: vec![12; N],
         regrow: vec![],
-        town: (62, 64, 98, 92),
+        town: (62, 64, 98, 104),
         start: (80, 79),
         npcs: vec![],
         spawns: vec![],
@@ -699,13 +724,13 @@ pub fn generate(seed: u32) -> Map {
         road: vec![false; N],
         reach: vec![false; N],
     };
-    let town_c = (80, 78);
+    let town_c = (80, 84);
     let grave = (124, 32);
     let orcs = (32, 124);
     let hills = (34, 34);
     let lair = (128, 128);
     let pois: [((i32, i32), f32); 5] = [
-        (town_c, 26.0),
+        (town_c, 30.0),
         (grave, 15.0),
         (orcs, 14.0),
         (hills, 15.0),
@@ -919,8 +944,11 @@ pub fn generate(seed: u32) -> Map {
     m.building(x0 + 26, y0 + 2, 3, V_HEALER);
     m.building(x0 + 2, y0 + 16, 4, V_SMITH);
     m.building(x0 + 14, y0 + 16, 3, V_PROV);
+    // the inn is a provisioner in a timber house (style 2)
     m.building(x0 + 26, y0 + 16, 2, V_PROV);
-    // last building is an inn: make its NPC a provisioner variant already pushed; keep it.
+    // the south quarter: a pub and a library either side of the south gate
+    m.building(x0 + 2, y0 + 30, 2, V_BARKEEP);
+    m.building(x0 + 26, y0 + 30, 1, V_LIBRARIAN);
     m.set_o(x0 + 3, y0 + 23, O_FORGE);
     m.set_o(x0 + 6, y0 + 23, O_ANVIL);
     for (dx, dy) in [(17, 12), (18, 12), (17, 13), (18, 13)] {
@@ -935,6 +963,10 @@ pub fn generate(seed: u32) -> Map {
         (34, 25),
         (12, 9),
         (23, 9),
+        (12, 33),
+        (23, 33),
+        (1, 38),
+        (34, 38),
     ] {
         m.set_o(x0 + dx, y0 + dy, O_LAMP);
     }
@@ -947,19 +979,29 @@ pub fn generate(seed: u32) -> Map {
     m.set_o(x0 + 5, y0 + 13, O_WELL);
     m.place(x0 + 11, y0 + 25, O_CART, true);
     m.place(x0 + 24, y0 + 25, O_CART, false);
+    // drinkers' benches outside the pub, a well and a statue by the library
+    m.place(x0 + 11, y0 + 31, O_LONGTABLE, false);
+    m.place(x0 + 12, y0 + 31, O_CHAIR, true);
+    m.place(x0 + 12, y0 + 30, O_CHAIR, true);
+    m.set_o(x0 + 16, y0 + 37, O_BARREL);
+    m.set_o(x0 + 24, y0 + 31, O_STATUE);
+    m.set_o(x0 + 21, y0 + 37, O_WELL);
     m.npcs.push((V_GUARD, x0 + 15, y0 + 11));
-    for (dx, dy) in [(8, 12), (27, 14), (20, 26), (4, 27)] {
+    for (dx, dy) in [(8, 12), (27, 14), (20, 26), (4, 27), (14, 35), (22, 29)] {
         m.npcs.push((V_FOLK, x0 + dx, y0 + dy));
     }
     m.npcs.push((V_GUARD, x0 + 1, y0 + 13));
     m.npcs.push((V_GUARD, x1 - 1, y0 + 14));
+    m.npcs.push((V_GUARD, x0 + 17, y1 - 2));
     m.start = (x0 + 18, y0 + 15);
     m.pois.push(("Town", town_c.0, town_c.1));
+    m.pois.push(("Pub", x0 + 6, y0 + 37));
+    m.pois.push(("Library", x0 + 30, y0 + 37));
 
     // --- spawn regions (monster, x, y, radius, max)
     m.assign_levels(&elev);
     m.spawns = vec![
-        ("rabbit", 80, 108, 10, 5),
+        ("rabbit", 82, 116, 9, 5),
         ("rabbit", 48, 80, 10, 4),
         ("rabbit", 108, 70, 9, 4),
         ("rat", 104, 100, 8, 3),
