@@ -4371,6 +4371,32 @@ region = "dark"
     }
 
     #[test]
+    fn travel_from_the_map_reaches_far_places() {
+        let mut g = Game::new(1997);
+        g.create("Far", false, 0, "warrior", [0, 0, 0]);
+        let places: Vec<(i32, i32)> = ["Village", "Orc Camp", "Graveyard", "Dragon Lair"]
+            .iter()
+            .map(|n| {
+                let p = g.map.pois.iter().find(|p| p.0 == *n).unwrap();
+                (p.1, p.2)
+            })
+            .collect();
+        for (x, y) in places {
+            let (sx, sy) = g.map.start;
+            g.ents[0].x = sx as f32;
+            g.ents[0].y = sy as f32;
+            g.ents[0].path.clear();
+            g.ui_cmd(&format!("goto:{x}:{y}"));
+            assert!(!g.ents[0].path.is_empty(), "no way to {x},{y}");
+            let end = *g.ents[0].path.last().unwrap();
+            assert!((end.0 - x).abs().max((end.1 - y).abs()) <= 1);
+        }
+        // nowhere to go in the sea
+        g.ui_cmd("goto:0:0");
+        assert!(g.journal.iter().any(|(_, t, _)| t.contains("no way there")));
+    }
+
+    #[test]
     fn render_and_ui_do_not_panic() {
         let mut g = Game::new(42);
         g.w = 390.0;

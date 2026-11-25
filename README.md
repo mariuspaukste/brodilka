@@ -119,6 +119,15 @@ Tap your horse to mount, yourself to dismount.
 Keyboard: WASD/arrows, Tab war mode, Space (hold) block, F kick, E mount/dismount, B bandage, P pack, K skills, M map,
 1–9 cast, Esc close.
 
+## The map
+
+Tap the radar (or press M) for a map of the whole land, drawn the same way
+round as the game: pinch or scroll to zoom, drag to look about, and tap a spot
+to walk there. It names the places of note (the great ones always, the small
+ones close up, as the world pack names them), shows folk and creatures near
+the player as the radar does, and marks where they are walking and their
+corpse. Its buttons open the list of places (L) and the Chronicle (C).
+
 ## The village and the rivers
 
 Two rivers run through the land: one from the northern hills down through the

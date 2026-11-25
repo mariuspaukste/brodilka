@@ -696,7 +696,165 @@ function drawRadar() {
   rctx.beginPath(); rctx.arc(R / 2, R / 2, 4, 0, Math.PI * 2); rctx.fill();
   rctx.strokeStyle = '#000'; rctx.lineWidth = 1.5; rctx.stroke();
 }
-radar.addEventListener('click', () => cmd('toggle:map'));
+radar.addEventListener('click', () => openBigMap());
+
+// ------------------------------------------------------------------ the big map
+// The whole land, drawn from the minimap the same way round as the game
+// (north is up and to the right): pinch or scroll to zoom, drag to look
+// about, tap somewhere to walk there.
+const bm = $('bigmap'), bmc = $('bmc'), bctx = bmc.getContext('2d');
+let bmOpen = false, bmS = 4, bmCx = 80, bmCy = 80;
+const bmPtrs = new Map();
+let bmPinch = null, bmTap = null;
+function bmSize() {
+  const d = Math.min(window.devicePixelRatio || 1, 2);
+  bmc.width = Math.round(window.innerWidth * d);
+  bmc.height = Math.round(window.innerHeight * d);
+}
+function bmFit() { const W = ex.map_w(); return Math.min(bmc.width / (2 * W), bmc.height / W) * 0.94; }
+function bmClamp() {
+  const fit = bmFit();
+  bmS = Math.max(fit * 0.9, Math.min(fit * 14, bmS));
+  const W = ex.map_w();
+  bmCx = Math.max(0, Math.min(W, bmCx));
+  bmCy = Math.max(0, Math.min(W, bmCy));
+}
+// tile -> screen, and back
+function bmOrigin() {
+  return [bmc.width / 2 - bmS * (bmCx - bmCy), bmc.height / 2 - (bmS / 2) * (bmCx + bmCy)];
+}
+function bmToScreen(x, y) { const [e, f] = bmOrigin(); return [bmS * (x - y) + e, (bmS / 2) * (x + y) + f]; }
+function bmToTile(X, Y) {
+  const [e, f] = bmOrigin();
+  const u = (X - e) / bmS, v = ((Y - f) * 2) / bmS;
+  return [(u + v) / 2, (v - u) / 2];
+}
+function openBigMap() {
+  if (!created || bmOpen) return;
+  bmOpen = true;
+  bm.classList.remove('hidden');
+  bmSize();
+  bmCx = ex.px(); bmCy = ex.py();
+  bmS = bmFit() * 3;
+  bmClamp();
+  drawBigMap();
+}
+function closeBigMap() { bmOpen = false; bm.classList.add('hidden'); bmPtrs.clear(); bmPinch = null; }
+function drawBigMap() {
+  if (!bmOpen) return;
+  const c = bctx, d = bmc.width / window.innerWidth;
+  c.setTransform(1, 0, 0, 1, 0, 0);
+  c.fillStyle = '#0a1a2a';
+  c.fillRect(0, 0, bmc.width, bmc.height);
+  const [e, f] = bmOrigin();
+  c.setTransform(bmS, bmS / 2, -bmS, bmS / 2, e, f);
+  c.imageSmoothingEnabled = false;
+  c.drawImage(mapCanvas, 0, 0);
+  c.setTransform(1, 0, 0, 1, 0, 0);
+  let marks = null;
+  try { marks = JSON.parse(outStr(ex.map_marks())); } catch (_) { return; }
+  // folk and creatures near the player, as on the radar
+  for (const dstr of outStr(ex.radar_dots()).split(';')) {
+    if (!dstr) continue;
+    const [x, y] = dstr.slice(1).split(',').map(Number);
+    const [X, Y] = bmToScreen(x, y);
+    c.fillStyle = dstr[0] === 'm' ? '#ff3a2a' : dstr[0] === 'n' ? '#5aa0ff' : '#e8e0c0';
+    c.beginPath(); c.arc(X, Y, Math.max(1.5, bmS * 0.35) , 0, Math.PI * 2); c.fill();
+  }
+  // where the player is walking to, and their corpse
+  if (marks.dest) {
+    const [X, Y] = bmToScreen(marks.dest[0], marks.dest[1]);
+    c.strokeStyle = '#fff0a0'; c.lineWidth = 2 * d;
+    c.beginPath(); c.moveTo(X - 6 * d, Y - 6 * d); c.lineTo(X + 6 * d, Y + 6 * d);
+    c.moveTo(X + 6 * d, Y - 6 * d); c.lineTo(X - 6 * d, Y + 6 * d); c.stroke();
+  }
+  if (marks.corpse) {
+    const [X, Y] = bmToScreen(marks.corpse[0], marks.corpse[1]);
+    c.fillStyle = '#ffd040'; c.fillRect(X - 3 * d, Y - 3 * d, 6 * d, 6 * d);
+  }
+  // the names of places: the great ones always, the small ones close up
+  const close = bmS > bmFit() * 2.5;
+  c.textAlign = 'center'; c.textBaseline = 'middle'; c.lineJoin = 'round';
+  for (const [name, x, y, major] of marks.pois) {
+    if (!major && !close) continue;
+    const [X, Y] = bmToScreen(x, y);
+    c.font = `${major ? 'bold ' : ''}${(major ? 13 : 11) * d}px Georgia, serif`;
+    c.lineWidth = 3 * d; c.strokeStyle = 'rgba(0,0,0,.85)';
+    c.strokeText(name, X, Y);
+    c.fillStyle = major ? '#f0e2b8' : '#d8ccb0';
+    c.fillText(name, X, Y);
+  }
+  // the player
+  const [px, py] = bmToScreen(marks.me[0], marks.me[1]);
+  c.fillStyle = '#fff'; c.strokeStyle = '#000'; c.lineWidth = 2 * d;
+  c.beginPath(); c.arc(px, py, 5 * d, 0, Math.PI * 2); c.fill(); c.stroke();
+}
+function bmZoomAt(k, X, Y) {
+  const [tx, ty] = bmToTile(X, Y);
+  bmS *= k;
+  bmClamp();
+  // keep the tile under the fingers where it was
+  const [nx, ny] = bmToTile(X, Y);
+  bmCx += tx - nx; bmCy += ty - ny;
+  bmClamp();
+  drawBigMap();
+}
+const bmXY = (ev) => { const d = bmc.width / window.innerWidth; return [ev.clientX * d, ev.clientY * d]; };
+bmc.addEventListener('pointerdown', (ev) => {
+  ev.preventDefault();
+  bmc.setPointerCapture(ev.pointerId);
+  bmPtrs.set(ev.pointerId, bmXY(ev));
+  if (bmPtrs.size === 1) bmTap = { xy: bmXY(ev), t: performance.now(), moved: false };
+  else { bmTap = null; bmPinch = null; }
+});
+bmc.addEventListener('pointermove', (ev) => {
+  if (!bmPtrs.has(ev.pointerId)) return;
+  const prev = bmPtrs.get(ev.pointerId), cur = bmXY(ev);
+  bmPtrs.set(ev.pointerId, cur);
+  if (bmPtrs.size === 2) {
+    const [a, b] = [...bmPtrs.values()];
+    const dist = Math.hypot(a[0] - b[0], a[1] - b[1]);
+    const mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+    if (bmPinch) bmZoomAt(dist / bmPinch, mid[0], mid[1]);
+    bmPinch = dist;
+    return;
+  }
+  if (bmTap && Math.hypot(cur[0] - bmTap.xy[0], cur[1] - bmTap.xy[1]) > 8 * (bmc.width / window.innerWidth)) bmTap.moved = true;
+  if (bmTap && !bmTap.moved) return;
+  // drag: move the view with the finger
+  const [x0, y0] = bmToTile(prev[0], prev[1]), [x1, y1] = bmToTile(cur[0], cur[1]);
+  bmCx -= x1 - x0; bmCy -= y1 - y0;
+  bmClamp();
+  drawBigMap();
+});
+function bmUp(ev) {
+  if (!bmPtrs.has(ev.pointerId)) return;
+  bmPtrs.delete(ev.pointerId);
+  if (bmPtrs.size < 2) bmPinch = null;
+  if (ev.type === 'pointerup' && bmTap && !bmTap.moved && performance.now() - bmTap.t < 500) {
+    const [x, y] = bmToTile(bmTap.xy[0], bmTap.xy[1]);
+    const W = ex.map_w();
+    if (x >= 0 && y >= 0 && x < W && y < W) {
+      cmd(`goto:${Math.round(x)}:${Math.round(y)}`);
+      closeBigMap();
+    }
+  }
+  bmTap = null;
+}
+bmc.addEventListener('pointerup', bmUp);
+bmc.addEventListener('pointercancel', bmUp);
+bmc.addEventListener('wheel', (ev) => {
+  ev.preventDefault();
+  const [X, Y] = bmXY(ev);
+  bmZoomAt(ev.deltaY < 0 ? 1.15 : 1 / 1.15, X, Y);
+}, { passive: false });
+$('bmin').onclick = () => bmZoomAt(1.4, bmc.width / 2, bmc.height / 2);
+$('bmout').onclick = () => bmZoomAt(1 / 1.4, bmc.width / 2, bmc.height / 2);
+$('bmme').onclick = () => { bmCx = ex.px(); bmCy = ex.py(); bmClamp(); drawBigMap(); };
+$('bmclose').onclick = closeBigMap;
+$('bmplaces').onclick = () => { closeBigMap(); cmd('open:map'); };
+$('bmchron').onclick = () => { closeBigMap(); cmd('open:chronicle'); };
+window.addEventListener('resize', () => { if (bmOpen) { bmSize(); bmClamp(); drawBigMap(); } });
 
 // ------------------------------------------------------------------ HUD
 let hudVer = -1, uiVer = -1, created = false, lastHud = null;
@@ -949,13 +1107,15 @@ let keyBits = 0;
 const KEYMAP = { ArrowUp: 1, KeyW: 1, ArrowRight: 2, KeyD: 2, ArrowDown: 4, KeyS: 4, ArrowLeft: 8, KeyA: 8 };
 window.addEventListener('keydown', (e) => {
   if (!ex || !created || e.target.tagName === 'INPUT') return;
+  if (bmOpen && e.code === 'Escape') { closeBigMap(); return; }
   if (KEYMAP[e.code]) { keyBits |= KEYMAP[e.code]; ex.keys(keyBits); e.preventDefault(); return; }
   const k = e.code;
   if (k === 'Tab') { e.preventDefault(); cmd('war'); }
   else if (k === 'KeyB') cmd('bandage');
   else if (k === 'KeyP' || k === 'KeyI') cmd('toggle:pack');
   else if (k === 'KeyK') cmd('toggle:skills');
-  else if (k === 'KeyM') cmd('toggle:map');
+  else if (k === 'KeyM') { if (bmOpen) closeBigMap(); else openBigMap(); }
+  else if (k === 'KeyL') cmd('toggle:map');
   else if (k === 'KeyC') cmd('toggle:chronicle');
   else if (k === 'KeyJ') cmd('toggle:journal');
   else if (k === 'KeyH') cmd('potion');
@@ -995,6 +1155,7 @@ function loop(now) {
   present(U, F, S);
   if (ex.mini_ver && ex.mini_ver() !== miniVer) { miniVer = ex.mini_ver(); buildMinimap(); }
   if (created && (frameNo++ % 3 === 0)) drawRadar();
+  if (bmOpen && frameNo % 10 === 0) drawBigMap();
   refreshUI();
   requestAnimationFrame(loop);
 }

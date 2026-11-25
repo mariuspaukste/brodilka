@@ -278,6 +278,55 @@ pub extern "C" fn radar_dots() -> usize {
     out(s)
 }
 
+/// What the big map shows besides the land: the places of note (named as the
+/// world pack names them, the larger ones marked), where the player is, the
+/// way they are walking and their corpse. JSON in OUT.
+#[no_mangle]
+pub extern "C" fn map_marks() -> usize {
+    let g = g();
+    const MAJOR: [&str; 8] = [
+        "Town",
+        "Duskhold",
+        "Village",
+        "Graveyard",
+        "Orc Camp",
+        "Troll Hills",
+        "Dragon Lair",
+        "West river",
+    ];
+    let pois: Vec<String> = g
+        .map
+        .pois
+        .iter()
+        .map(|&(n, x, y)| {
+            format!(
+                "[{},{},{},{}]",
+                ui::esc(&pack::t(n)),
+                x,
+                y,
+                (MAJOR.contains(&n) || n == "East river") as u8
+            )
+        })
+        .collect();
+    let p = &g.ents[0];
+    let dest = match g.dest {
+        Some((x, y)) => format!("[{x},{y}]"),
+        None => "null".into(),
+    };
+    let corpse = match g.corpses.iter().find(|c| c.player) {
+        Some(c) => format!("[{},{}]", c.x, c.y),
+        None => "null".into(),
+    };
+    out(format!(
+        "{{\"pois\":[{}],\"me\":[{:.2},{:.2}],\"dest\":{},\"corpse\":{}}}",
+        pois.join(","),
+        p.x,
+        p.y,
+        dest,
+        corpse
+    ))
+}
+
 // ---------------------------------------------------------------- world packs
 static mut PACK_BUF: Vec<u8> = Vec::new();
 /// Room for a world pack's text of `len` bytes; the host writes it there.

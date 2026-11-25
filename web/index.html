@@ -29,7 +29,7 @@
     <div class="bar"><div id="tb" class="fill hp"></div></div>
   </div>
   <div id="act" class="hidden"></div>
-  <canvas id="radar" width="240" height="240" title="Radar — tap for places"></canvas>
+  <canvas id="radar" width="240" height="240" title="Radar — tap for the map"></canvas>
   <div id="zoombtns">
     <button data-cmd="zoom:in">＋</button>
     <button data-cmd="zoom:out">－</button>
@@ -87,6 +87,17 @@
 </div>
 
 <div id="loading">Loading the realm…</div>
+<div id="bigmap" class="hidden">
+  <canvas id="bmc"></canvas>
+  <div class="bmbar">
+    <button id="bmplaces">Places</button>
+    <button id="bmchron">Chronicle</button>
+    <button id="bmme" title="Back to where thou art">◎</button>
+    <button id="bmclose" title="Close the map">✕</button>
+  </div>
+  <div class="bmzoom"><button id="bmin">+</button><button id="bmout">−</button></div>
+  <div class="bmhint">Pinch or scroll to zoom · drag to look about · tap to travel there</div>
+</div>
 <script src="main.js"></script>
 </body>
 </html>

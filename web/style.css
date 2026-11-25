@@ -45,6 +45,15 @@ button { font: inherit; color: var(--ink); cursor: pointer; }
 
 #radar { position: fixed; right: 8px; top: calc(8px + var(--safe-t)); width: 120px; height: 120px; border-radius: 50%;
   border: 2px solid var(--edge); box-shadow: 0 0 0 1px #000, 0 4px 12px rgba(0,0,0,.6); background: #000; }
+#bigmap { position: fixed; inset: 0; z-index: 30; background: #0a1a2a; touch-action: none; }
+#bigmap canvas { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; }
+#bigmap .bmbar { position: absolute; top: calc(8px + var(--safe-t)); right: 8px; display: flex; gap: 6px; }
+#bigmap .bmbar button, #bigmap .bmzoom button { background: var(--stone); border: 1px solid var(--edge); border-radius: 6px;
+  padding: 6px 10px; font-size: 14px; color: var(--ink); }
+#bigmap .bmzoom { position: absolute; right: 8px; bottom: calc(40px + var(--safe-b)); display: flex; flex-direction: column; gap: 6px; }
+#bigmap .bmzoom button { width: 40px; height: 40px; font-size: 20px; padding: 0; border-radius: 50%; }
+#bigmap .bmhint { position: absolute; left: 0; right: 0; bottom: calc(10px + var(--safe-b)); text-align: center; font-size: 12px;
+  opacity: .75; pointer-events: none; text-shadow: 0 0 3px #000; }
 #zoombtns { position: fixed; right: 10px; top: calc(136px + var(--safe-t)); display: flex; flex-direction: column; gap: 6px; }
 #zoombtns button { width: 34px; height: 34px; border-radius: 50%; background: var(--stone); border: 1px solid var(--edge); font-size: 18px; line-height: 1; }
 

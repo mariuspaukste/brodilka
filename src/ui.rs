@@ -491,10 +491,11 @@ impl Game {
                     ("📖", "Spells need reagents and mana. Buy scrolls from the mage to learn more."),
                     ("☠️", "Death leaves thy belongings on thy corpse. Find a healer or an ankh, then go back for them."),
                     ("🛡️", "Town guards slay any monster that enters the town."),
-                    ("📜", "The world moves without thee: the Chronicle (C, or the radar) tells the date, how strong each dark place is, and the news. Slay its creatures and it weakens; leave it and it grows back. Strong places raid the farms; caravans bring cheaper goods; a dark power's Shadow spreads from its places."),
+                    ("📜", "The world moves without thee: the Chronicle (C, or from the map) tells the date, how strong each dark place is, and the news. Slay its creatures and it weakens; leave it and it grows back. Strong places raid the farms; caravans bring cheaper goods; a dark power's Shadow spreads from its places."),
                     ("🐎", "The stablemaster east of town sells horses. Tap thy horse to mount, tap thyself to get down; riding is fast, but a heavy blow throws thee."),
                     ("🛡️", "In war mode hold BLOCK to catch blows; KICK shoves a foe back and may floor it. Heavy blows can knock thee down."),
-                    ("⌨️", "Keys: WASD/arrows move · Tab war · Space block · F kick · B bandage · P pack · K skills · E mount · C chronicle · 1-9 cast · Esc close"),
+                    ("🗺️", "Tap the radar for the map of the whole land: pinch or scroll to zoom, drag to look about, tap a spot to walk there."),
+                    ("⌨️", "Keys: WASD/arrows move · Tab war · Space block · F kick · B bandage · P pack · K skills · E mount · M map · L places · C chronicle · 1-9 cast · Esc close"),
                 ] {
                     w.rows.push(Row::new(i, t, ""));
                 }
@@ -835,6 +836,18 @@ impl Game {
                     }
                     _ => Win::None,
                 };
+            }
+            // travel: walk to a tile picked on the big map
+            "goto" => {
+                let (x, y) = (num(1) as i32, num(2) as i32);
+                self.cancel_activity();
+                self.pl.chase = false;
+                self.ents[0].combat.target = 0;
+                if self.walk_to(x, y, 1) {
+                    self.msg("Thou settest out.", C_SYS);
+                } else {
+                    self.msg("Thou canst find no way there from here.", C_WARN);
+                }
             }
             "toggle" => {
                 let w = match arg(1) {
