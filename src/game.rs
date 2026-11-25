@@ -1575,7 +1575,7 @@ impl Game {
     fn knockable(&self, i: usize) -> bool {
         !matches!(
             self.ents[i].mon().map(|m| m.id),
-            Some("dragon") | Some("slime") | Some("mongbat")
+            Some("dragon") | Some("slime") | Some("mongbat") | Some("spider")
         )
     }
 
@@ -3437,6 +3437,7 @@ fn cap(s: &str) -> String {
 pub fn blood_color(e: &Ent) -> u32 {
     match e.mon().map(|m| m.id) {
         Some("slime") => 0x4a8a2aff,
+        Some("spider") => 0x5a7a2aff,
         Some("skeleton") | Some("lich") => 0x9a9480ff,
         Some("zombie") => 0x3a3a1aff,
         _ => 0x6a0a08ff,

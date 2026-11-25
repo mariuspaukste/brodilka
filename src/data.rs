@@ -885,6 +885,21 @@ static MONS_DEF: &[MonDef] = &[
         ..MB
     },
     MonDef {
+        id: "spider",
+        name: "a giant spider",
+        hp: 32,
+        dmg: (3, 8),
+        skill: 42,
+        speed: 2.0,
+        mv: 3.6,
+        gold: (10, 30),
+        fame: 45,
+        karma: -45,
+        size: 0.9,
+        color: 0x3a3028ff,
+        ..MB
+    },
+    MonDef {
         id: "slime",
         name: "a slime",
         hp: 24,

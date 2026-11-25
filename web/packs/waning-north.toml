@@ -88,6 +88,10 @@ color = "#4a3a4a"
 name = "a bog-crawler"
 color = "#5a7a3a"
 
+[mon.spider]
+name = "a mirk-spider"
+color = "#3e3428"
+
 [mon.wolf]
 name = "a dire wolf"
 color = "#5a5048"

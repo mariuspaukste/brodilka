@@ -1662,6 +1662,10 @@ pub fn generate(seed: u32) -> Map {
         ("horse", 150, 206, 12, 4),
         ("slime", 100, 215, 10, 3),
         ("rat", 140, 120, 9, 3),
+        // great spiders in the deep woods
+        ("spider", 60, 206, 10, 3),
+        ("spider", 150, 30, 10, 3),
+        ("spider", 20, 48, 9, 2),
         ("wolf", 112, 110, 11, 3),
         ("horse", 46, 94, 10, 4),
         ("skeleton", grave.0, grave.1, 8, 5),

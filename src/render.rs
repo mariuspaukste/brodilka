@@ -1031,6 +1031,7 @@ impl Game {
                     l.bulk = (r(6) % 4) as u8;
                     l.hair = HAIRS[(r(3) % 4) as usize];
                     l.long_hair = true;
+                    l.ears = true;
                     l.skin = 0xf0d8c0ff;
                     l.hunch = 0;
                     l.helm = 0;
@@ -1083,6 +1084,10 @@ impl Game {
                         l.eyes = 0xff3020ff;
                         l.bulk = 20;
                         l.scale = 105;
+                        l.tusks = true;
+                        l.hair = 0x141210ff;
+                        l.long_hair = true;
+                        l.furs = 0x4a3a2aff;
                         if d.id == "orclord" {
                             l.body = 0x8a8f96ff;
                             l.metal_body = true;
@@ -1097,6 +1102,8 @@ impl Game {
                         l.body = 0x5a4a30ff;
                         l.weapon = Weapon::Club;
                         l.eyes = 0xffe040ff;
+                        l.tusks = true;
+                        l.furs = 0x5a5040ff;
                         l.bulk = 45;
                         l.hunch = 30;
                         l.scale = 125;
@@ -1126,6 +1133,7 @@ impl Game {
                     "wolf" => return Some(Look::creature(bake::Body::Wolf, 0x8a8a86ff, 100)),
                     "mongbat" => return Some(Look::creature(bake::Body::Bat, 0x6a4e6aff, 100)),
                     "slime" => return Some(Look::creature(bake::Body::Slime, 0x5aa83aff, 100)),
+                    "spider" => return Some(Look::creature(bake::Body::Spider, d.color, 135)),
                     "dragon" => return Some(Look::creature(bake::Body::Dragon, 0x9a2e24ff, 160)),
                     "horse" => {
                         let (coat, mane) = HORSE_COATS[e.coat() as usize % HORSE_COATS.len()];
@@ -3433,7 +3441,7 @@ impl Game {
                         self.quad(c, e, sx, sy, z * s, col, d.id, wk, t)
                     }
                     "mongbat" => self.mongbat(c, e, sx, sy, z * s, col, t),
-                    "slime" => self.slime(c, e, sx, sy, z * s, col, t),
+                    "slime" | "spider" => self.slime(c, e, sx, sy, z * s, col, t),
                     "dragon" => self.dragon(c, e, sx, sy, z * s, col, wk, t),
                     "skeleton" => self.humanoid(
                         c,

@@ -196,6 +196,7 @@ pub enum Body {
     Slime,
     Dragon,
     Horse,
+    Spider,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -246,6 +247,12 @@ pub struct Look {
     pub mane: u32,
     /// a horse's tack: 0 none, 1 a halter, 2 saddle and bridle
     pub tack: u8,
+    /// tusks jutting from the lower jaw
+    pub tusks: bool,
+    /// long pointed ears
+    pub ears: bool,
+    /// shaggy furs over the shoulders (0 = none)
+    pub furs: u32,
 }
 
 impl Look {
@@ -278,6 +285,9 @@ impl Look {
             mount: 0,
             mane: 0,
             tack: 0,
+            tusks: false,
+            ears: false,
+            furs: 0,
         }
     }
     pub fn creature(body: Body, color: u32, scale: u16) -> Look {
@@ -303,6 +313,7 @@ impl Look {
         match self.body_type {
             Body::Dragon => (1.55, 1.3),
             Body::Bat => (1.2, 1.0),
+            Body::Spider => (1.35, 1.0),
             _ if self.equine() => (1.8, 1.4),
             _ => (1.0, 1.0),
         }
@@ -812,7 +823,22 @@ fn build(look: &Look, q: &Pose) -> Vec<Prim> {
                 Mat::Hair,
             );
         }
-        if look.metal_body {
+        if look.furs != 0 {
+            // pelts over the shoulders: shaggy, wide, a tail of fur down the back
+            for sh in [shl, shr] {
+                let c = add(sh, [0.0, 0.0, 0.04]);
+                p(c, c, 0.115 * bulk, 0.115 * bulk, look.furs, Mat::Hair);
+            }
+            let nape = add(chest, add(mul(sd, 0.05), [-0.08, 0.0, 0.0]));
+            p(
+                add(nape, mul(la, -0.12 * bulk)),
+                add(nape, mul(la, 0.12 * bulk)),
+                0.09 * bulk,
+                0.09 * bulk,
+                shade_col(look.furs, 0.85),
+                Mat::Hair,
+            );
+        } else if look.metal_body {
             // shoulder plates
             for sh in [shl, shr] {
                 let c = add(sh, [0.0, 0.0, 0.03]);
@@ -1111,6 +1137,41 @@ fn build(look: &Look, q: &Pose) -> Vec<Prim> {
                 p(e, e, 0.022, 0.022, look.eyes, Mat::Glow);
             }
         }
+        if look.tusks {
+            for es in [-0.045f32, 0.045] {
+                let r = add(
+                    add(hc, mul(fwd, 0.075)),
+                    add(mul(la, es), [0.0, 0.0, -0.055]),
+                );
+                p(
+                    r,
+                    add(
+                        add(r, mul(fwd, 0.035)),
+                        add(mul(la, es * 0.3), [0.0, 0.0, 0.06]),
+                    ),
+                    0.016,
+                    0.006,
+                    0xe8dcb8ff,
+                    Mat::Bone,
+                );
+            }
+        }
+        if look.ears {
+            for es in [-1.0f32, 1.0] {
+                let r = add(hc, add(mul(la, es * 0.09), [0.0, 0.0, 0.01]));
+                p(
+                    r,
+                    add(
+                        r,
+                        add(add(mul(la, es * 0.06), mul(fwd, -0.05)), [0.0, 0.0, 0.08]),
+                    ),
+                    0.022,
+                    0.004,
+                    look.skin,
+                    Mat::Matte,
+                );
+            }
+        }
         if look.helm != 0 {
             let c = add(hc, [0.0, 0.0, 0.03]);
             p(c, c, 0.115, 0.115, look.helm, Mat::Metal);
@@ -1199,6 +1260,7 @@ fn figure_for(look: &Look, a: Anim, f: usize, n: usize) -> Figure {
             match look.body_type {
                 Body::Slime => slime(look, a, f, n),
                 Body::Bat => bat(look, a, f, n),
+                Body::Spider => spider(look, a, f, n),
                 _ => quad(look, a, f, n),
             }
         }
@@ -2185,6 +2247,132 @@ fn bat(look: &Look, a: Anim, f: usize, n: usize) -> Figure {
         pitch: 0.0,
         roll: 1.2 * die,
         lift,
+    }
+}
+
+/// A great spider: a bristling body slung low between eight jointed legs,
+/// a cluster of eyes, fangs. The legs walk in two alternating sets of four.
+fn spider(look: &Look, a: Anim, f: usize, n: usize) -> Figure {
+    let mut v = vec![];
+    let col = look.skin;
+    let (ph, lunge, recoil, die, _) = creature_phase(a, f, n);
+    let pi = std::f32::consts::PI;
+    let bob = if a == Anim::Walk {
+        0.015 * (ph * 2.0).sin()
+    } else {
+        0.0
+    };
+    let sink = die * 0.14;
+    let c = [lunge * 0.14 - recoil * 0.08, 0.0, 0.0];
+    // the front body, raised in the attack
+    let ceph = add(c, [0.13, 0.0, 0.2 + bob + lunge * 0.06 - sink]);
+    let abd = add(c, [-0.17, 0.0, 0.25 + bob - sink]);
+    prim(&mut v, ceph, ceph, 0.1, 0.1, col, Mat::Hair);
+    prim(
+        &mut v,
+        add(abd, [0.06, 0.0, -0.02]),
+        add(abd, [-0.06, 0.0, 0.01]),
+        0.17,
+        0.15,
+        shade_col(col, 0.9),
+        Mat::Hair,
+    );
+    prim(
+        &mut v,
+        add(ceph, [-0.08, 0.0, 0.0]),
+        add(abd, [0.1, 0.0, -0.02]),
+        0.05,
+        0.06,
+        col,
+        Mat::Hair,
+    );
+    // pale markings down the back of the abdomen
+    for k in 0..3 {
+        let m = add(abd, [0.06 - k as f32 * 0.07, 0.0, 0.15 - k as f32 * 0.012]);
+        prim(
+            &mut v,
+            add(m, [0.0, -0.04, 0.0]),
+            add(m, [0.0, 0.04, 0.0]),
+            0.022,
+            0.022,
+            0xb09060ff,
+            Mat::Matte,
+        );
+    }
+    // eyes, two big and four small, and the fangs
+    if a != Anim::Die {
+        for (dx, dy, dz, r) in [
+            (0.085, 0.03, 0.05, 0.02),
+            (0.085, -0.03, 0.05, 0.02),
+            (0.07, 0.06, 0.07, 0.013),
+            (0.07, -0.06, 0.07, 0.013),
+            (0.05, 0.035, 0.09, 0.011),
+            (0.05, -0.035, 0.09, 0.011),
+        ] {
+            let e = add(ceph, [dx, dy, dz]);
+            prim(&mut v, e, e, r, r, 0xd02818ff, Mat::Glow);
+        }
+    }
+    for side in [-1.0f32, 1.0] {
+        let r = add(ceph, [0.09, side * 0.03, -0.04]);
+        let open = lunge * 0.04;
+        prim(
+            &mut v,
+            r,
+            add(r, [0.04, side * (0.01 + open), -0.09]),
+            0.022,
+            0.01,
+            0x1a1410ff,
+            Mat::Metal,
+        );
+    }
+    // the legs: roots along the front body, splayed from forward to back
+    let leg_col = shade_col(col, 0.75);
+    for side in [-1.0f32, 1.0] {
+        for (i, yaw) in [0.95f32, 0.35, -0.25, -0.85].iter().enumerate() {
+            let root = add(ceph, [0.04 - i as f32 * 0.045, side * 0.06, -0.01]);
+            let set = (i % 2) as f32 + if side > 0.0 { 1.0 } else { 0.0 };
+            let q = ph + set * pi;
+            let (mut step, mut lift) = match a {
+                Anim::Walk => (0.07 * q.sin(), 0.06 * q.cos().max(0.0)),
+                Anim::Idle => (0.0, 0.01 * (ph + i as f32).sin().max(0.0)),
+                _ => (0.0, 0.0),
+            };
+            // the front pair rears up to strike
+            if i == 0 {
+                lift += lunge * 0.25;
+                step += lunge * 0.06;
+            }
+            let out = [yaw.sin() * 0.62, side * yaw.cos(), 0.0];
+            let curl = 1.0 - die * 0.75;
+            let knee = add(
+                root,
+                [out[0] * 0.2 * curl, out[1] * 0.2 * curl, 0.17 + die * 0.05],
+            );
+            let foot = [
+                root[0] + out[0] * 0.48 * curl + step,
+                root[1] + out[1] * 0.48 * curl,
+                (lift + die * 0.15).max(0.0),
+            ];
+            prim(&mut v, root, knee, 0.026, 0.02, leg_col, Mat::Hair);
+            prim(&mut v, knee, foot, 0.02, 0.009, leg_col, Mat::Hair);
+            prim(
+                &mut v,
+                knee,
+                knee,
+                0.024,
+                0.024,
+                shade_col(col, 0.6),
+                Mat::Hair,
+            );
+        }
+    }
+    Figure {
+        prims: v,
+        boxes: vec![],
+        pitch: 0.0,
+        roll: 0.0,
+        lift: 0.0,
     }
 }
 
@@ -4871,10 +5059,19 @@ fn shade_px(color: u32, n: [f32; 3], mat: u8) -> [f32; 3] {
         7 => (0.3 + 0.88 * diff, spec_dot.powi(6) * 0.04),
         _ => (0.4 + 0.72 * diff, spec_dot.powi(8) * 0.06),
     };
+    // warm where the key light falls, cool in the shade, and a little
+    // light from the sky on whatever faces up
+    let w = if mat == 2 { 0.5 } else { diff };
+    let sky = if mat == 2 {
+        0.0
+    } else {
+        n[2].max(0.0) * (1.0 - diff) * 0.1
+    };
+    let warm = (w - 0.45) * 0.14;
     [
-        base[0] * (k + rim) + spec * 255.0,
-        base[1] * (k + rim) + spec * 255.0,
-        base[2] * (k + rim) + spec * 240.0,
+        base[0] * (k + rim + sky) * (1.0 + warm) + spec * 255.0,
+        base[1] * (k + rim + sky) + spec * 250.0,
+        base[2] * (k + rim + sky * 1.4) * (1.0 - warm) + spec * 235.0,
     ]
 }
 
@@ -5116,7 +5313,12 @@ fn render_frame(
             let i = y * fw + x;
             let o = ((oy + y) * ow + ox + x) * 4;
             if alpha[i] {
-                let mut k = 1.0;
+                // the top edge of a shape catches the light: one brighter pixel
+                let mut k = if inked && (y == 0 || !alpha[i - fw]) {
+                    1.16
+                } else {
+                    1.0
+                };
                 for (dx, dy) in [(1i32, 0i32), (-1, 0), (0, 1), (0, -1)] {
                     let (nx, ny) = (x as i32 + dx, y as i32 + dy);
                     if nx >= 0 && ny >= 0 && (nx as usize) < fw && (ny as usize) < fh {
@@ -5134,7 +5336,9 @@ fn render_frame(
                 out[o + 2] = (c[2] * k).clamp(0.0, 255.0) as u8;
                 out[o + 3] = 255;
             } else {
-                let mut edge = false;
+                // the outline takes a deep shade of what it borders, so a
+                // figure is drawn in its own colours rather than boxed in black
+                let mut edge: Option<[f32; 3]> = None;
                 for (dx, dy) in [(1i32, 0i32), (-1, 0), (0, 1), (0, -1)] {
                     let (nx, ny) = (x as i32 + dx, y as i32 + dy);
                     if nx >= 0
@@ -5143,11 +5347,19 @@ fn render_frame(
                         && (ny as usize) < fh
                         && alpha[ny as usize * fw + nx as usize]
                     {
-                        edge = true;
+                        let c = rgb[ny as usize * fw + nx as usize];
+                        edge = Some(match edge {
+                            // the darker neighbour wins
+                            Some(e) if e[0] + e[1] + e[2] < c[0] + c[1] + c[2] => e,
+                            _ => c,
+                        });
                     }
                 }
-                if edge && inked {
-                    out[o..o + 4].copy_from_slice(&ink);
+                if let (Some(c), true) = (edge, inked) {
+                    for ch in 0..3 {
+                        out[o + ch] = (ink[ch] as f32 * 0.7 + c[ch] * 0.22).min(255.0) as u8;
+                    }
+                    out[o + 3] = 255;
                 }
             }
         }
