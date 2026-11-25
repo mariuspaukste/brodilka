@@ -368,6 +368,10 @@ pub const LH: f32 = 20.0;
 /// Heights drawn by hand, scaled to the baked sprites' steeper camera
 /// (0.8 / ASPECT per metre instead of the plain 2:1 view's 0.866).
 pub const ZS: f32 = 0.77;
+/// a storey of a house, in pixels at zoom 1 (a house wall's height)
+pub const STOREY_PX: f32 = 38.0 * ZS;
+/// a storey, in ground levels (`LH`)
+pub const STOREY: f32 = STOREY_PX / LH;
 
 /// Small helper for drawing in "model units" around a screen anchor.
 struct P {
@@ -1242,13 +1246,16 @@ impl Game {
             .ents
             .iter()
             .enumerate()
-            .filter(|(_, e)| !e.dead)
+            .filter(|(_, e)| !e.dead && self.ent_visible(e))
             .map(|(i, e)| ((e.x + e.y).round() as i32, i))
             .collect();
         order.sort_by_key(|o| o.0);
         let mut oi = 0;
         let mut lights: Vec<(f32, f32, f32, u32)> = vec![];
 
+        // the building and storey the player is up in, if any: there the view
+        // is cut away above their floor
+        let upstairs = self.floor_view().filter(|&(_, f)| f > 0);
         // ---- pass 2: objects + entities in depth order
         for s in s0..=s1 {
             for d in d0..=d1 {
@@ -1276,6 +1283,12 @@ impl Game {
                     self.mountain(c, x, y, sx, sy, self.map.shade[i], z);
                     if a < 1.0 {
                         c.alpha(1.0);
+                    }
+                }
+                if let Some((b, f)) = upstairs {
+                    if self.map.buildings[b].interior(x, y) {
+                        self.upper_tile(c, x, y, f, z, t, &mut lights);
+                        continue;
                     }
                 }
                 let o = self.map.o[i];
@@ -1314,6 +1327,10 @@ impl Game {
                         &mut lights,
                     );
                     c.outline(0, 0.0);
+                    // the storeys above a doorway are wall
+                    if o == O_DOOR {
+                        self.over_door(c, x, y, sx, sy, z, t, &mut lights);
+                    }
                     if occl {
                         c.alpha(1.0);
                         c.mute_ink = false;
@@ -1403,7 +1420,7 @@ impl Game {
         // ---- overhead texts, bars, floats (above everything)
         let tid = p.combat.target;
         for e in self.ents.iter() {
-            if e.dead {
+            if e.dead || !self.ent_visible(e) {
                 continue;
             }
             let (sx, sy) = self.scr_h(e.x, e.y, e.anim.vz);
@@ -2027,7 +2044,7 @@ impl Game {
                 O_WELL => Some((bake::P_WELL, false)),
                 O_LONGTABLE => Some((bake::P_LONGTABLE, style & FACE_S != 0)),
                 O_CART => Some((bake::P_CART, style & FACE_S != 0)),
-                O_DOOR => Some((
+                O_DOOR if self.map.door_shut(x, y) => Some((
                     bake::P_DOOR + (self.map.obj(x - 1, y) != O_WALL) as usize,
                     true,
                 )),
@@ -2203,7 +2220,8 @@ impl Game {
             }
             O_WALL => {
                 let castle = style == WALL_CASTLE || style == WALL_TOWER;
-                let hgt = 38.0 * ZS * z * wall_h(style);
+                let storeys = self.wall_storeys(x, y);
+                let hgt = 38.0 * ZS * z * wall_h(style) * storeys as f32;
                 let tex = match style {
                     2 => TEX_WOODWALL,
                     3 => TEX_PLASTER,
@@ -2262,26 +2280,35 @@ impl Game {
                 if castle && self.map.tile(x, y) != T_FLOOR {
                     self.battlements(c, x, y, sx, sy, style, hgt, z);
                 } else if (x + y) % 3 == 0 && style != 4 {
-                    c.outline(0, 0.0);
-                    c.fill(0x0a080cff);
-                    c.poly(&[
-                        p.at(-21.0, -12.0),
-                        p.at(-12.0, -7.0),
-                        p.at(-12.0, -22.0),
-                        p.at(-21.0, -27.0),
-                    ]);
-                    c.stroke(0xc89a40a0, self.pix.max(z));
-                    c.line(
-                        p.at(-16.5, -9.5).0,
-                        p.at(-16.5, -9.5).1,
-                        p.at(-16.5, -24.5).0,
-                        p.at(-16.5, -24.5).1,
-                    );
-                    c.outline(INK, self.pix.max(z));
+                    // a window on every storey
+                    for k in 0..storeys {
+                        let up = k as f32 * STOREY_PX;
+                        c.outline(0, 0.0);
+                        c.fill(0x0a080cff);
+                        c.poly(&[
+                            p.at(-21.0, -12.0 - up),
+                            p.at(-12.0, -7.0 - up),
+                            p.at(-12.0, -22.0 - up),
+                            p.at(-21.0, -27.0 - up),
+                        ]);
+                        c.stroke(0xc89a40a0, self.pix.max(z));
+                        let (a, b) = (p.at(-16.5, -9.5 - up), p.at(-16.5, -24.5 - up));
+                        c.line(a.0, a.1, b.0, b.1);
+                        c.outline(INK, self.pix.max(z));
+                    }
+                }
+                // a timber beam where each storey meets the next
+                if storeys > 1 {
+                    c.stroke(0x2a1a10ff, 1.5 * self.pix.max(z));
+                    for k in 1..storeys {
+                        let up = k as f32 * STOREY_PX * z;
+                        c.line(sx - hw, sy - up, sx, sy + hh - up);
+                        c.line(sx, sy + hh - up, sx + hw, sy - up);
+                    }
                 }
                 self.wall_deco(c, x, y, sx, sy, style, z, t, lights);
             }
-            O_DOOR => {
+            O_DOOR if self.map.door_shut(x, y) => {
                 c.fill(0x4a2e18ff);
                 c.poly(&[
                     p.at(-30.0, -1.0),
@@ -2289,6 +2316,11 @@ impl Game {
                     p.at(-20.0, -26.0),
                     p.at(-30.0, -31.0),
                 ]);
+            }
+            O_DOOR => self.open_door(c, x, y, z),
+            O_STAIRS => {
+                let base = self.map.level(x, y) as f32;
+                self.stairs(c, x, y, base, z);
             }
             O_ANVIL => {
                 c.fill(0x00000050);
@@ -2618,7 +2650,7 @@ impl Game {
             return;
         }
         // taller walls hide more of what is behind them
-        let reach = (wall_h(b.style) * 5.0).round() as i32;
+        let reach = (wall_h(b.style) * b.storeys() as f32 * 5.0).round() as i32;
         let behind = px >= b.x - 2 && px <= b.x + bw + 2 && py >= b.y - reach && py < b.y;
         let side = py >= b.y - 2 && py <= b.y + bh + 1 && px >= b.x - reach && px < b.x;
         let (x0, y0, x1, y1) = (
@@ -2630,7 +2662,7 @@ impl Game {
         let ym = (y0 + y1) / 2.0;
         let hw = (y1 - y0) / 2.0;
         let (rx0, rx1) = (x0 + hw, x1 - hw);
-        let eave = 38.0 * ZS * z * wall_h(b.style);
+        let eave = 38.0 * ZS * z * wall_h(b.style) * b.storeys() as f32;
         let ridge = eave + 34.0 * z * (b.h as f32 / 6.0);
         let floor = self.map.level(b.x + 1, b.y + 1) as f32 * LH * z;
         let sp = |x: f32, y: f32, h: f32| {
@@ -3779,5 +3811,240 @@ fn wall_h(style: u8) -> f32 {
         WALL_CASTLE => 1.45,
         WALL_TOWER => 1.9,
         _ => 1.0,
+    }
+}
+
+// ---------------------------------------------------------------- storeys and doors
+impl Game {
+    /// How many storeys of wall to draw on this tile: all of a building's
+    /// from outside, up to the player's own floor from within.
+    fn wall_storeys(&self, x: i32, y: i32) -> u8 {
+        let Some(b) = self.map.building_at(x, y) else {
+            return 1;
+        };
+        match self.floor_view() {
+            Some((pb, f)) if pb == b => f + 1,
+            _ => self.map.buildings[b].storeys(),
+        }
+    }
+
+    /// A shut-able wall face from `base` up `hgt` pixels on this tile: the
+    /// storeys over a doorway.
+    #[allow(clippy::too_many_arguments)]
+    fn wall_box(&self, c: &mut Canvas, sx: f32, sy: f32, hgt: f32, style: u8, z: f32) {
+        let (hw, hh) = (32.0 * z + 0.6, 16.0 * z + 0.6);
+        let tex = match style {
+            2 => TEX_WOODWALL,
+            3 => TEX_PLASTER,
+            WALL_CASTLE | WALL_TOWER => TEX_ASHLAR,
+            _ => TEX_BRICK,
+        };
+        let left = [
+            (sx - hw, sy),
+            (sx, sy + hh),
+            (sx, sy + hh - hgt),
+            (sx - hw, sy - hgt),
+        ];
+        let right = [
+            (sx, sy + hh),
+            (sx + hw, sy),
+            (sx + hw, sy - hgt),
+            (sx, sy + hh - hgt),
+        ];
+        let top = [
+            (sx, sy - hh - hgt),
+            (sx + hw, sy - hgt),
+            (sx, sy + hh - hgt),
+            (sx - hw, sy - hgt),
+        ];
+        c.outline(INK, self.pix.max(z));
+        self.face_pat(c, tex, false);
+        c.poly(&left);
+        self.face_pat(c, tex, true);
+        c.poly(&right);
+        c.outline(0, 0.0);
+        c.fill(0x00000068);
+        c.poly(&left);
+        c.fill(0x00000028);
+        c.poly(&right);
+        c.outline(INK, self.pix.max(z));
+        self.pat(c, tex, hgt);
+        c.poly(&top);
+        c.outline(0, 0.0);
+        c.fill(0x0c080660);
+        c.poly(&top);
+        // the beam the upper storey rests on
+        c.stroke(0x2a1a10ff, 1.5 * self.pix.max(z));
+        c.line(sx - hw, sy, sx, sy + hh);
+        c.line(sx, sy + hh, sx + hw, sy);
+    }
+
+    /// The upper storeys of wall over a doorway, when they are drawn.
+    #[allow(clippy::too_many_arguments)]
+    fn over_door(
+        &self,
+        c: &mut Canvas,
+        x: i32,
+        y: i32,
+        sx: f32,
+        sy: f32,
+        z: f32,
+        _t: f32,
+        _lights: &mut Vec<(f32, f32, f32, u32)>,
+    ) {
+        let st = self.wall_storeys(x, y);
+        if st <= 1 {
+            return;
+        }
+        let Some(b) = self.map.building_at(x, y) else {
+            return;
+        };
+        let style = self.map.buildings[b].style;
+        let base = STOREY_PX * z;
+        self.wall_box(c, sx, sy - base, base * (st - 1) as f32, style, z);
+        c.outline(0, 0.0);
+    }
+
+    /// An open door: its leaf swung in against the jamb.
+    fn open_door(&self, c: &mut Canvas, x: i32, y: i32, z: f32) {
+        let lz = LH * z;
+        let base = self.map.level(x, y) as f32 * lz;
+        let hinge = if self.map.obj(x - 1, y) == O_WALL {
+            x as f32 - 0.45
+        } else {
+            x as f32 + 0.45
+        };
+        let sp = |wx: f32, wy: f32, h: f32| {
+            let (a, b) = self.to_screen(wx, wy);
+            (a, b - base - h)
+        };
+        let (y0, y1) = (y as f32 + 0.35, y as f32 - 0.55);
+        let h = 26.0 * z;
+        c.outline(INK, self.pix.max(z));
+        c.fill(0x3a2412ff);
+        c.poly(&[
+            sp(hinge, y0, 0.0),
+            sp(hinge, y1, 0.0),
+            sp(hinge, y1, h),
+            sp(hinge, y0, h),
+        ]);
+        c.outline(0, 0.0);
+        // planks
+        c.stroke(0x24160aff, self.pix.max(z));
+        for k in 1..3 {
+            let f = k as f32 / 3.0;
+            let yy = y0 + (y1 - y0) * f;
+            let (a, b) = (sp(hinge, yy, 0.0), sp(hinge, yy, h));
+            c.line(a.0, a.1, b.0, b.1);
+        }
+    }
+
+    /// A flight of wooden stairs on a tile, from `base` (in levels) up a storey
+    /// toward the back wall.
+    fn stairs(&self, c: &mut Canvas, x: i32, y: i32, base: f32, z: f32) {
+        let lz = LH * z;
+        let sp = |wx: f32, wy: f32, h: f32| {
+            let (a, b) = self.to_screen(wx, wy);
+            (a, b - h * lz)
+        };
+        let n = 6;
+        let (x0, x1) = (x as f32 - 0.42, x as f32 + 0.42);
+        let ink = self.pix.max(z);
+        // back to front, so each step hides the one behind it
+        for k in (0..n).rev() {
+            let ya = y as f32 + 0.5 - k as f32 / n as f32;
+            let yb = ya - 1.0 / n as f32;
+            let top = base + STOREY * (k + 1) as f32 / n as f32;
+            c.outline(INK, ink);
+            // its side, toward x+1
+            c.fill(0x3a2616ff);
+            c.poly(&[
+                sp(x1, ya, base),
+                sp(x1, yb, base),
+                sp(x1, yb, top),
+                sp(x1, ya, top),
+            ]);
+            // its riser, toward y+1
+            c.fill(0x4e3420ff);
+            c.poly(&[
+                sp(x0, ya, base),
+                sp(x1, ya, base),
+                sp(x1, ya, top),
+                sp(x0, ya, top),
+            ]);
+            // its tread
+            c.fill(0x7a5634ff);
+            c.poly(&[
+                sp(x0, ya, top),
+                sp(x1, ya, top),
+                sp(x1, yb, top),
+                sp(x0, yb, top),
+            ]);
+        }
+        // a handrail up the open side
+        c.outline(0, 0.0);
+        c.stroke(0x2a1a0eff, 1.5 * ink);
+        let (a, b) = (
+            sp(x1, y as f32 + 0.5, base + 0.9),
+            sp(x1, y as f32 - 0.5, base + STOREY + 0.9),
+        );
+        c.line(a.0, a.1, b.0, b.1);
+    }
+
+    /// An inside tile of a building the player is upstairs in: the storeys
+    /// below as a solid block, then the floor and what stands on it.
+    #[allow(clippy::too_many_arguments)]
+    fn upper_tile(
+        &self,
+        c: &mut Canvas,
+        x: i32,
+        y: i32,
+        f: u8,
+        z: f32,
+        t: f32,
+        lights: &mut Vec<(f32, f32, f32, u32)>,
+    ) {
+        let lz = LH * z;
+        let (hw, hh) = (32.0 * z + 0.6, 16.0 * z + 0.6);
+        let lvl = self.map.level(x, y) as f32;
+        let e = lvl + f as f32 * STOREY;
+        let (gx, gy) = self.to_screen(x as f32, y as f32);
+        let (uo, us) = self.map.obj_on(x, y, f);
+        let hole = uo == O_STAIRS && us & STAIR_DOWN != 0;
+        let solid = if hole { e - STOREY } else { e };
+        if solid > lvl {
+            c.outline(0, 0.0);
+            c.fill(0x23170fff);
+            c.poly(&[
+                (gx - hw, gy - lvl * lz),
+                (gx, gy + hh - lvl * lz),
+                (gx, gy + hh - solid * lz),
+                (gx - hw, gy - solid * lz),
+            ]);
+            c.fill(0x2e1f14ff);
+            c.poly(&[
+                (gx, gy + hh - lvl * lz),
+                (gx + hw, gy - lvl * lz),
+                (gx + hw, gy - solid * lz),
+                (gx, gy + hh - solid * lz),
+            ]);
+        }
+        if hole {
+            // the stairwell: the flight up from the floor below
+            self.stairs(c, x, y, e - STOREY, z);
+            return;
+        }
+        self.pat(c, tex_of(T_FLOOR), e * lz);
+        c.poly(&self.diamond(gx, gy, &[e; 4]));
+        c.fill(0x0000002a);
+        c.poly(&self.diamond(gx, gy, &[e; 4]));
+        if uo == O_STAIRS {
+            self.stairs(c, x, y, e, z);
+        } else if uo != O_NONE && uo != O_WALL && uo != O_PART {
+            c.outline(INK, self.pix.max(z));
+            let sh = self.map.shade[idx(x, y)];
+            self.object(c, uo, x, y, gx, gy - e * lz, sh, us, z, t, lights);
+            c.outline(0, 0.0);
+        }
     }
 }

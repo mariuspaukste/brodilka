@@ -119,6 +119,26 @@ Tap your horse to mount, yourself to dismount.
 Keyboard: WASD/arrows, Tab war mode, Space (hold) block, F kick, E mount/dismount, B bandage, P pack, K skills, M map,
 1–9 cast, Esc close.
 
+## Doors and storeys
+
+Doors are shut until someone opens them (`src/game/storeys.rs`). The player
+and the townsfolk open a door by walking into it, and it swings shut by
+itself a few seconds later once the doorway is clear; tap a door close by to
+open or shut it. Beasts and monsters cannot open doors, so a shut door keeps
+them out.
+
+Some buildings stand more than one storey high: rooms over the inn and the
+pubs, a ward over the healer's, a gallery over the library, and a three-storey
+mage's tower in the town and in the city. Stairs in the back corner lead up;
+walk onto them to climb, step off and on again to go down. Paths never take
+stairs on the way somewhere else. Upstairs the view is cut away above the
+player's floor: the storeys below show as a solid block under the floorboards,
+the stairwell opens onto the flight below, and only those on the same floor
+are seen. From outside, the walls rise a storey at a time, with a beam and
+windows on each, under a roof raised to match. A building's upper floors are
+`world::Floor`s (walls, furniture and stairs over its footprint); every
+entity stands on a storey (`Ent::fl`), and the floor is kept in the save.
+
 ## World packs
 
 The engine plays its own world, but a **world pack** can rename and

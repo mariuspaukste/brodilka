@@ -6,6 +6,7 @@ use crate::world::*;
 use std::collections::VecDeque;
 
 pub mod shadow;
+pub mod storeys;
 pub mod travel;
 
 pub const C_SYS: u32 = 0xe8e0c8ff;
@@ -233,6 +234,8 @@ pub struct Ent {
     pub march: u32,
     /// how far along its road it has come (a route index)
     pub wp: usize,
+    /// the storey it stands on: 0 is the ground, 1 the floor above, …
+    pub fl: u8,
 }
 
 impl Ent {
@@ -264,6 +267,7 @@ impl Ent {
             horse: None,
             march: 0,
             wp: 0,
+            fl: 0,
         }
     }
     /// 0 wild (or not a horse), 1 the player's own, 2 the stablemaster's
@@ -728,8 +732,14 @@ impl Game {
         let id = g.nid();
         g.ents
             .push(Ent::new(id, EK::Player, "Stranger".into(), sx, sy, 50));
-        let npcs = g.map.npcs.clone();
-        for (v, x, y) in npcs {
+        let npcs: Vec<(usize, i32, i32, u8)> = g
+            .map
+            .npcs
+            .iter()
+            .map(|&(v, x, y)| (v, x, y, 0))
+            .chain(g.map.guests.iter().copied())
+            .collect();
+        for (v, x, y, fl) in npcs {
             let id = g.nid();
             let vd = &VENDORS[v];
             let nm = if vd.title.is_empty() {
@@ -740,6 +750,7 @@ impl Game {
             let mut e = Ent::new(id, EK::Npc(v), nm, x, y, 500);
             e.look = g.rng.next_u32();
             e.ai_t = g.rng.f() * 5.0;
+            e.fl = fl;
             g.ents.push(e);
         }
         let sp = g.map.spawns.clone();
@@ -1102,11 +1113,13 @@ impl Game {
                 _ => {}
             }
         }
+        self.door_tick(dt);
         for i in 0..self.ents.len() {
             let (tx, ty) = self.ents[i].tile();
-            let ground = self.map.surface(tx, ty);
+            let ground = self.map.surface(tx, ty) + self.ents[i].fl as f32 * crate::render::STOREY;
             let e = &mut self.ents[i];
-            if (ground - e.anim.vz).abs() > 1.2 {
+            // jumps of more than a flight of stairs are made at once
+            if (ground - e.anim.vz).abs() > crate::render::STOREY + 0.2 {
                 e.anim.vz = ground; // spawned or moved by a jump in position
             }
             e.anim.vz += (ground - e.anim.vz) * (dt * 9.0).min(1.0);
@@ -1181,10 +1194,19 @@ impl Game {
         } else {
             1.0
         };
-        let e = &mut self.ents[i];
-        let Some(&(tx, ty)) = e.path.first() else {
+        let Some(&(tx, ty)) = self.ents[i].path.first() else {
             return false;
         };
+        // a shut door: people open it, beasts are stopped by it
+        if self.ents[i].fl == 0 && self.map.door_shut(tx, ty) && self.ents[i].tile() != (tx, ty) {
+            if self.walker(i).doors {
+                self.map.open_door(tx, ty);
+            } else {
+                self.ents[i].path.clear();
+                return false;
+            }
+        }
+        let e = &mut self.ents[i];
         let dx = tx as f32 - e.x;
         let dy = ty as f32 - e.y;
         let d = (dx * dx + dy * dy).sqrt();
@@ -1205,6 +1227,7 @@ impl Game {
             e.x = tx as f32;
             e.y = ty as f32;
             e.path.remove(0);
+            self.on_arrive(i, tx, ty);
         } else {
             e.x += dx / d * step;
             e.y += dy / d * step;
@@ -1281,8 +1304,9 @@ impl Game {
                     self.ents[0].tile()
                 };
                 let cands = [(dx, dy), rot(dx, dy, 1), rot(dx, dy, -1)];
+                let w = self.walker(0);
                 for (cx, cy) in cands {
-                    if self.map.can_step(tx, ty, cx, cy) {
+                    if self.map.can_step_as(tx, ty, cx, cy, w) {
                         let p = self.pm();
                         if p.path.is_empty() {
                             p.path.push((tx + cx, ty + cy));
@@ -1461,7 +1485,8 @@ impl Game {
                     .copied()
                     .unwrap_or(self.ents[0].tile());
                 let (gx, gy) = (tx.round() as i32, ty.round() as i32);
-                if let Some(mut path) = self.map.find_path(sx, sy, gx, gy, 1) {
+                let w = self.walker(0);
+                if let Some(mut path) = self.map.find_path_as(sx, sy, gx, gy, 1, w) {
                     if let Some(&f) = self.ents[0].path.first() {
                         path.insert(0, f);
                     }
@@ -1995,8 +2020,9 @@ impl Game {
         };
         let (tx, ty) = (hx + self.rng.range(-r, r), hy + self.rng.range(-r, r));
         let (sx, sy) = self.ents[i].tile();
-        if self.map.passable(tx, ty) && self.ents[i].path.is_empty() {
-            if let Some(p) = self.map.find_path(sx, sy, tx, ty, 0) {
+        let w = self.walker(i);
+        if self.map.passable_as(tx, ty, w) && self.ents[i].path.is_empty() {
+            if let Some(p) = self.map.find_path_as(sx, sy, tx, ty, 0, w) {
                 if p.len() < 8 {
                     self.ents[i].path = p;
                 }
@@ -2006,9 +2032,11 @@ impl Game {
 
     // ------------------------------------------------------------ monsters
     fn occupied(&self, x: i32, y: i32, me: usize) -> bool {
+        let fl = self.ents.get(me).map(|e| e.fl).unwrap_or(0);
         self.ents.iter().enumerate().any(|(j, e)| {
             j != me
                 && !e.dead
+                && e.fl == fl
                 && matches!(e.k, EK::Mon(_))
                 && (e.tile() == (x, y) || e.path.first() == Some(&(x, y)))
         })
@@ -2017,8 +2045,9 @@ impl Game {
         let (x, y) = self.ents[i].tile();
         let cur = ((x as f32 - gx).powi(2) + (y as f32 - gy).powi(2)).sqrt();
         let mut best: Option<((i32, i32), f32)> = None;
+        let w = self.walker(i);
         for &(dx, dy) in DIRS.iter() {
-            if !self.map.can_step(x, y, dx, dy) || self.occupied(x + dx, y + dy, i) {
+            if !self.map.can_step_as(x, y, dx, dy, w) || self.occupied(x + dx, y + dy, i) {
                 continue;
             }
             let (nx, ny) = (x + dx, y + dy);
@@ -2618,7 +2647,8 @@ impl Game {
             .first()
             .copied()
             .unwrap_or(self.ents[0].tile());
-        if let Some(mut path) = self.map.find_path(sx, sy, x, y, range) {
+        let w = self.walker(0);
+        if let Some(mut path) = self.map.find_path_as(sx, sy, x, y, range, w) {
             if let Some(&f) = self.ents[0].path.first() {
                 path.insert(0, f);
             }
@@ -3189,7 +3219,7 @@ impl Game {
         // entity hit test
         let mut best: Option<(usize, f32)> = None;
         for (i, e) in self.ents.iter().enumerate() {
-            if e.dead {
+            if e.dead || !self.ent_visible(e) {
                 continue;
             }
             let size = self.ent_size(e);
@@ -3273,8 +3303,12 @@ impl Game {
             }
             return;
         }
-        let (wx, wy) = self.to_world_ground(sx, sy);
+        let (wx, wy) = self.tap_tile(sx, sy);
         let (tx, ty) = (wx.round() as i32, wy.round() as i32);
+        // a door within reach opens or shuts
+        if self.tap_door(tx, ty) {
+            return;
+        }
         // corpses
         if let Some(c) = self
             .corpses
@@ -3416,11 +3450,11 @@ mod tests {
         let (sx, sy) = g.map.start;
         assert!(g.map.passable(sx, sy));
         for &(_, x, y) in g.map.pois.clone().iter() {
-            let p = g.map.find_path(sx, sy, x, y, 4);
+            let p = g.map.find_path_as(sx, sy, x, y, 4, PERSON);
             assert!(p.is_some(), "poi at {x},{y} unreachable");
         }
         for &(x, y) in g.map.ankhs.clone().iter() {
-            assert!(g.map.find_path(sx, sy, x, y, 1).is_some());
+            assert!(g.map.find_path_as(sx, sy, x, y, 1, PERSON).is_some());
         }
         assert!(g.ents.len() > 30);
     }
@@ -3443,7 +3477,7 @@ mod tests {
                 let (nx, ny) = e.tile();
                 assert!(nx > bx && nx < bx + 7 && ny > by && ny < by + 5);
                 assert!(
-                    g.map.find_path(sx, sy, nx, ny, 1).is_some(),
+                    g.map.find_path_as(sx, sy, nx, ny, 1, PERSON).is_some(),
                     "seed {seed}: keeper {v} unreachable"
                 );
             }
@@ -3482,7 +3516,7 @@ mod tests {
             let (lx, ly) = e.tile();
             assert_eq!(g.map.obj(lx, ly - 1), O_THRONE);
             assert!(
-                g.map.find_path(sx, sy, lx, ly, 1).is_some(),
+                g.map.find_path_as(sx, sy, lx, ly, 1, PERSON).is_some(),
                 "seed {seed}: lord unreachable"
             );
             // every shop in the city can be reached too
@@ -3496,7 +3530,7 @@ mod tests {
             // six houses and the keep
             assert_eq!(shops.len(), 7);
             for (x, y) in shops {
-                assert!(g.map.find_path(sx, sy, x, y, 1).is_some());
+                assert!(g.map.find_path_as(sx, sy, x, y, 1, PERSON).is_some());
             }
             // the city wall is unbroken but for its three gates
             let gaps = (x0..x1)
@@ -3542,7 +3576,7 @@ mod tests {
                     .filter(|e| (e.home.0 - px).abs() <= 3 && (e.home.1 - py).abs() <= 3)
                     .count();
                 assert_eq!(guards, 2, "seed {seed}: post at ({px},{py})");
-                assert!(g.map.find_path(sx, sy, px, py, 1).is_some());
+                assert!(g.map.find_path_as(sx, sy, px, py, 1, PERSON).is_some());
             }
             // the graveyard and hill roads' posts stand out on open road
             assert!(posts.iter().filter(|&&(x, y)| !g.map.in_town(x, y)).count() >= 2);
@@ -3579,7 +3613,10 @@ mod tests {
             let (bx, by) = pubs[0];
             assert_eq!(by, y0 + 21);
             assert_eq!(bx + 8, (x0 + x1) / 2 - 1);
-            assert!(g.map.find_path(sx, sy, bx + 3, by + 2, 1).is_some());
+            assert!(g
+                .map
+                .find_path_as(sx, sy, bx + 3, by + 2, 1, PERSON)
+                .is_some());
         }
     }
 
@@ -3735,7 +3772,7 @@ mod tests {
             let (sx, sy) = g.map.start;
             let (tx, ty) = g.ents[sm].tile();
             assert!(
-                g.map.find_path(sx, sy, tx, ty, 1).is_some(),
+                g.map.find_path_as(sx, sy, tx, ty, 1, PERSON).is_some(),
                 "seed {seed}: stables unreachable"
             );
             assert!(g.map.guarded(tx, ty));
@@ -4125,6 +4162,130 @@ region = "dark"
             .any(|(_, t, _)| t.contains("Shadow lies heavy")));
         assert!(g.hud_json().contains("in the Shadow"));
         let _ = g.render();
+    }
+
+    fn steps(g: &mut Game, secs: f32, until: impl Fn(&Game) -> bool) -> bool {
+        for _ in 0..(secs * 30.0) as i32 {
+            g.update(1.0 / 30.0);
+            if until(g) {
+                return true;
+            }
+        }
+        false
+    }
+
+    #[test]
+    fn doors_keep_beasts_out_and_open_for_people() {
+        let mut g = Game::new(7);
+        g.create("Door", false, 0, "warrior", [0, 0, 0]);
+        let b = g
+            .map
+            .buildings
+            .iter()
+            .find(|b| b.vendor == V_SMITH)
+            .unwrap();
+        let (dx, dy) = (b.x + 3, b.y + b.h - 1);
+        let inside = (b.x + 3, b.y + 2);
+        assert!(g.map.door_shut(dx, dy), "doors start shut");
+        assert!(!g.map.passable(dx, dy), "a shut door stops a beast");
+        assert!(g.map.passable_as(dx, dy, PERSON));
+        let (sx, sy) = (dx, dy + 3);
+        assert!(g.map.find_path(sx, sy, inside.0, inside.1, 0).is_none());
+        // the player walks in: the door opens on the way, both leaves
+        g.ents[0].x = sx as f32;
+        g.ents[0].y = sy as f32;
+        assert!(g.walk_to(inside.0, inside.1, 0));
+        assert!(steps(&mut g, 10.0, |g| g.ents[0].tile() == inside));
+        // and it swings shut behind them once the doorway is clear
+        assert!(steps(&mut g, 8.0, |g| g.map.door_shut(dx, dy)
+            && g.map.door_shut(dx + 1, dy)));
+        // tapping it from just inside opens it again
+        g.ents[0].y = (dy - 1) as f32;
+        assert!(g.tap_door(dx, dy));
+        assert!(!g.map.door_shut(dx, dy) && !g.map.door_shut(dx + 1, dy));
+        assert!(g.tap_door(dx, dy));
+        assert!(g.map.door_shut(dx, dy));
+        // too far away, a tap does nothing to it
+        g.ents[0].x = (dx + 8) as f32;
+        assert!(!g.tap_door(dx, dy));
+    }
+
+    #[test]
+    fn stairs_take_the_player_up_the_mages_tower_and_down() {
+        let mut g = Game::new(7);
+        g.create("Up", false, 0, "warrior", [0, 0, 0]);
+        let (bi, b) = g
+            .map
+            .buildings
+            .iter()
+            .enumerate()
+            .find(|(_, b)| b.vendor == V_MAGE && b.floors.len() == 2)
+            .unwrap();
+        let (bx, by, w) = (b.x, b.y, b.w);
+        assert_eq!(b.storeys(), 3);
+        // in at the door, up the first flight in the back right corner
+        g.ents[0].x = (bx + 3) as f32;
+        g.ents[0].y = (by + 4) as f32;
+        g.ents[0].path.clear();
+        assert!(g.walk_to(bx + w - 2, by + 1, 0), "stairs reachable");
+        assert!(steps(&mut g, 10.0, |g| g.ents[0].fl == 1));
+        assert_eq!(g.floor_view(), Some((bi, 1)));
+        assert!(journal_has(&g, "climbest"));
+        // up the second flight in the back left corner
+        assert!(g.walk_to(bx + 1, by + 1, 0), "second flight reachable");
+        assert!(steps(&mut g, 10.0, |g| g.ents[0].fl == 2));
+        // the shopkeeper below is out of sight; walls hold on the top floor
+        let keeper = g.ents.iter().find(|e| {
+            e.k == EK::Npc(V_MAGE) && g.map.buildings[bi].contains(e.tile().0, e.tile().1)
+        });
+        if let Some(k) = keeper {
+            assert!(!g.ent_visible(k));
+        }
+        assert!(
+            !g.map.passable_as(bx, by + 2, g.walker(0)),
+            "no walking through the wall"
+        );
+        assert!(
+            !g.map.passable_as(bx - 1, by + 2, g.walker(0)),
+            "nor off the floor"
+        );
+        // the floor is kept in the save
+        let save = g.save();
+        let mut h = Game::new(7);
+        assert!(h.load(&save));
+        assert_eq!(h.ents[0].fl, 2);
+        // step off the stairs and back on: down a flight
+        let (px, py) = g.ents[0].tile();
+        assert!(g.walk_to(px + 1, py + 1, 0));
+        assert!(steps(&mut g, 4.0, |g| g.ents[0].path.is_empty()));
+        assert!(g.walk_to(bx + 1, by + 1, 0));
+        assert!(steps(&mut g, 6.0, |g| g.ents[0].fl == 1));
+        // walking past stairs never takes them: paths go round
+        let p = g
+            .map
+            .find_path_as(bx + 2, by + 2, bx + 6, by + 2, 0, g.walker(0))
+            .unwrap();
+        assert!(p.iter().all(|&(x, y)| g.map.obj_on(x, y, 1).0 != O_STAIRS));
+        let _ = g.render();
+    }
+
+    #[test]
+    fn a_guest_lives_upstairs_at_the_pub() {
+        let g = Game::new(7);
+        let guest = g.ents.iter().find(|e| e.fl == 1).expect("a guest upstairs");
+        let (x, y) = guest.tile();
+        let b = g.map.building_at(x, y).expect("in a building");
+        assert_eq!(g.map.buildings[b].vendor, V_BARKEEP);
+        assert!(!g.ent_visible(guest), "not seen from the street");
+        assert!(g.map.passable_as(
+            x,
+            y,
+            Walker {
+                fl: 1,
+                doors: true,
+                stairs: false
+            }
+        ));
     }
 
     #[test]

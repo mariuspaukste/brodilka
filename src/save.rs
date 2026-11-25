@@ -70,6 +70,7 @@ impl Game {
             "pos",
             format!("{},{}", p.x.round() as i32, p.y.round() as i32),
         );
+        kv("floor", p.fl.to_string());
         kv("hp", p.hp.to_string());
         kv("mana", p.mana.to_string());
         kv("time", (self.time as i64).to_string());
@@ -115,6 +116,7 @@ impl Game {
     pub fn load(&mut self, s: &str) -> bool {
         let mut pl = Pl::new();
         let mut pos = self.map.start;
+        let mut floor: u8 = 0;
         let (mut hp, mut mana) = (1, 0);
         let mut ok = false;
         let mut corpse: Option<(i32, i32, i64, Vec<Item>)> = None;
@@ -164,6 +166,7 @@ impl Game {
                         pos = (n[0], n[1]);
                     }
                 }
+                "floor" => floor = v.parse().unwrap_or(0),
                 "hp" => hp = v.parse().unwrap_or(1),
                 "mana" => mana = v.parse().unwrap_or(0),
                 "time" => self.time = v.parse::<f32>().unwrap_or(60.0),
@@ -209,8 +212,16 @@ impl Game {
             return false;
         }
         // a save from an older map may stand where it can no longer get out
-        if !self.map.passable(pos.0, pos.1) || !self.map.reach[crate::world::idx(pos.0, pos.1)] {
+        let w = crate::world::Walker {
+            fl: floor,
+            doors: true,
+            stairs: true,
+        };
+        if !self.map.passable_as(pos.0, pos.1, w)
+            || (floor == 0 && !self.map.reach[crate::world::idx(pos.0, pos.1)])
+        {
             pos = self.map.start;
+            floor = 0;
         }
         let mhp = pl.mhp();
         let mm = pl.mmana();
@@ -224,6 +235,7 @@ impl Game {
         p.name = nm;
         p.x = pos.0 as f32;
         p.y = pos.1 as f32;
+        p.fl = floor;
         p.path.clear();
         p.mhp = mhp;
         p.mmana = mm;

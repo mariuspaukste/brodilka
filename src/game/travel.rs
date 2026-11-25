@@ -304,7 +304,8 @@ impl Game {
             } else if self.ents[i].ai_t <= 0.0 {
                 self.ents[i].ai_t = 1.0;
                 let (sx, sy) = self.ents[i].tile();
-                if let Some(mut p) = self.map.find_path(sx, sy, gx, gy, 0) {
+                let w = self.walker(i);
+                if let Some(mut p) = self.map.find_path_as(sx, sy, gx, gy, 0, w) {
                     p.truncate(6);
                     self.ents[i].path = p;
                 }

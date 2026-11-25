@@ -55,6 +55,13 @@ pub const O_PART: u8 = 32;
 pub const O_LONGTABLE: u8 = 33;
 pub const O_CART: u8 = 34;
 pub const O_THRONE: u8 = 35;
+/// a flight of stairs between storeys of a building (`STAIR_UP`/`STAIR_DOWN`
+/// in its style say which way it leads from the floor it stands on)
+pub const O_STAIRS: u8 = 36;
+pub const STAIR_UP: u8 = 1;
+pub const STAIR_DOWN: u8 = 2;
+/// seconds a door stays open before it swings shut
+pub const DOOR_OPEN: f32 = 5.0;
 
 /// how far a road post's guards keep the peace, in tiles (chebyshev)
 pub const POST_R: i32 = 6;
@@ -92,7 +99,51 @@ pub struct Building {
     pub h: i32,
     pub vendor: usize,
     pub style: u8,
+    /// the storeys above the ground floor, lowest first
+    pub floors: Vec<Floor>,
 }
+
+impl Building {
+    /// storeys in all, the ground floor included
+    pub fn storeys(&self) -> u8 {
+        1 + self.floors.len() as u8
+    }
+    pub fn contains(&self, x: i32, y: i32) -> bool {
+        x >= self.x && y >= self.y && x < self.x + self.w && y < self.y + self.h
+    }
+    /// inside its walls, not on them
+    pub fn interior(&self, x: i32, y: i32) -> bool {
+        x > self.x && y > self.y && x < self.x + self.w - 1 && y < self.y + self.h - 1
+    }
+}
+
+/// An upper storey: its objects (walls round the edge, furniture, stairs)
+/// over the building's footprint, row by row.
+pub struct Floor {
+    pub o: Vec<u8>,
+    pub style: Vec<u8>,
+}
+
+/// Who is moving, for where they may go: which storey they are on, whether
+/// they open doors (people do, beasts do not) and whether they take stairs.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Walker {
+    pub fl: u8,
+    pub doors: bool,
+    pub stairs: bool,
+}
+/// townsfolk: they open doors but keep to their own floor
+pub const PERSON: Walker = Walker {
+    fl: 0,
+    doors: true,
+    stairs: false,
+};
+/// creatures of the wild: the ground floor only, and no doors
+pub const BEAST: Walker = Walker {
+    fl: 0,
+    doors: false,
+    stairs: false,
+};
 
 /// A road as it was carved, tile by tile from `from` to `to` (place ids:
 /// "town", "city", or a site id from `sim::SITE_IDS`), for travellers to follow.
@@ -136,6 +187,12 @@ pub struct Map {
     pub gloom: Vec<u8>,
     /// trees the Shadow has withered (they green again when it lifts)
     pub withered: Vec<bool>,
+    /// seconds each door has left open (0: shut); see `DOOR_OPEN`
+    pub door: Vec<f32>,
+    /// every door tile, for ticking them
+    pub doors: Vec<usize>,
+    /// townsfolk who live upstairs: (vendor kind, x, y, storey)
+    pub guests: Vec<(usize, i32, i32, u8)>,
     // pathfinding scratch
     pf_g: Vec<f32>,
     pf_par: Vec<i32>,
@@ -190,7 +247,10 @@ fn fbm(x: f32, y: f32, seed: u32) -> f32 {
 }
 
 pub fn blocks(o: u8) -> bool {
-    !matches!(o, O_NONE | O_DOOR | O_BUSH | O_FLOWERS | O_BONES | O_SKULLS)
+    !matches!(
+        o,
+        O_NONE | O_DOOR | O_BUSH | O_FLOWERS | O_BONES | O_SKULLS | O_STAIRS
+    )
 }
 
 #[derive(Copy, Clone, PartialEq)]
@@ -236,13 +296,79 @@ impl Map {
             O_NONE
         }
     }
+    /// Can a beast stand here? (a shut door keeps it out)
     pub fn passable(&self, x: i32, y: i32) -> bool {
+        self.passable_as(x, y, BEAST)
+    }
+    /// Can this walker stand here, on its storey?
+    pub fn passable_as(&self, x: i32, y: i32, w: Walker) -> bool {
         if !inb(x, y) {
             return false;
         }
         let i = idx(x, y);
-        let t = self.t[i];
-        t != T_WATER && t != T_MOUNT && !blocks(self.o[i])
+        if w.fl > 0 {
+            let Some(b) = self.building_at(x, y) else {
+                return false;
+            };
+            let Some(f) = self.buildings[b].floors.get(w.fl as usize - 1) else {
+                return false;
+            };
+            let o = f.o[self.local(b, x, y)];
+            return !blocks(o) && (w.stairs || o != O_STAIRS);
+        }
+        let (t, o) = (self.t[i], self.o[i]);
+        if o == O_DOOR && self.door[i] <= 0.0 && !w.doors {
+            return false;
+        }
+        if o == O_STAIRS && !w.stairs {
+            return false;
+        }
+        t != T_WATER && t != T_MOUNT && !blocks(o)
+    }
+    pub fn building_at(&self, x: i32, y: i32) -> Option<usize> {
+        self.buildings.iter().position(|b| b.contains(x, y))
+    }
+    fn local(&self, b: usize, x: i32, y: i32) -> usize {
+        let b = &self.buildings[b];
+        ((y - b.y) * b.w + (x - b.x)) as usize
+    }
+    /// The object on a tile at a storey (the map's own on the ground floor).
+    pub fn obj_on(&self, x: i32, y: i32, fl: u8) -> (u8, u8) {
+        if fl == 0 {
+            return if inb(x, y) {
+                (self.o[idx(x, y)], self.style[idx(x, y)])
+            } else {
+                (O_NONE, 0)
+            };
+        }
+        match self.building_at(x, y) {
+            Some(b) => match self.buildings[b].floors.get(fl as usize - 1) {
+                Some(f) => {
+                    let k = self.local(b, x, y);
+                    (f.o[k], f.style[k])
+                }
+                None => (O_NONE, 0),
+            },
+            None => (O_NONE, 0),
+        }
+    }
+    pub fn door_shut(&self, x: i32, y: i32) -> bool {
+        inb(x, y) && self.o[idx(x, y)] == O_DOOR && self.door[idx(x, y)] <= 0.0
+    }
+    /// Open a door, and its other leaf if it is a double door.
+    pub fn open_door(&mut self, x: i32, y: i32) {
+        for dx in [-1, 0, 1] {
+            if inb(x + dx, y) && self.o[idx(x + dx, y)] == O_DOOR {
+                self.door[idx(x + dx, y)] = DOOR_OPEN;
+            }
+        }
+    }
+    pub fn shut_door(&mut self, x: i32, y: i32) {
+        for dx in [-1, 0, 1] {
+            if inb(x + dx, y) && self.o[idx(x + dx, y)] == O_DOOR {
+                self.door[idx(x + dx, y)] = 0.0;
+            }
+        }
     }
     pub fn level(&self, x: i32, y: i32) -> u8 {
         if inb(x, y) {
@@ -281,12 +407,27 @@ impl Map {
     }
     /// can step from (x,y) by (dx,dy) without cutting corners or climbing a ledge
     pub fn can_step(&self, x: i32, y: i32, dx: i32, dy: i32) -> bool {
-        if !self.passable(x + dx, y + dy) || !self.height_ok(x, y, x + dx, y + dy) {
+        self.can_step_as(x, y, dx, dy, BEAST)
+    }
+    /// can this walker step from (x,y) by (dx,dy) on its storey; no cutting
+    /// corners, and through a doorway only straight
+    pub fn can_step_as(&self, x: i32, y: i32, dx: i32, dy: i32, w: Walker) -> bool {
+        let p = |x: i32, y: i32| self.passable_as(x, y, w);
+        if !p(x + dx, y + dy) {
+            return false;
+        }
+        if w.fl > 0 {
+            return dx == 0 || dy == 0 || (p(x + dx, y) && p(x, y + dy));
+        }
+        if !self.height_ok(x, y, x + dx, y + dy) {
             return false;
         }
         if dx != 0 && dy != 0 {
-            return self.passable(x + dx, y)
-                && self.passable(x, y + dy)
+            let door = |x: i32, y: i32| self.obj(x, y) == O_DOOR;
+            return !door(x, y)
+                && !door(x + dx, y + dy)
+                && p(x + dx, y)
+                && p(x, y + dy)
                 && self.height_ok(x, y, x + dx, y)
                 && self.height_ok(x, y, x, y + dy)
                 && self.height_ok(x + dx, y, x + dx, y + dy);
@@ -338,7 +479,7 @@ impl Map {
                 .any(|&(px, py)| (x - px).abs() <= POST_R && (y - py).abs() <= POST_R)
     }
 
-    /// A* to any passable tile within `range` (chebyshev) of goal.
+    /// A* to any passable tile within `range` (chebyshev) of goal, for a beast.
     pub fn find_path(
         &mut self,
         sx: i32,
@@ -346,6 +487,19 @@ impl Map {
         gx: i32,
         gy: i32,
         range: i32,
+    ) -> Option<Vec<(i32, i32)>> {
+        self.find_path_as(sx, sy, gx, gy, range, BEAST)
+    }
+    /// A* for this walker, on its storey. Stairs end a path, never lie along
+    /// one: stepping on them takes you to another floor.
+    pub fn find_path_as(
+        &mut self,
+        sx: i32,
+        sy: i32,
+        gx: i32,
+        gy: i32,
+        range: i32,
+        w: Walker,
     ) -> Option<Vec<(i32, i32)>> {
         if !inb(sx, sy) {
             return None;
@@ -386,8 +540,11 @@ impl Map {
                 return None;
             }
             let g = self.pf_g[i];
+            if i != s && w.stairs && self.obj_on(x, y, w.fl).0 == O_STAIRS {
+                continue;
+            }
             for &(dx, dy) in DIRS.iter() {
-                if !self.can_step(x, y, dx, dy) {
+                if !self.can_step_as(x, y, dx, dy, w) {
                     continue;
                 }
                 let n = idx(x + dx, y + dy);
@@ -509,8 +666,8 @@ impl Map {
                 self.style[i] = style;
             }
         }
-        self.set_o(bx + 3, by + 5, O_DOOR);
-        self.set_o(bx + 4, by + 5, O_DOOR);
+        self.set_door(bx + 3, by + 5);
+        self.set_door(bx + 4, by + 5);
         self.set_o(bx + 4, by + 6, O_SIGN);
         self.set_o(bx + 1, by + 6, O_BARREL);
         self.set_o(bx + 6, by + 6, O_CRATE);
@@ -617,8 +774,66 @@ impl Map {
             h: 6,
             vendor,
             style,
+            floors: vec![],
         });
         self.npcs.push((vendor, bx + 3, by + 2));
+    }
+
+    /// A door, open while the world is being made (so the town can reach
+    /// inside) and shut when it is done.
+    fn set_door(&mut self, x: i32, y: i32) {
+        if inb(x, y) {
+            self.set_o(x, y, O_DOOR);
+            let i = idx(x, y);
+            self.door[i] = f32::INFINITY;
+            self.doors.push(i);
+        }
+    }
+
+    /// Raise the shop at (bx, by) by `n` storeys with stairs up from the back
+    /// corner, and furnish each; `rooms` gives each storey's furniture as
+    /// (x, y, facing south) in tiles from the building's corner.
+    fn add_floors(&mut self, bx: i32, by: i32, rooms: &[&[(i32, i32, bool, u8)]]) {
+        let Some(b) = self.buildings.iter().position(|b| b.x == bx && b.y == by) else {
+            return;
+        };
+        let (w, h, style) = {
+            let b = &self.buildings[b];
+            (b.w, b.h, b.style)
+        };
+        // stairs alternate between the back corners, so each flight lands
+        // clear of the next
+        let stair = |k: usize| if k.is_multiple_of(2) { (w - 2, 1) } else { (1, 1) };
+        let (gx, gy) = stair(0);
+        self.place(bx + gx, by + gy, O_STAIRS, false);
+        self.style[idx(bx + gx, by + gy)] = STAIR_UP;
+        for (k, room) in rooms.iter().enumerate() {
+            let mut f = Floor {
+                o: vec![O_NONE; (w * h) as usize],
+                style: vec![style; (w * h) as usize],
+            };
+            for y in 0..h {
+                for x in 0..w {
+                    if x == 0 || y == 0 || x == w - 1 || y == h - 1 {
+                        f.o[(y * w + x) as usize] = O_WALL;
+                    }
+                }
+            }
+            for &(x, y, south, o) in room.iter() {
+                let i = (y * w + x) as usize;
+                f.o[i] = o;
+                f.style[i] = if south { FACE_S } else { 0 };
+            }
+            let (dx, dy) = stair(k);
+            f.o[(dy * w + dx) as usize] = O_STAIRS;
+            f.style[(dy * w + dx) as usize] = STAIR_DOWN;
+            if k + 1 < rooms.len() {
+                let (ux, uy) = stair(k + 1);
+                f.o[(uy * w + ux) as usize] = O_STAIRS;
+                f.style[(uy * w + ux) as usize] = STAIR_UP;
+            }
+            self.buildings[b].floors.push(f);
+        }
     }
 
     /// A run of castle wall from (ax, ay) to (bx, by), inclusive, along x or y.
@@ -661,8 +876,8 @@ impl Map {
             }
         }
         let door = bx + w / 2;
-        self.set_o(door - 1, by + h - 1, O_DOOR);
-        self.set_o(door, by + h - 1, O_DOOR);
+        self.set_door(door - 1, by + h - 1);
+        self.set_door(door, by + h - 1);
         let back = |x: i32| (x, by + 1, true);
         let side = |y: i32| (bx + 1, y, false);
         let items: [((i32, i32, bool), u8); 15] = [
@@ -693,6 +908,7 @@ impl Map {
             h,
             vendor: lord,
             style: WALL_CASTLE,
+            floors: vec![],
         });
         self.npcs.push((lord, door - 1, by + 2));
     }
@@ -868,6 +1084,56 @@ impl Map {
     }
 }
 
+// Upper storeys' furniture: (x, y, faces south, object) from the building's
+// corner. Stairs go in the back corners, (6, 1) and (1, 1): keep them clear.
+const INN_ROOMS: &[(i32, i32, bool, u8)] = &[
+    (1, 1, true, O_CHEST),
+    (1, 2, false, O_BED),
+    (1, 3, false, O_BED),
+    (1, 4, false, O_BED),
+    (4, 1, true, O_HEARTH),
+    (6, 3, true, O_BED),
+    (6, 4, true, O_BED),
+    (3, 3, false, O_TABLE),
+    (3, 4, true, O_CHAIR),
+];
+const WARD: &[(i32, i32, bool, u8)] = &[
+    (1, 1, true, O_SHELF),
+    (1, 2, false, O_BED),
+    (1, 3, false, O_BED),
+    (1, 4, false, O_BED),
+    (3, 1, true, O_BED),
+    (4, 1, true, O_BED),
+    (5, 4, false, O_TABLE),
+];
+const GALLERY: &[(i32, i32, bool, u8)] = &[
+    (1, 1, true, O_SHELF),
+    (2, 1, true, O_SHELF),
+    (3, 1, true, O_SHELF),
+    (4, 1, true, O_SHELF),
+    (1, 2, false, O_SHELF),
+    (1, 3, false, O_SHELF),
+    (1, 4, false, O_SHELF),
+    (4, 3, false, O_TABLE),
+    (4, 4, true, O_CHAIR),
+];
+const STUDY: &[(i32, i32, bool, u8)] = &[
+    (2, 1, true, O_SHELF),
+    (3, 1, true, O_SHELF),
+    (4, 1, true, O_SHELF),
+    (1, 3, false, O_SHELF),
+    (1, 4, false, O_SHELF),
+    (5, 3, false, O_TABLE),
+    (5, 4, true, O_CHAIR),
+];
+const TOWER_TOP: &[(i32, i32, bool, u8)] = &[
+    (6, 1, true, O_CHEST),
+    (5, 1, true, O_SHELF),
+    (4, 3, false, O_STATUE),
+    (6, 4, true, O_BED),
+    (2, 4, false, O_TABLE),
+];
+
 pub fn generate(seed: u32) -> Map {
     let mut rng = Rng::new(seed as u64 ^ 0xABCD);
     let mut m = Map {
@@ -891,6 +1157,9 @@ pub fn generate(seed: u32) -> Map {
         roads: vec![],
         gloom: vec![0; N],
         withered: vec![false; N],
+        door: vec![0.0; N],
+        doors: vec![],
+        guests: vec![],
         pf_g: vec![0.0; N],
         pf_par: vec![-1; N],
         pf_stamp: vec![0; N],
@@ -1157,6 +1426,14 @@ pub fn generate(seed: u32) -> Map {
     // the south quarter: a pub and a library either side of the south gate
     m.building(x0 + 2, y0 + 30, 2, V_BARKEEP);
     m.building(x0 + 26, y0 + 30, 1, V_LIBRARIAN);
+    // upper storeys: rooms over the inn and the pub, a ward over the
+    // healer's, a gallery over the library and the mage's tower
+    m.add_floors(x0 + 26, y0 + 16, &[INN_ROOMS]);
+    m.add_floors(x0 + 2, y0 + 30, &[INN_ROOMS]);
+    m.guests.push((V_FOLK, x0 + 2 + 4, y0 + 30 + 3, 1));
+    m.add_floors(x0 + 26, y0 + 2, &[WARD]);
+    m.add_floors(x0 + 26, y0 + 30, &[GALLERY]);
+    m.add_floors(x0 + 14, y0 + 2, &[STUDY, TOWER_TOP]);
     m.set_o(x0 + 3, y0 + 23, O_FORGE);
     m.set_o(x0 + 6, y0 + 23, O_ANVIL);
     for (dx, dy) in [(17, 12), (18, 12), (17, 13), (18, 13)] {
@@ -1233,6 +1510,10 @@ pub fn generate(seed: u32) -> Map {
         ("ettin", hills.0, hills.1, 10, 2),
         ("dragon", lair.0, lair.1, 2, 1),
     ];
+    // every door was left open while the world was made; shut them now
+    for &i in &m.doors {
+        m.door[i] = 0.0;
+    }
     m
 }
 
@@ -1365,6 +1646,9 @@ fn city(m: &mut Map) {
     m.building(x0 + 11, hy, 3, V_BARKEEP);
     m.building(x0 + 22, hy, 2, V_PROV);
     m.building(x0 + 31, hy, 1, V_MAGE);
+    m.add_floors(x0 + 11, hy, &[INN_ROOMS]);
+    m.guests.push((V_FOLK, x0 + 11 + 4, hy + 3, 1));
+    m.add_floors(x0 + 31, hy, &[STUDY, TOWER_TOP]);
     // drinkers' benches out in the street, under the castle walls
     m.place(x0 + 13, y0 + 19, O_LONGTABLE, false);
     m.place(x0 + 14, y0 + 19, O_CHAIR, true);
