@@ -2296,7 +2296,11 @@ pub const P_TWIGS: usize = 97;
 pub const P_THRONE: usize = 98;
 /// split-rail paddock fence of weathered wood
 pub const P_RAIL: usize = 99;
-pub const N_PROPS: usize = 100;
+/// silver birches: white bark banded black, small bright leaves
+pub const P_BIRCH: usize = 100; // 2
+/// oaks in autumn: rust, amber and gold
+pub const P_AUTUMN: usize = 102; // 2
+pub const N_PROPS: usize = 104;
 
 /// flames licking up from `base`, varied by animation frame `f`
 fn flames(p: &mut Vec<Prim>, base: V3, size: f32, f: usize) {
@@ -2791,6 +2795,145 @@ fn prop(kind: usize) -> Figure {
                 0x243c1cff,
                 Mat::Leaf,
             );
+        }
+        k if (P_BIRCH..P_BIRCH + 2).contains(&k) => {
+            // a slender white trunk, a second stem, and a light, airy crown
+            let v = k - P_BIRCH;
+            let bark = 0xd8d4c8ff;
+            prim(
+                &mut p,
+                [0.0, 0.0, 0.0],
+                [0.06, 0.02, 2.2],
+                0.09,
+                0.05,
+                bark,
+                Mat::Matte,
+            );
+            if v == 1 {
+                prim(
+                    &mut p,
+                    [0.05, 0.0, 0.2],
+                    [-0.25, 0.15, 1.9],
+                    0.06,
+                    0.035,
+                    bark,
+                    Mat::Matte,
+                );
+            }
+            // the black bands on the bark
+            for i in 0..7 {
+                let z = 0.2 + i as f32 * 0.28 + hsh(i, 90 + v) * 0.1;
+                prim(
+                    &mut p,
+                    [0.0 + z * 0.027, 0.01, z],
+                    [0.0 + z * 0.027, 0.01, z + 0.05],
+                    0.095 - z * 0.015,
+                    0.09 - z * 0.015,
+                    0x2a2620ff,
+                    Mat::Matte,
+                );
+            }
+            let greens = [0x5a7a2aff, 0x6a8a32ff, 0x7a9a3aff, 0x4a6a24ff, 0x8aa848ff];
+            for i in 0..90 {
+                let (a, e, r) = (
+                    hsh(i, 91 + v) * std::f32::consts::TAU,
+                    hsh(i, 92 + v) * 2.0 - 1.0,
+                    hsh(i, 93 + v).sqrt() * 0.62,
+                );
+                let ce = (1.0 - e * e).sqrt();
+                let c = [
+                    a.cos() * ce * r * 0.85,
+                    a.sin() * ce * r * 0.85,
+                    2.1 + e * r * 1.1,
+                ];
+                let sz = 0.08 + hsh(i, 94) * 0.06;
+                prim(&mut p, c, c, sz, sz, greens[i % 5], Mat::Leaf);
+            }
+        }
+        k if (P_AUTUMN..P_AUTUMN + 2).contains(&k) => {
+            // an oak turned for the autumn, a few leaves already down
+            let v = k - P_AUTUMN;
+            let trunk = 0x4a3220ff;
+            prim(
+                &mut p,
+                [0.0, 0.0, 0.0],
+                [0.05, 0.0, 1.5],
+                0.16,
+                0.1,
+                trunk,
+                Mat::Matte,
+            );
+            prim(
+                &mut p,
+                [0.05, 0.0, 1.1],
+                [0.5, 0.25, 1.75],
+                0.07,
+                0.04,
+                trunk,
+                Mat::Matte,
+            );
+            prim(
+                &mut p,
+                [0.0, 0.0, 1.2],
+                [-0.4, -0.3, 1.8],
+                0.07,
+                0.04,
+                trunk,
+                Mat::Matte,
+            );
+            let fall = [
+                0x8a3a14ffu32,
+                0xa85a1aff,
+                0xc08a28ff,
+                0x7a2a10ff,
+                0xb87020ff,
+            ];
+            let rad = 0.85 + v as f32 * 0.1;
+            for l in 0..5 {
+                let la = hsh(l, v * 13 + 50) * std::f32::consts::TAU;
+                let lr = rad * (0.35 + hsh(l, v * 13 + 51) * 0.45);
+                let lc = [
+                    la.cos() * lr,
+                    la.sin() * lr,
+                    1.9 + hsh(l, v * 13 + 52) * 0.55,
+                ];
+                for i in 0..22 {
+                    let k2 = l * 29 + i;
+                    let (a, e, r) = (
+                        hsh(k2, v * 5 + 61) * std::f32::consts::TAU,
+                        hsh(k2, v * 5 + 62) * 2.0 - 1.0,
+                        hsh(k2, v * 5 + 63).sqrt() * 0.5,
+                    );
+                    let ce = (1.0 - e * e).sqrt();
+                    let c = [
+                        lc[0] + a.cos() * ce * r,
+                        lc[1] + a.sin() * ce * r,
+                        lc[2] + e * r * 0.75,
+                    ];
+                    let sz = 0.12 + hsh(k2, 64) * 0.1;
+                    prim(
+                        &mut p,
+                        c,
+                        c,
+                        sz,
+                        sz,
+                        fall[(hsh(k2, v + 65) * 5.0) as usize % 5],
+                        Mat::Leaf,
+                    );
+                }
+            }
+            for i in 0..12 {
+                let (x, y) = (hsh(i, 70 + v) * 1.6 - 0.8, hsh(i, 71 + v) * 1.6 - 0.8);
+                prim(
+                    &mut p,
+                    [x, y, 0.01],
+                    [x + 0.05, y, 0.01],
+                    0.04,
+                    0.04,
+                    fall[i % 5],
+                    Mat::Leaf,
+                );
+            }
         }
         k if (P_DEAD..P_DEAD + 2).contains(&k) => {
             let v = k - P_DEAD;
@@ -4342,8 +4485,8 @@ fn prop(kind: usize) -> Figure {
         k if (P_TUFT..P_TUFT + 3).contains(&k) => {
             // a clump of long grass blades leaning every way
             let v = k - P_TUFT;
-            let greens = [0x6a8a34ffu32, 0x5a7a2cff, 0x7a9038ff, 0x8a8a44ff];
-            let n = 9 + v * 3;
+            let greens = [0x6a8a34ffu32, 0x56782cff, 0x84a040ff, 0x8e9248ff];
+            let n = 11 + v * 4;
             for i in 0..n {
                 let a = hsh(i, 60 + v) * std::f32::consts::TAU;
                 let r = hsh(i, 61 + v) * 0.12;
@@ -4571,7 +4714,11 @@ pub fn bake_props() -> Atlas {
     let (w, h) = (fw * COLS, fh * rows);
     let mut rgba = vec![0u8; w * h * 4];
     for k in 0..N_PROPS {
-        NO_INK.with(|f| f.set((P_FX_EXPLO..P_FX_BALL + 4).contains(&k)));
+        // light has no outline, nor do the small things in the grass (an ink
+        // line round each would speckle the ground)
+        NO_INK.with(|f| {
+            f.set((P_FX_EXPLO..P_FX_BALL + 4).contains(&k) || (P_TUFT..P_TWIGS + 1).contains(&k))
+        });
         render_frame(
             1.0,
             PROP_ANCHOR,

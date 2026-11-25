@@ -659,6 +659,50 @@ impl Game {
                 }
             }
         }
+        // ---- foam where the water meets the land, on the water's own edge: a
+        // pale line and a fainter one a little way out
+        for s in s0..=s1 {
+            for d in d0..=d1 {
+                if (s + d) & 1 != 0 {
+                    continue;
+                }
+                let (x, y) = ((s + d) / 2, (s - d) / 2);
+                if !inb(x, y) || self.map.tile(x, y) != T_WATER {
+                    continue;
+                }
+                let (gx, gy) = self.to_screen(x as f32, y as f32);
+                let dm = self.diamond(gx, gy, &self.map.corners(x, y));
+                // corners: 0 top, 1 right, 2 bottom, 3 left; the edge toward each
+                // land neighbour, and the way back in over the water
+                let wc = self.map.corners(x, y);
+                for (dx, dy, a, b, la, lb) in [
+                    (1i32, 0i32, 1usize, 2usize, 0usize, 3usize),
+                    (0, 1, 2, 3, 1, 0),
+                    (-1, 0, 3, 0, 2, 1),
+                    (0, -1, 0, 1, 3, 2),
+                ] {
+                    let (nx, ny) = (x + dx, y + dy);
+                    let t = self.map.tile(nx, ny);
+                    if t == T_WATER || t == T_BRIDGE || !inb(nx, ny) {
+                        continue;
+                    }
+                    // where the bank stands higher, its edge hides the water's:
+                    // the foam goes on whichever edge is seen
+                    let lc = self.map.corners(nx, ny);
+                    let (lx, ly) = self.to_screen(nx as f32, ny as f32);
+                    let ld = self.diamond(lx, ly, &lc);
+                    let p = if lc[la] > wc[a] { ld[la] } else { dm[a] };
+                    let q = if lc[lb] > wc[b] { ld[lb] } else { dm[b] };
+                    let (ox, oy) = (-(dx - dy) as f32, -(dx + dy) as f32 * 0.5);
+                    let wob = (h2(x * 3 + dx, y * 5 + dy, 17) - 0.5) * 2.0 * z;
+                    c.stroke(0xd8e4e070, 1.5 * self.pix.max(z));
+                    c.line(p.0 + ox * z, p.1 + oy * z, q.0 + ox * z, q.1 + oy * z);
+                    let (fx, fy) = (ox * 5.0 * z, oy * 5.0 * z + wob);
+                    c.stroke(0xc8d8dc30, self.pix.max(z));
+                    c.line(p.0 + fx, p.1 + fy, q.0 + fx, q.1 + fy);
+                }
+            }
+        }
         // ---- the Shadow, laid over the land it holds (baked into the chunks,
         // which are drawn again where it moves)
         for s in s0..=s1 {
@@ -2076,8 +2120,15 @@ impl Game {
                         bake::P_STUMP
                     } else if sh % 3 == 0 {
                         bake::P_PINE + (sh as usize / 3 % 2)
+                    } else if sh % 7 == 1 {
+                        bake::P_BIRCH + (sh as usize / 7 % 2)
                     } else {
-                        bake::P_OAK + (sh as usize % 3)
+                        // the oaks follow the season: amber in autumn, bare in winter
+                        match self.sim.season(crate::sim::Sim::day(self.time)) {
+                            "autumn" => bake::P_AUTUMN + (sh as usize % 2),
+                            "winter" if sh % 3 == 1 => bake::P_DEAD + (sh as usize % 2),
+                            _ => bake::P_OAK + (sh as usize % 3),
+                        }
                     };
                     Some((k, flip_v))
                 }
@@ -4295,6 +4346,21 @@ impl Game {
             c.poly(&pts);
         }
         c.outline(0, 0.0);
+        // hummocks of lighter and darker turf
+        for k in 0..((b.w * b.h) / 2) {
+            let hx = h2(k, b.x * 3 + b.y, 47);
+            let hy = h2(k, b.y * 3 + b.x, 49);
+            let (tx, ty) = (
+                x0 + 0.6 + hx * (x1 - x0 - 1.2),
+                y0 + 0.6 + hy * (y1 - y0 - 1.2),
+            );
+            let d =
+                (((tx - mx) / (x1 - x0)).powi(2) + ((ty - my) / (y1 - y0)).powi(2)).sqrt() * 2.0;
+            let h = eave + rise * (1.0 - d.min(1.0).powi(2)).max(0.0).sqrt();
+            let (a, bb) = sp(tx, ty, h);
+            c.fill(if k % 2 == 0 { 0x5e8236a0 } else { 0x34521c90 });
+            c.ell(a, bb, 7.0 * z, 3.5 * z);
+        }
         // tufts and flowers in the turf
         for k in 0..((b.w * b.h) as u32) {
             let hx = h2(k as i32, b.x * 7 + b.y, 41);
@@ -4334,41 +4400,45 @@ impl Game {
         }
     }
 
-    /// A tile of the village's thick hedge.
+    /// A tile of the village's thick hedge: a bank of leafy clumps, uneven
+    /// along the top, darker toward the roots, lit on its upper side.
     fn hedge(&self, c: &mut Canvas, x: i32, y: i32, sx: f32, sy: f32, z: f32) {
-        let (hw, hh) = (30.0 * z, 15.0 * z);
-        let hgt = STOREY_PX * z * 0.9;
+        let (hw, hh) = (28.0 * z, 14.0 * z);
+        let hgt = STOREY_PX * z * (0.8 + h2(x, y, 57) * 0.25);
         let ink = self.pix.max(z);
+        // the body, in shade
         c.outline(INK, ink);
-        c.fill(0x24401aff);
+        c.fill(0x1e3616ff);
         c.poly(&[
             (sx - hw, sy),
             (sx, sy + hh),
-            (sx, sy + hh - hgt),
-            (sx - hw, sy - hgt),
-        ]);
-        c.fill(0x2e4e20ff);
-        c.poly(&[
-            (sx, sy + hh),
             (sx + hw, sy),
-            (sx + hw, sy - hgt),
-            (sx, sy + hh - hgt),
-        ]);
-        c.fill(0x3c6228ff);
-        c.poly(&[
-            (sx, sy - hh - hgt),
-            (sx + hw, sy - hgt),
-            (sx, sy + hh - hgt),
-            (sx - hw, sy - hgt),
+            (sx + hw, sy - hgt * 0.8),
+            (sx, sy + hh - hgt * 0.8),
+            (sx - hw, sy - hgt * 0.8),
         ]);
         c.outline(0, 0.0);
-        // leaves
-        for k in 0..14 {
+        // clumps, low to high, so the top reads as leaves
+        for k in 0..16 {
             let a = h2(x * 13 + k, y * 7, 51) * 2.0 - 1.0;
-            let b = h2(x * 5, y * 11 + k, 53);
-            let (lx, ly) = (sx + a * hw * 0.9, sy + hh * 0.6 - b * (hgt + hh));
-            c.fill(if k % 3 == 0 { 0x5a8238ff } else { 0x1c3414ff });
-            c.ell(lx, ly, 3.0 * z, 2.2 * z);
+            let b = (k as f32 + h2(x * 5, y * 11 + k, 53)) / 16.0;
+            let up = b * hgt;
+            let (lx, ly) = (sx + a * hw * 0.85, sy + hh * 0.4 * (1.0 - a.abs()) - up);
+            let r = (7.0 + h2(x + k, y, 55) * 5.0) * z;
+            let light = b > 0.6;
+            c.fill(match (light, k % 3) {
+                (true, 0) => 0x5e8a36ff,
+                (true, _) => 0x4a7430ff,
+                (false, 0) => 0x2a4a1eff,
+                _ => 0x345a24ff,
+            });
+            c.ell(lx, ly, r, r * 0.75);
+        }
+        // the odd pale bloom
+        if h2(x, y, 59) < 0.3 {
+            let (lx, ly) = (sx + (h2(x, y, 60) - 0.5) * hw, sy - hgt * 0.7);
+            c.fill(0xe8dcc8ff);
+            c.ell(lx, ly, 1.5 * z, 1.5 * z);
         }
     }
 

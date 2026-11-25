@@ -124,25 +124,62 @@ impl Img {
 }
 
 fn grass() -> Texture {
-    let mut m = Img::new(128, 64);
-    m.fill_noise(0x434826, 0.7, 1.25, 1);
-    for i in 0..420 {
-        let (x, y) = (
-            (hash(i, 1, 2) * 128.0) as i32,
-            (hash(i, 2, 2) * 64.0) as i32,
-        );
-        let len = 2 + (hash(i, 3, 2) * 3.0) as i32;
-        let k = if i % 3 == 0 { 1.35 } else { 0.62 };
-        for j in 0..len {
-            m.mul(x + (j / 2) * if i % 2 == 0 { 1 } else { -1 }, y - j, k);
+    // two greens in broad patches: a deep, cool one and a warm, sunlit olive
+    let (w, h) = (128usize, 64usize);
+    let mut m = Img::new(w, h);
+    let (deep, warm) = (rgb(0x37441f), rgb(0x55542a));
+    for y in 0..h {
+        for x in 0..w {
+            let big = pnoise(x as f32, y as f32, 32.0, w, h, 11);
+            let fine = fbm(x as f32, y as f32, w, h, 1);
+            let t = (big * 1.3 - 0.15).clamp(0.0, 1.0);
+            let k = 0.78 + fine * 0.42;
+            m.px[y * w + x] = [
+                (deep[0] + (warm[0] - deep[0]) * t) * k,
+                (deep[1] + (warm[1] - deep[1]) * t) * k,
+                (deep[2] + (warm[2] - deep[2]) * t) * k,
+            ];
         }
     }
-    for i in 0..18 {
+    // blades: a lit tip over a shaded root, leaning either way
+    for i in 0..520 {
         let (x, y) = (
-            (hash(i, 9, 3) * 128.0) as i32,
-            (hash(i, 8, 3) * 64.0) as i32,
+            (hash(i, 1, 2) * w as f32) as i32,
+            (hash(i, 2, 2) * h as f32) as i32,
         );
-        m.set(x, y, rgb(if i % 2 == 0 { 0x6a5a30 } else { 0x5a3a2a }));
+        let len = 2 + (hash(i, 3, 2) * 3.0) as i32;
+        let lean = if i % 2 == 0 { 1 } else { -1 };
+        for j in 0..len {
+            let k = if j == len - 1 {
+                1.45
+            } else if j == 0 {
+                0.6
+            } else {
+                1.12
+            };
+            m.mul(x + (j / 2) * lean, y - j, k);
+        }
+    }
+    // clover and moss in small darker clumps
+    for i in 0..26 {
+        let (x, y) = (
+            (hash(i, 4, 3) * w as f32) as i32,
+            (hash(i, 5, 3) * h as f32) as i32,
+        );
+        for (dx, dy) in [(0, 0), (1, 0), (-1, 0), (0, 1), (1, -1)] {
+            m.mul(x + dx, y + dy, 0.72);
+        }
+        m.mul(x, y - 1, 1.25);
+    }
+    // a few tiny flowers: white, butter-yellow, harebell
+    for i in 0..14 {
+        let (x, y) = (
+            (hash(i, 9, 3) * w as f32) as i32,
+            (hash(i, 8, 3) * h as f32) as i32,
+        );
+        let c = [0xc8c4a8, 0xc8b040, 0x7a6aa8][i as usize % 3];
+        m.set(x, y, rgb(c));
+        m.mul(x, y + 1, 0.6);
     }
     m.done()
 }
@@ -150,29 +187,41 @@ fn grass() -> Texture {
 fn dirt(base: u32, s: u32) -> Texture {
     let mut m = Img::new(128, 64);
     m.fill_noise(base, 0.72, 1.22, s);
-    for i in 0..60 {
+    // pebbles: lit on top, a shadow beneath
+    for i in 0..70 {
         let (x, y) = (
             (hash(i, 1, s) * 128.0) as i32,
             (hash(i, 2, s) * 64.0) as i32,
         );
-        let k = 1.25 + hash(i, 3, s) * 0.3;
+        let k = 1.25 + hash(i, 3, s) * 0.35;
         m.mul(x, y, k);
-        m.mul(x + 1, y, k);
+        m.mul(x + 1, y, k * 0.92);
         m.mul(x, y + 1, 0.55);
-        m.mul(x + 1, y + 1, 0.55);
+        m.mul(x + 1, y + 1, 0.6);
     }
-    for i in 0..5 {
+    // ruts and cracks wandering along the ground
+    for i in 0..7 {
         let (mut x, mut y) = (
             (hash(i, 5, s) * 128.0) as i32,
             (hash(i, 6, s) * 64.0) as i32,
         );
-        for j in 0..14 {
+        for j in 0..18 {
             m.mul(x, y, 0.6);
+            m.mul(x, y - 1, 1.12);
             x += 1;
             if hash(i, j, s + 9) < 0.4 {
                 y += if hash(i, j, s + 7) < 0.5 { 1 } else { -1 };
             }
         }
+    }
+    // dry grass at the edges of the track
+    for i in 0..30 {
+        let (x, y) = (
+            (hash(i, 11, s) * 128.0) as i32,
+            (hash(i, 12, s) * 64.0) as i32,
+        );
+        m.set(x, y, rgb(0x5a5a2a));
+        m.set(x, y - 1, rgb(0x7a7238));
     }
     m.done()
 }
@@ -271,21 +320,37 @@ fn planks(base: u32, along_x: bool, s: u32) -> Texture {
 }
 
 fn water() -> Texture {
-    let mut m = Img::new(128, 64);
-    m.fill_noise(0x0f2228, 0.75, 1.2, 21);
-    for i in 0..26 {
-        let (x, y) = (
-            (hash(i, 1, 22) * 128.0) as i32,
-            (hash(i, 2, 22) * 64.0) as i32,
-        );
-        let len = 3 + (hash(i, 3, 22) * 6.0) as i32;
-        for j in 0..len {
-            m.set(
-                x + j,
-                y,
-                rgb(if j == len / 2 { 0x5a8a88 } else { 0x24464c }),
-            );
+    let (w, h) = (128usize, 64usize);
+    let mut m = Img::new(w, h);
+    m.fill_noise(0x112830, 0.72, 1.2, 21);
+    for y in 0..h {
+        for x in 0..w {
+            // long low swells running along the iso x axis
+            let a = (y as f32 - x as f32 * 0.5) * std::f32::consts::TAU / 16.0;
+            let swell = a.sin() * 0.08 + (a * 2.0 + 1.3).sin() * 0.04;
+            m.mul(x as i32, y as i32, 1.0 + swell);
         }
+    }
+    // ripple crests: a pale line with darker water before it
+    for i in 0..34 {
+        let (x, y) = (
+            (hash(i, 1, 22) * w as f32) as i32,
+            (hash(i, 2, 22) * h as f32) as i32,
+        );
+        let len = 3 + (hash(i, 3, 22) * 7.0) as i32;
+        for j in 0..len {
+            let mid = (j - len / 2).abs() <= 1;
+            m.set(x + j, y, rgb(if mid { 0x6a9a98 } else { 0x2a5058 }));
+            m.mul(x + j, y + 1, 0.75);
+        }
+    }
+    // glints of sky
+    for i in 0..10 {
+        let (x, y) = (
+            (hash(i, 7, 23) * w as f32) as i32,
+            (hash(i, 8, 23) * h as f32) as i32,
+        );
+        m.set(x, y, rgb(0xa8c8c8));
     }
     m.done()
 }
@@ -293,12 +358,32 @@ fn water() -> Texture {
 fn rock() -> Texture {
     let mut m = Img::new(128, 64);
     m.fill_noise(0x5e5650, 0.65, 1.25, 31);
+    // cracks
+    for i in 0..9 {
+        let (mut x, mut y) = (
+            (hash(i, 7, 33) * 128.0) as i32,
+            (hash(i, 8, 33) * 64.0) as i32,
+        );
+        for j in 0..12 {
+            m.mul(x, y, 0.55);
+            m.mul(x + 1, y + 1, 1.15);
+            x += if hash(i, j, 34) < 0.5 { 1 } else { -1 };
+            y += 1;
+        }
+    }
+    // lichen: grey-green and rust blotches
     for i in 0..40 {
         let (x, y) = (
             (hash(i, 1, 32) * 128.0) as i32,
             (hash(i, 2, 32) * 64.0) as i32,
         );
-        m.set(x, y, rgb(if i % 4 == 0 { 0x4a5a2c } else { 0x7a7268 }));
+        let c = match i % 5 {
+            0 => 0x5a6a34,
+            1 => 0x7a5a34,
+            _ => 0x7a7268,
+        };
+        m.set(x, y, rgb(c));
+        m.set(x + 1, y, rgb(c));
         m.mul(x + 1, y + 1, 0.6);
     }
     m.done()
