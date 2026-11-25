@@ -284,7 +284,12 @@ pub extern "C" fn radar_dots() -> usize {
 #[no_mangle]
 pub extern "C" fn map_marks() -> usize {
     let g = g();
-    const MAJOR: [&str; 8] = [
+    const MAJOR: [&str; 13] = [
+        "Elf valley",
+        "Elf wood",
+        "Elf haven",
+        "Eastern range",
+        "Southern range",
         "Town",
         "Duskhold",
         "Village",

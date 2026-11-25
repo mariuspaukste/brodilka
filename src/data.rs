@@ -1088,6 +1088,8 @@ pub const V_LORD: usize = 9;
 pub const V_STABLE: usize = 10;
 /// the small folk of the village in the west: no trade, a quiet life
 pub const V_VILLAGER: usize = 11;
+/// the elves of the valley, the wood and the haven: no trade, long memories
+pub const V_ELF: usize = 12;
 
 #[derive(Clone)]
 pub struct VendorDef {
@@ -1350,6 +1352,27 @@ static VENDORS_DEF: &[VendorDef] = &[
             "Adventures are for Big Folk. We have a garden to see to.",
         ],
     },
+    VendorDef {
+        title: "",
+        names: &[
+            "Elaith", "Varneth", "Ilyrin", "Sorael", "Caelir", "Liriel", "Faelan", "Ithriel",
+            "Aelor", "Myrren",
+        ],
+        sells: &[],
+        buys: &[],
+        buys_ids: &[],
+        robe: 0x6a7a70ff,
+        chatter: &[
+            "The stars were brighter when I was young. That was long ago.",
+            "Be welcome, traveller. Rest; no shadow comes here.",
+            "The ships leave for the west, one by one. One day I shall go too.",
+            "Your kind live so briefly, and do so much.",
+            "Listen: the river is singing. It sings of the snows.",
+            "We remember the kingdoms of men when they were young and bright.",
+            "Walk softly in the wood. The trees are older than your cities.",
+            "Our lamps burn without smoke and our songs without end.",
+        ],
+    },
 ];
 
 // ---------------------------------------------------------------- templates
@@ -1448,7 +1471,7 @@ pub const HAIR: [u32; 6] = [
 
 // ---------------------------------------------------------------- world packs
 /// Vendor ids as a world pack names them in `[vendor.<id>]`, by V_* index.
-pub const VENDOR_IDS: [&str; 12] = [
+pub const VENDOR_IDS: [&str; 13] = [
     "smith",
     "mage",
     "provisioner",
@@ -1461,6 +1484,7 @@ pub const VENDOR_IDS: [&str; 12] = [
     "lord",
     "stablemaster",
     "villager",
+    "elf",
 ];
 
 /// A game table built once from the engine's data and the active world pack

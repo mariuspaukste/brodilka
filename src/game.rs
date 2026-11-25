@@ -6,6 +6,7 @@ use crate::world::*;
 use std::collections::VecDeque;
 
 pub mod shadow;
+pub mod sky;
 pub mod storeys;
 pub mod travel;
 
@@ -637,6 +638,10 @@ pub struct Game {
     pub shadow_band: i32,
     /// bumped when the minimap changes, so the host redraws the radar
     pub mini_ver: u32,
+    /// how thick the canopy is over the player, 0..1, eased
+    pub forest_view: f32,
+    /// the weather last told in the journal (`sky::Weather` as u8)
+    pub weather_seen: u8,
     pub journal: VecDeque<(u32, String, u32)>,
     pub jid: u32,
     pub time: f32,
@@ -695,6 +700,8 @@ impl Game {
             in_shadow: false,
             shadow_band: -1,
             mini_ver: 0,
+            forest_view: 0.0,
+            weather_seen: u8::MAX,
             journal: VecDeque::new(),
             jid: 0,
             time: 60.0,
@@ -1974,6 +1981,7 @@ impl Game {
         }
         self.travel_tick(dt);
         self.shadow_tick(dt);
+        self.sky_tick(dt);
         let day = crate::sim::Sim::day(self.time);
         if day > self.sim.day_seen {
             self.sim.day_seen = day;
@@ -2014,7 +2022,7 @@ impl Game {
         let (hx, hy) = self.ents[i].home;
         let r = match v {
             V_GUARD => 4,
-            V_FOLK | V_VILLAGER => 6,
+            V_FOLK | V_VILLAGER | V_ELF => 6,
             V_LORD => 0,
             _ => 1,
         };
@@ -3449,7 +3457,12 @@ mod tests {
         let mut g = Game::new(12345);
         let (sx, sy) = g.map.start;
         assert!(g.map.passable(sx, sy));
-        for &(_, x, y) in g.map.pois.clone().iter() {
+        // every place one can stand at (the names of rivers and ranges are
+        // only labels)
+        for &(n, x, y) in g.map.pois.clone().iter() {
+            if n.contains("river") || n.contains("range") {
+                continue;
+            }
             let p = g.map.find_path_as(sx, sy, x, y, 4, PERSON);
             assert!(p.is_some(), "poi at {x},{y} unreachable");
         }
@@ -3566,7 +3579,7 @@ mod tests {
             let (sx, sy) = g.map.start;
             let (x0, y0, x1, _) = g.map.city;
             // one post on each road out of the city, two guards on each
-            assert_eq!(g.map.posts.len(), 3);
+            assert!(g.map.posts.len() >= 3);
             let posts = g.map.posts.clone();
             for &(px, py) in &posts {
                 let guards = g
@@ -4114,7 +4127,7 @@ region = "dark"
             .unwrap();
         assert!(g.gloom_at(ax, ay) < GLOOM_MAX);
         let wide = g.shadow_share();
-        assert!(wide > 0.2, "{wide}");
+        assert!(wide * N as f32 > 5000.0, "{wide}");
         let withered = g.map.withered.iter().filter(|&&w| w).count();
         assert!(withered > 20, "{withered}");
         assert!(g.mini_ver > 0);
@@ -4394,6 +4407,95 @@ region = "dark"
         // nowhere to go in the sea
         g.ui_cmd("goto:0:0");
         assert!(g.journal.iter().any(|(_, t, _)| t.contains("no way there")));
+    }
+
+    #[test]
+    fn night_falls_weather_turns_and_woods_are_dim() {
+        use crate::game::sky::Weather;
+        use crate::sim::DAY;
+        let mut g = Game::new(1997);
+        g.create("Sky", false, 0, "warrior", [0, 0, 0]);
+        // day, dusk, night, dawn
+        let at = |g: &mut Game, f: f32| {
+            g.time = DAY * (10.0 + f);
+            g.daylight().0
+        };
+        assert_eq!(at(&mut g, 0.25), 0.0);
+        let night = at(&mut g, 0.75);
+        assert!(night > 0.4, "{night}");
+        let dusk = at(&mut g, 0.58);
+        assert!(dusk > 0.05 && dusk < night);
+        let dawn = at(&mut g, 0.92);
+        assert!(dawn > 0.05 && dawn < night);
+        // over a season every kind of its weather comes, and it fades in
+        let mut seen = std::collections::HashSet::new();
+        for k in 0..400 {
+            g.time = k as f32 * DAY / 2.0 + DAY * 0.25;
+            let (w, f) = g.weather();
+            if w != Weather::Clear {
+                assert!(f > 0.0 && f <= 1.0);
+            }
+            seen.insert(w);
+        }
+        assert!(seen.contains(&Weather::Rain) && seen.contains(&Weather::Snow));
+        // the HUD and journal hear of it
+        let rainy = (0..400)
+            .map(|k| k as f32 * DAY / 2.0 + DAY * 0.25)
+            .find(|&t| {
+                g.time = t;
+                g.weather() == (Weather::Rain, 1.0)
+            })
+            .unwrap();
+        g.time = rainy;
+        g.update(1.0 / 30.0);
+        assert!(g.hud_json().contains("rain"));
+        // deep in the elven wood's forest ring, the light is dim
+        let (wx, wy) = WOOD_C;
+        let thick = g.canopy(wx, wy - 26);
+        assert!(thick > 0.3, "{thick}");
+        assert_eq!(g.canopy(g.map.start.0, g.map.start.1), 0.0);
+        g.ents[0].x = wx as f32;
+        g.ents[0].y = (wy - 26) as f32;
+        g.ents[0].path.clear();
+        for _ in 0..90 {
+            g.update(1.0 / 30.0);
+        }
+        assert!(g.forest_view > 0.25);
+        let _ = g.render();
+    }
+
+    #[test]
+    fn the_elves_live_in_three_peaceful_places_beyond_the_mountains() {
+        let mut g = Game::new(640);
+        assert_eq!(g.map.elves.len(), 3);
+        assert!(
+            g.map.t.iter().filter(|&&t| t == T_MOUNT).count() > 3000,
+            "real ranges"
+        );
+        let (sx, sy) = g.map.start;
+        for n in ["Elf valley", "Elf wood", "Elf haven"] {
+            let &(_, x, y) = g.map.pois.iter().find(|p| p.0 == n).unwrap();
+            assert!(g.map.guarded(x, y), "{n} is guarded");
+            assert!(
+                g.map.find_path_as(sx, sy, x, y, 2, PERSON).is_some(),
+                "{n} reachable"
+            );
+        }
+        let elves = g.ents.iter().filter(|e| e.k == EK::Npc(V_ELF)).count();
+        assert!(elves >= 12);
+        assert!(
+            g.map
+                .buildings
+                .iter()
+                .filter(|b| b.style == WALL_ELVEN)
+                .count()
+                >= 9
+        );
+        assert!(g.map.o.iter().any(|&o| o == O_SHIP));
+        let golden = (0..N)
+            .filter(|&i| g.map.o[i] == O_BIGTREE && g.map.style[i] == GOLDEN)
+            .count();
+        assert!(golden >= 4, "{golden}");
     }
 
     #[test]

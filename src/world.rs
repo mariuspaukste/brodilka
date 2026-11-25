@@ -4,8 +4,8 @@ use crate::rng::Rng;
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 
-pub const W: i32 = 160;
-pub const H: i32 = 160;
+pub const W: i32 = 240;
+pub const H: i32 = 240;
 pub const N: usize = (W * H) as usize;
 
 pub const T_WATER: u8 = 0;
@@ -64,6 +64,8 @@ pub const STAIR_DOWN: u8 = 2;
 pub const O_WHEEL: u8 = 37;
 /// the village's great tree, under which its parties are held
 pub const O_BIGTREE: u8 = 38;
+/// a white ship with a swan's prow, moored at the elven haven
+pub const O_SHIP: u8 = 39;
 /// seconds a door stays open before it swings shut
 pub const DOOR_OPEN: f32 = 5.0;
 
@@ -75,6 +77,10 @@ pub const WALL_CASTLE: u8 = 5;
 pub const WALL_TOWER: u8 = 6;
 /// a burrow house dug into a turf mound: earthen walls, a round door
 pub const WALL_BURROW: u8 = 7;
+/// the pale stone halls of the elves
+pub const WALL_ELVEN: u8 = 8;
+/// great-tree style: the golden trees of the elven wood
+pub const GOLDEN: u8 = 1;
 /// fence style: a thick hedge (the village's ring)
 pub const HEDGE: u8 = 2;
 
@@ -95,6 +101,7 @@ pub fn size(o: u8) -> (i32, f32) {
         O_THRONE => (1, 1.6),
         O_BIGTREE => (1, 7.0),
         O_WHEEL => (1, 2.0),
+        O_SHIP => (1, 3.0),
         _ => (1, 0.6),
     }
 }
@@ -186,6 +193,8 @@ pub struct Map {
     pub village: (i32, i32, i32, i32),
     /// the rivers, each tile by tile from its source to the sea
     pub rivers: Vec<Vec<(i32, i32)>>,
+    /// the elven towns: the valley, the wood and the haven (guarded ground)
+    pub elves: Vec<(i32, i32, i32, i32)>,
     /// where the stablemaster's horses graze in the paddock
     pub paddock: Vec<(i32, i32)>,
     /// guard posts along the roads: monsters near one are struck down too
@@ -497,6 +506,13 @@ impl Map {
             .any(|&(x0, y0, x1, y1)| x >= x0 - 3 && y >= y0 - 3 && x < x1 + 3 && y < y1 + 3)
     }
 
+    /// In one of the elven towns.
+    pub fn in_elf(&self, x: i32, y: i32) -> bool {
+        self.elves
+            .iter()
+            .any(|&(x0, y0, x1, y1)| x >= x0 && y >= y0 && x < x1 && y < y1)
+    }
+
     /// Inside the village hedge.
     pub fn in_village(&self, x: i32, y: i32) -> bool {
         let (x0, y0, x1, y1) = self.village;
@@ -509,6 +525,7 @@ impl Map {
         let (sx0, sy0, sx1, sy1) = self.stable;
         self.in_town(x, y)
             || self.in_village(x, y)
+            || self.in_elf(x, y)
             || (x >= sx0 && y >= sy0 && x < sx1 && y < sy1)
             || self
                 .posts
@@ -573,7 +590,7 @@ impl Map {
                 return Some(path);
             }
             expanded += 1;
-            if expanded > 9000 {
+            if expanded > 40000 {
                 return None;
             }
             let g = self.pf_g[i];
@@ -1198,6 +1215,7 @@ pub fn generate(seed: u32) -> Map {
         stable: (98, 80, 110, 99),
         village: (12, 62, 50, 98),
         rivers: vec![],
+        elves: vec![],
         paddock: vec![],
         city: (60, 14, 100, 56),
         posts: vec![],
@@ -1230,8 +1248,10 @@ pub fn generate(seed: u32) -> Map {
     let city_c = (80, 35);
     let stable_c = (104, 89);
     let village_c = (31, 80);
-    let pois: [((i32, i32), f32); 8] = [
+    let pois: [((i32, i32), f32); 10] = [
         (village_c, 24.0),
+        (WOOD_C, 32.0),
+        (HAVEN_C, 12.0),
         (town_c, 30.0),
         (stable_c, 14.0),
         (city_c, 30.0),
@@ -1294,8 +1314,47 @@ pub fn generate(seed: u32) -> Map {
         }
     }
 
+    // --- the mountains: a great range down the east, the valley of the elves
+    // hidden in it, and a lower range across the south
+    m.range(
+        &mut elev,
+        &[
+            (168, 6),
+            (176, 28),
+            (180, 50),
+            (186, 75),
+            (184, 100),
+            (178, 124),
+            (172, 146),
+        ],
+        15.0,
+        seed ^ 0x3a11,
+    );
+    m.range(
+        &mut elev,
+        &[(14, 188), (50, 181), (90, 191), (130, 184), (164, 193)],
+        12.0,
+        seed ^ 0x3a12,
+    );
+
+    m.pois.push(("Eastern range", 174, 40));
+    m.pois.push(("Southern range", 90, 189));
+    // passes over the ranges: old tracks, so the lands beyond are not cut off
+    for (k, (a, b)) in [
+        ((50, 168), (50, 206)),
+        ((118, 166), (118, 206)),
+        ((156, 26), (206, 26)),
+        ((158, 128), (204, 126)),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        m.carve_road(a, b, seed ^ (0x9a55 + k as u32));
+    }
+
     // --- rivers: one from the northern hills down through the village to the
-    // western sea, one from the eastern uplands to the south-eastern shore
+    // western sea, one from the eastern uplands through the range to the
+    // south-eastern shore
     m.carve_river(
         &[
             (52, 18),
@@ -1310,7 +1369,18 @@ pub fn generate(seed: u32) -> Map {
         seed ^ 0x7177,
     );
     m.carve_river(
-        &[(118, 58), (126, 70), (134, 84), (146, 96), (162, 100)],
+        &[
+            (118, 58),
+            (126, 70),
+            (134, 84),
+            (146, 96),
+            (162, 100),
+            (176, 116),
+            (194, 134),
+            (205, 162),
+            (222, 172),
+            (244, 178),
+        ],
         seed ^ 0x7178,
     );
 
@@ -1565,6 +1635,9 @@ pub fn generate(seed: u32) -> Map {
     m.village(&mut rng, seed, (x0 - 1, y0 + 13));
     m.name_rivers();
 
+    // --- the elves: a valley in the mountains, a golden wood, a haven
+    m.elven_lands(&mut elev, &mut rng, seed, ((x0 + x1) / 2, y1));
+
     // --- spawn regions (monster, x, y, radius, max)
     m.assign_levels(&elev);
     m.spawns = vec![
@@ -1578,6 +1651,17 @@ pub fn generate(seed: u32) -> Map {
         ("slime", 82, 128, 10, 3),
         ("slime", 110, 52, 8, 2),
         ("wolf", 20, 48, 11, 4),
+        // the new lands east and south
+        ("wolf", 150, 30, 12, 4),
+        ("wolf", 60, 206, 12, 4),
+        ("troll", 196, 40, 12, 2),
+        ("troll", 120, 176, 12, 2),
+        ("mongbat", 210, 100, 10, 3),
+        ("rabbit", 130, 160, 10, 5),
+        ("rabbit", 30, 220, 10, 4),
+        ("horse", 150, 206, 12, 4),
+        ("slime", 100, 215, 10, 3),
+        ("rat", 140, 120, 9, 3),
         ("wolf", 112, 110, 11, 3),
         ("horse", 46, 94, 10, 4),
         ("skeleton", grave.0, grave.1, 8, 5),
@@ -2164,5 +2248,259 @@ impl Map {
             }
         }
         self.pois.push(("Village", cx, cy));
+    }
+}
+
+// ---------------------------------------------------------------- mountains and the elves
+/// where the elven wood and the haven stand
+pub const WOOD_C: (i32, i32) = (200, 198);
+pub const HAVEN_C: (i32, i32) = (214, 148);
+/// the hidden valley in the eastern range
+pub const VALLEY_C: (i32, i32) = (184, 75);
+
+fn seg_dist(px: f32, py: f32, a: (i32, i32), b: (i32, i32)) -> f32 {
+    let (ax, ay, bx, by) = (a.0 as f32, a.1 as f32, b.0 as f32, b.1 as f32);
+    let (dx, dy) = (bx - ax, by - ay);
+    let l = dx * dx + dy * dy;
+    let t = if l > 0.0 {
+        (((px - ax) * dx + (py - ay) * dy) / l).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    ((px - ax - t * dx).powi(2) + (py - ay - t * dy).powi(2)).sqrt()
+}
+
+impl Map {
+    /// A mountain range along `pts`: a jagged core of rock `width` wide,
+    /// with high foothills stepping down on either side.
+    fn range(&mut self, elev: &mut [f32], pts: &[(i32, i32)], width: f32, seed: u32) {
+        let (mut x0, mut y0, mut x1, mut y1) = (W, H, 0, 0);
+        for &(x, y) in pts {
+            x0 = x0.min(x);
+            y0 = y0.min(y);
+            x1 = x1.max(x);
+            y1 = y1.max(y);
+        }
+        let pad = width as i32 * 2;
+        for y in (y0 - pad).max(0)..(y1 + pad).min(H) {
+            for x in (x0 - pad).max(0)..(x1 + pad).min(W) {
+                if self.in_town(x, y) || self.in_village(x, y) {
+                    continue;
+                }
+                let d = pts
+                    .windows(2)
+                    .map(|w| seg_dist(x as f32, y as f32, w[0], w[1]))
+                    .fold(f32::MAX, f32::min);
+                let jag = (vnoise(x as f32 / 6.0, y as f32 / 6.0, seed) - 0.5) * width * 0.7
+                    + (vnoise(x as f32 / 2.5, y as f32 / 2.5, seed ^ 9) - 0.5) * 3.0;
+                let i = idx(x, y);
+                if self.t[i] == T_WATER && d > width * 0.3 {
+                    continue;
+                }
+                if d < width * 0.5 + jag {
+                    self.t[i] = T_MOUNT;
+                    self.o[i] = O_NONE;
+                    elev[i] = elev[i].max(0.7);
+                } else if d < width * 1.3 + jag {
+                    // foothills: high, rocky, few trees
+                    let f = 1.0 - (d - width * 0.5) / (width * 0.8);
+                    elev[i] = elev[i].max(0.5 + 0.16 * f.clamp(0.0, 1.0));
+                    if self.t[i] == T_WATER || self.t[i] == T_SAND {
+                        self.t[i] = T_GRASS;
+                    }
+                    let h = hash(x, y, seed ^ 0xb0);
+                    if h < 0.05 {
+                        self.o[i] = O_BOULDER;
+                    } else if self.o[i] == O_TREE && h < 0.5 {
+                        self.o[i] = O_NONE;
+                    }
+                }
+            }
+        }
+    }
+
+    /// A straight paved way, two tiles wide.
+    fn pave(&mut self, a: (i32, i32), b: (i32, i32), t: u8) {
+        let n = (b.0 - a.0).abs().max((b.1 - a.1).abs()).max(1);
+        for k in 0..=n {
+            let x = a.0 + (b.0 - a.0) * k / n;
+            let y = a.1 + (b.1 - a.1) * k / n;
+            for (ox, oy) in [(0, 0), (1, 0), (0, 1)] {
+                let (px, py) = (x + ox, y + oy);
+                if inb(px, py) {
+                    let i = idx(px, py);
+                    self.t[i] = if self.t[i] == T_WATER { T_BRIDGE } else { t };
+                    self.road[i] = true;
+                    if !matches!(self.o[i], O_WALL | O_DOOR) {
+                        self.o[i] = O_NONE;
+                    }
+                }
+            }
+        }
+    }
+
+    /// A pale stone hall of the elves, with the ground before it kept clear.
+    fn elf_hall(&mut self, bx: i32, by: i32, vendor: usize) {
+        self.clear_round(bx, by, 8, 6);
+        self.building(bx, by, WALL_ELVEN, vendor);
+    }
+
+    /// Clear ground for an elven town: grass, level, nothing standing.
+    fn clear_flat(&mut self, elev: &mut [f32], x: i32, y: i32) {
+        if !inb(x, y) {
+            return;
+        }
+        let i = idx(x, y);
+        self.t[i] = T_GRASS;
+        self.o[i] = O_NONE;
+        self.road[i] = false;
+        elev[i] = 0.5;
+    }
+
+    /// The elven lands: a hidden valley in the eastern range, a town under
+    /// golden trees in a deep wood to the south-east, and a haven on the
+    /// eastern shore with a white ship at its quay. Roads with guard posts
+    /// run to each; all three are guarded, peaceful ground.
+    fn elven_lands(&mut self, elev: &mut [f32], rng: &mut Rng, seed: u32, south_gate: (i32, i32)) {
+        // ---- the valley: an oval of green walled in by the mountains
+        let (vx, vy) = VALLEY_C;
+        let (rx, ry) = (17.0f32, 13.0f32);
+        for y in vy - 13..=vy + 13 {
+            for x in vx - 17..=vx + 17 {
+                let d = ((x - vx) as f32 / rx).powi(2) + ((y - vy) as f32 / ry).powi(2);
+                if d < 1.0 {
+                    self.clear_flat(elev, x, y);
+                    if d > 0.75 && hash(x, y, seed ^ 0x77) < 0.35 {
+                        self.o[idx(x, y)] = O_TREE;
+                    }
+                }
+            }
+        }
+        // roads in from the stables and on east to the haven, through passes
+        let (sx1, sy0, _, sy1) = (self.stable.2, self.stable.1, 0, self.stable.3);
+        let west = self.carve_road((sx1 + 1, (sy0 + sy1) / 2), (vx - 18, vy), seed ^ 41);
+        self.road_post(&west);
+        self.roads.push(Road {
+            from: "town",
+            to: "valley",
+            tiles: west,
+        });
+        let east = self.carve_road((vx + 18, vy), (HAVEN_C.0, HAVEN_C.1 - 11), seed ^ 42);
+        self.road_post(&east);
+        self.pave((vx - 18, vy), (vx + 18, vy), T_COBBLE);
+        self.elf_hall(vx - 11, vy - 7, V_HEALER);
+        self.elf_hall(vx + 1, vy - 7, V_MAGE);
+        self.elf_hall(vx - 11, vy + 3, V_LIBRARIAN);
+        self.elf_hall(vx + 1, vy + 3, V_BARKEEP);
+        for (dx, dy) in [(-14, -2), (14, -2), (-14, 3), (14, 3), (0, -2), (0, 3)] {
+            self.set_o(vx + dx, vy + dy, O_LAMP);
+        }
+        for (dx, dy) in [(-6, -1), (6, 2), (-2, 2), (10, -1)] {
+            self.npcs.push((V_ELF, vx + dx, vy + dy));
+        }
+        self.npcs.push((V_GUARD, vx - 16, vy - 1));
+        self.npcs.push((V_GUARD, vx + 16, vy + 2));
+        self.elves.push((vx - 17, vy - 13, vx + 18, vy + 14));
+        self.pois.push(("Elf valley", vx, vy));
+
+        // ---- the wood: a deep forest ring round a clearing of golden trees
+        let (wx, wy) = WOOD_C;
+        for y in wy - 34..=wy + 34 {
+            for x in wx - 34..=wx + 34 {
+                if !inb(x, y) {
+                    continue;
+                }
+                let d = (((x - wx).pow(2) + (y - wy).pow(2)) as f32).sqrt();
+                let i = idx(x, y);
+                if d < 16.0 {
+                    self.clear_flat(elev, x, y);
+                } else if d < 34.0 && self.t[i] == T_GRASS && self.o[i] == O_NONE {
+                    let deep = 1.0 - (d - 16.0) / 18.0;
+                    if rng.f() < 0.35 + 0.45 * deep {
+                        self.o[i] = O_TREE;
+                    }
+                }
+            }
+        }
+        let gate = (wx, wy - 34);
+        let north = self.carve_road(south_gate, gate, seed ^ 43);
+        self.road_post(&north);
+        self.roads.push(Road {
+            from: "town",
+            to: "wood",
+            tiles: north,
+        });
+        self.carve_road(gate, (wx, wy - 15), seed ^ 44);
+        self.pave((wx, wy - 15), (wx, wy + 12), T_DIRT);
+        self.pave((wx - 13, wy - 1), (wx + 13, wy - 1), T_DIRT);
+        self.elf_hall(wx - 12, wy - 9, V_PROV);
+        self.elf_hall(wx + 3, wy - 9, V_HEALER);
+        self.elf_hall(wx - 12, wy + 3, V_MAGE);
+        for (dx, dy) in [
+            (0, 0),
+            (-7, 9),
+            (8, 9),
+            (-13, 5),
+            (13, 5),
+            (6, -12),
+            (-6, -12),
+        ] {
+            let (tx, ty) = (wx + dx + 2 * (dx == 0) as i32, wy + dy);
+            if self.o[idx(tx, ty)] == O_NONE && !self.road[idx(tx, ty)] {
+                self.o[idx(tx, ty)] = O_BIGTREE;
+                self.style[idx(tx, ty)] = GOLDEN;
+            }
+        }
+        for (dx, dy) in [(-3, -4), (4, 4), (-4, 7), (9, 1)] {
+            self.npcs.push((V_ELF, wx + dx, wy + dy));
+        }
+        self.npcs.push((V_GUARD, wx - 1, wy - 15));
+        self.npcs.push((V_GUARD, wx + 2, wy - 15));
+        self.elves.push((wx - 16, wy - 16, wx + 17, wy + 17));
+        self.pois.push(("Elf wood", wx, wy));
+
+        // ---- the haven: halls above a quay on the eastern shore
+        let (hx, hy) = HAVEN_C;
+        for y in hy - 10..=hy + 10 {
+            for x in hx - 10..=hx + 10 {
+                self.clear_flat(elev, x, y);
+            }
+        }
+        // the open sea east of the quay
+        for y in hy - 14..=hy + 14 {
+            for x in hx + 12..W {
+                if inb(x, y) {
+                    let i = idx(x, y);
+                    self.t[i] = T_WATER;
+                    self.o[i] = O_NONE;
+                    self.road[i] = false;
+                }
+            }
+        }
+        for x in hx + 11..hx + 12 {
+            for y in hy - 10..=hy + 10 {
+                let i = idx(x, y);
+                self.t[i] = T_SAND;
+                self.o[i] = O_NONE;
+            }
+        }
+        self.pave((hx, hy - 11), (hx, hy), T_COBBLE);
+        self.pave((hx - 9, hy), (hx + 18, hy), T_COBBLE);
+        let wood_road = self.carve_road((wx + 6, wy - 30), (hx - 4, hy + 11), seed ^ 45);
+        self.road_post(&wood_road);
+        self.pave((hx - 4, hy + 11), (hx - 4, hy), T_COBBLE);
+        self.elf_hall(hx - 9, hy - 8, V_PROV);
+        self.elf_hall(hx + 2, hy - 8, V_BANKER);
+        self.elf_hall(hx - 9, hy + 3, V_MAGE);
+        self.set_o(hx + 15, hy - 2, O_SHIP);
+        for (dx, dy) in [(-7, 9), (7, 9), (8, -1), (-3, -1)] {
+            self.set_o(hx + dx, hy + dy, O_LAMP);
+        }
+        for (dx, dy) in [(5, 2), (12, 1), (3, -2), (-1, 6)] {
+            self.npcs.push((V_ELF, hx + dx, hy + dy));
+        }
+        self.npcs.push((V_GUARD, hx + 1, hy - 10));
+        self.elves.push((hx - 10, hy - 10, hx + 19, hy + 11));
+        self.pois.push(("Elf haven", hx, hy));
     }
 }

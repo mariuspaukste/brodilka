@@ -431,6 +431,11 @@ chatter = [
 "Party tree" = "the Midsummer Oak"
 "West river" = "the Wend"
 "East river" = "the Greyflow"
+"Eastern range" = "the Stormcrags"
+"Southern range" = "the Thornback Hills"
+"Elf valley" = "Starfall Vale"
+"Elf wood" = "Amberwood"
+"Elf haven" = "Swanhaven"
 
 # the six periods of the day
 "Daytide" = "Morning"

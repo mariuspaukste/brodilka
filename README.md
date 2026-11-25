@@ -128,6 +128,28 @@ ones close up, as the world pack names them), shows folk and creatures near
 the player as the radar does, and marks where they are walking and their
 corpse. Its buttons open the list of places (L) and the Chronicle (C).
 
+## Mountains and the elves
+
+The land is 240 tiles across. A great range, rugged and high-footed, runs down
+the east, and a lower one across the south; old tracks climb over both through
+passes. Three elven places lie beyond them, each guarded and untouched by the
+Shadow: a hidden valley in the eastern range, its pale stone halls under
+silver-blue roofs with starlit spires; a town of golden trees in a clearing at
+the heart of a deep wood; and a haven on the eastern shore, where a white ship
+with a swan's prow lies at the quay. The elves are tall, slender and
+long-haired, and speak of stars, ships and the long years. Roads with guard
+posts run to each.
+
+## Light and weather
+
+A day runs through six periods (`src/game/sky.rs`). Dusk reddens and darkens
+into night, when only lamps, hearths, fires and magic give light, and dawn
+brings it back. The weather turns twice a day and follows the season: showers
+and thunderstorms with lightning in spring and autumn, fewer in summer, fog,
+and snow in winter. It fades in and out, shows beside the hour in the HUD, and
+the journal says when it turns; under a roof nothing falls. Walking into thick
+forest dims the light to a green gloom, with sun coming through in patches.
+
 ## The village and the rivers
 
 Two rivers run through the land: one from the northern hills down through the

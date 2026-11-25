@@ -864,6 +864,41 @@ impl Game {
                     }
                     _ => {}
                 }
+                // the elves: tall and slender, long-haired, in grey, green and
+                // silver; their wardens unhelmed, cloaked, sword at hand
+                if self.map.in_elf(e.home.0, e.home.1) && v != V_VILLAGER {
+                    const ROBES: [u32; 5] =
+                        [0x5a6a5aff, 0x6a7a8aff, 0x3a5a4aff, 0x8a8a9aff, 0x4a5a6aff];
+                    const HAIRS: [u32; 4] = [0xe8e0c8ff, 0xd8c080ff, 0x1a1a22ff, 0xc8ccd8ff];
+                    l.scale = 106 + (r(7) % 6) as u16;
+                    l.bulk = (r(6) % 4) as u8;
+                    l.hair = HAIRS[(r(3) % 4) as usize];
+                    l.long_hair = true;
+                    l.skin = 0xf0d8c0ff;
+                    l.hunch = 0;
+                    l.helm = 0;
+                    l.metal_body = false;
+                    l.skirt = false;
+                    l.hat = 0;
+                    l.hood = 0;
+                    l.body = ROBES[(r(8) % 5) as usize];
+                    l.boots = 0x4a4a3aff;
+                    if v == V_GUARD {
+                        l.weapon = Weapon::Sword;
+                        l.shield = 0;
+                        l.legs = 0x3a4a3aff;
+                        l.body = 0x3a5a3aff;
+                        l.hood = 0x2a4a2aff;
+                    } else {
+                        l.robe = true;
+                        l.legs = l.body;
+                        l.weapon = if v == V_MAGE {
+                            Weapon::Staff
+                        } else {
+                            Weapon::None
+                        };
+                    }
+                }
                 Some(l)
             }
             EK::Mon(m) => {
@@ -1432,9 +1467,8 @@ impl Game {
             c.rect(ax, ay, 1.5 * px1, 1.5 * px1);
         }
 
-        // No night falls on screen: Pagan's sky is always the same grey overcast,
-        // and its fires give only a faint glow (drawn with each flame).
-        let _ = &lights;
+        // the hour, the weather and the forest's shade
+        self.draw_sky(c, z, t, &lights);
 
         // ---- overhead texts, bars, floats (above everything)
         let tid = p.combat.target;
@@ -2245,7 +2279,7 @@ impl Game {
                 let tex = match style {
                     2 => TEX_WOODWALL,
                     3 => TEX_PLASTER,
-                    WALL_CASTLE | WALL_TOWER => TEX_ASHLAR,
+                    WALL_CASTLE | WALL_TOWER | WALL_ELVEN => TEX_ASHLAR,
                     _ => TEX_BRICK,
                 };
                 let left = [
@@ -2271,10 +2305,20 @@ impl Game {
                 self.face_pat(c, tex, true);
                 c.poly(&right);
                 c.outline(0, 0.0);
-                c.fill(if style == 4 { 0x000000a0 } else { 0x00000068 });
-                c.poly(&left);
-                c.fill(if style == 4 { 0x00000070 } else { 0x00000028 });
-                c.poly(&right);
+                if style == WALL_ELVEN {
+                    // pale, nearly white stone
+                    c.fill(0xe8ecf070);
+                    c.poly(&left);
+                    c.fill(0xf0f4f890);
+                    c.poly(&right);
+                    c.fill(0x2a3a5020);
+                    c.poly(&left);
+                } else {
+                    c.fill(if style == 4 { 0x000000a0 } else { 0x00000068 });
+                    c.poly(&left);
+                    c.fill(if style == 4 { 0x00000070 } else { 0x00000028 });
+                    c.poly(&right);
+                }
                 // soot towards the ground
                 c.fill(0x0a060430);
                 c.poly(&[
@@ -2331,6 +2375,7 @@ impl Game {
             O_DOOR if self.odd_door(x, y) => self.odd_door_draw(c, x, y, sx, sy, z),
             O_FENCE if style & 0x7f == HEDGE => self.hedge(c, x, y, sx, sy, z),
             O_WHEEL => self.water_wheel(c, x, y, z, t),
+            O_SHIP => self.ship(c, x, y, z, t),
             O_BIGTREE => self.great_tree(c, x, y, sx, sy, z, t, lights),
             O_DOOR if self.map.door_shut(x, y) => {
                 c.fill(0x4a2e18ff);
@@ -2702,6 +2747,7 @@ impl Game {
             2 => 0x5a3a24ff,
             3 => 0x7a3a28ff,
             WALL_CASTLE => 0x34383fff,
+            WALL_ELVEN => 0x6a8098ff,
             _ => 0x3a3a40ff,
         };
         let faces: [(Vec<(f32, f32)>, f32); 4] = [
@@ -2772,6 +2818,18 @@ impl Game {
         c.stroke(shade(base, 0.45), 2.0 * ink);
         let (r0, r1) = (sp(rx0, ym, ridge), sp(rx1, ym, ridge));
         c.line(r0.0, r0.1, r1.0, r1.1);
+        if b.style == WALL_ELVEN {
+            // slender silver spires at the ridge's ends, each with a star
+            for (sx, sy) in [r0, r1] {
+                c.stroke(0xd8e0e8ff, 1.5 * ink);
+                c.line(sx, sy, sx, sy - 22.0 * z);
+                c.fill(0xf0f4ffff);
+                c.ell(sx, sy - 23.0 * z, 2.0 * z, 2.0 * z);
+                c.alpha(0.5);
+                c.glow(sx, sy - 23.0 * z, 9.0 * z, 0xc0d8ffff);
+                c.alpha(1.0);
+            }
+        }
         if inn || b.vendor == V_SMITH || b.vendor == V_BARKEEP || b.vendor == V_LORD {
             // a stone chimney with a wisp of smoke
             let (cx, cy) = sp(rx1 - 0.6, ym - 0.4, ridge - 6.0 * z);
@@ -3838,6 +3896,7 @@ fn wall_h(style: u8) -> f32 {
         WALL_CASTLE => 1.45,
         WALL_TOWER => 1.9,
         WALL_BURROW => 0.95,
+        WALL_ELVEN => 1.15,
         _ => 1.0,
     }
 }
@@ -4401,16 +4460,17 @@ impl Game {
         lights: &mut Vec<(f32, f32, f32, u32)>,
     ) {
         let ink = self.pix.max(z);
+        let golden = self.map.style[idx(x, y)] & 0x7f == GOLDEN;
         c.outline(INK, ink);
-        // roots and trunk
-        c.fill(0x4a3220ff);
+        // roots and trunk (silver-grey on the elves' trees)
+        c.fill(if golden { 0x9a9a92ff } else { 0x4a3220ff });
         c.poly(&[
             (sx - 16.0 * z, sy + 4.0 * z),
             (sx + 16.0 * z, sy + 4.0 * z),
             (sx + 8.0 * z, sy - 50.0 * z),
             (sx - 8.0 * z, sy - 50.0 * z),
         ]);
-        c.fill(0x5a3e26ff);
+        c.fill(if golden { 0xc0c0b8ff } else { 0x5a3e26ff });
         c.poly(&[
             (sx - 2.0 * z, sy + 4.0 * z),
             (sx + 16.0 * z, sy + 4.0 * z),
@@ -4427,11 +4487,14 @@ impl Game {
             (-22.0, -92.0, 24.0, 16.0, 0x46723aff),
             (8.0, -116.0, 26.0, 16.0, 0x46723aff),
         ];
+        const GOLD: [u32; 7] = [
+            0x8a6a1aff, 0x9a7a22ff, 0x9a7a22ff, 0xb89430ff, 0xc8a438ff, 0xe0c050ff, 0xe8cc60ff,
+        ];
         for (k, &(dx, dy, rx, ry, col)) in blobs.iter().enumerate() {
             if k > 0 {
                 c.outline(0, 0.0);
             }
-            c.fill(col);
+            c.fill(if golden { GOLD[k] } else { col });
             c.ell(sx + dx * z, sy + dy * z, rx * z, ry * z);
         }
         c.outline(0, 0.0);
@@ -4443,12 +4506,198 @@ impl Game {
             c.alpha(0.5);
             c.glow(lx, ly, 10.0 * z * fl, 0xffb050ff);
             c.alpha(1.0);
-            c.fill([0xffd070ff, 0xff9050ff, 0xfff0a0ff][k % 3]);
+            c.fill(if golden {
+                [0xe0f0ffff, 0xc0d8ffff, 0xffffffff][k % 3]
+            } else {
+                [0xffd070ff, 0xff9050ff, 0xfff0a0ff][k % 3]
+            });
             c.ell(lx, ly, 2.5 * z, 3.0 * z);
             if k % 2 == 0 {
-                lights.push((lx, ly, 60.0, 0xffb050ff));
+                lights.push((lx, ly, 60.0, if golden { 0xc0d8ffff } else { 0xffb050ff }));
             }
         }
         let _ = (x, y);
+    }
+}
+
+impl Game {
+    /// The elves' white ship at the haven quay: a long pale hull with a
+    /// swan's neck for a prow, one mast and a grey sail, riding the swell.
+    fn ship(&self, c: &mut Canvas, x: i32, y: i32, z: f32, t: f32) {
+        let lz = LH * z;
+        let bob = (t * 1.3).sin() * 1.5 * z;
+        let sp = |wx: f32, wy: f32, h: f32| {
+            let (a, b) = self.to_screen(wx, wy);
+            (a, b - h * lz + bob)
+        };
+        let ink = self.pix.max(z);
+        // the hull runs along x, from stern (x-1.6) to prow (x+1.5)
+        let (y0, y1) = (y as f32 - 0.45, y as f32 + 0.45);
+        let (xa, xb) = (x as f32 - 1.6, x as f32 + 1.5);
+        c.outline(INK, ink);
+        c.fill(0xc8ccd0ff);
+        c.poly(&[
+            sp(xa, y1, 0.4),
+            sp(xb, y1, 0.4),
+            sp(xb + 0.4, y as f32, 1.0),
+            sp(xb, y1, 1.0),
+            sp(xa - 0.2, y1, 1.1),
+        ]);
+        c.fill(0xe8ecf0ff);
+        c.poly(&[
+            sp(xa - 0.2, y1, 1.1),
+            sp(xb, y1, 1.0),
+            sp(xb, y0, 1.0),
+            sp(xa - 0.2, y0, 1.1),
+        ]);
+        // the swan's neck and head at the prow
+        c.outline(0, 0.0);
+        c.stroke(0xf4f6f8ff, 3.0 * z);
+        let n0 = sp(xb + 0.3, y as f32, 1.0);
+        let n1 = sp(xb + 0.5, y as f32, 2.2);
+        let n2 = sp(xb + 0.2, y as f32, 2.9);
+        c.line(n0.0, n0.1, n1.0, n1.1);
+        c.line(n1.0, n1.1, n2.0, n2.1);
+        c.fill(0xe8c040ff);
+        c.ell(n2.0 + 3.0 * z, n2.1 + 1.0 * z, 2.5 * z, 1.2 * z);
+        // mast and sail
+        let m0 = sp(x as f32, y as f32, 1.0);
+        let m1 = sp(x as f32, y as f32, 6.0);
+        c.stroke(0x6a5a44ff, 2.0 * z);
+        c.line(m0.0, m0.1, m1.0, m1.1);
+        c.outline(INK, ink);
+        c.fill(0xd8dce0e0);
+        c.poly(&[
+            sp(x as f32 - 0.05, y as f32 + 0.6, 5.6),
+            sp(x as f32 - 0.05, y as f32 - 0.6, 5.6),
+            sp(x as f32 - 0.05, y as f32 - 0.7, 2.0),
+            sp(x as f32 - 0.05, y as f32 + 0.7, 2.0),
+        ]);
+        c.outline(0, 0.0);
+        // a lantern at the stern
+        let (lx, ly) = sp(xa, y as f32, 2.0);
+        c.alpha(0.5);
+        c.glow(lx, ly, 12.0 * z, 0xc0d8ffff);
+        c.alpha(1.0);
+        c.fill(0xf0f8ffff);
+        c.ell(lx, ly, 2.0 * z, 2.5 * z);
+    }
+}
+
+impl Game {
+    /// The light of the hour, the weather, and the gloom under trees, laid
+    /// over the world: see `game/sky.rs`.
+    fn draw_sky(&self, c: &mut Canvas, z: f32, t: f32, lights: &[(f32, f32, f32, u32)]) {
+        use crate::game::sky::Weather;
+        let (px, py) = self.ents[0].tile();
+        let indoors = self.map.building_at(px, py).is_some();
+        let (w, k) = self.weather();
+        let (dark, tint) = self.daylight();
+        let fv = self.forest_view;
+        let full = |c: &mut Canvas| c.rect(-10.0, -10.0, self.w + 20.0, self.h + 20.0);
+        c.outline(0, 0.0);
+        // under the trees: green gloom, light coming through in patches
+        if fv > 0.02 {
+            c.fill(with_a(0x0a1a08ff, 0.42 * fv));
+            full(c);
+            for i in 0..9 {
+                let (a, b) = (h2(i, 21, 5), h2(i, 23, 6));
+                let x = a * self.w + (t * 0.15 + i as f32).sin() * 18.0 * z;
+                let y = b * self.h + (t * 0.11 + i as f32 * 2.0).cos() * 10.0 * z;
+                c.alpha(0.22 * fv * (1.0 - dark));
+                c.glow(x, y, (34.0 + 30.0 * a) * z, 0xe8f0a0ff);
+            }
+            c.alpha(1.0);
+        }
+        // grey skies
+        let grey = match w {
+            Weather::Rain => 0.14,
+            Weather::Storm => 0.3,
+            Weather::Snow => 0.06,
+            Weather::Fog => 0.1,
+            Weather::Clear => 0.0,
+        } * k;
+        if grey > 0.0 {
+            c.fill(with_a(0x1a2028ff, grey));
+            full(c);
+        }
+        if w == Weather::Fog && k > 0.0 {
+            for i in 0..14 {
+                let fi = i as f32;
+                let fx = (h2(i, 31, 7) * (self.w + 600.0) + t * (4.0 + fi * 0.5))
+                    % (self.w + 600.0)
+                    - 300.0;
+                let fy = h2(i, 37, 8) * self.h;
+                c.fill(with_a(0xb4b4acff, 0.12 * k));
+                c.ell(fx, fy, 300.0 * z, 90.0 * z);
+            }
+            c.fill(with_a(0x9a9a96ff, 0.18 * k));
+            full(c);
+        }
+        // night: dark, the lamps and fires shining through it
+        if dark > 0.01 {
+            if tint != 0 {
+                c.fill(with_a(tint, dark * 0.35));
+                full(c);
+            }
+            c.fill(with_a(0x04060eff, dark));
+            full(c);
+            for &(lx, ly, r, col) in lights {
+                c.alpha((dark * 1.1).min(0.65));
+                c.glow(lx, ly, r * z * 0.75, col);
+            }
+            // enough to see one's own feet by
+            let (sx, sy) = self.scr_h(self.ents[0].x, self.ents[0].y, self.ents[0].anim.vz);
+            c.alpha(dark * 0.55);
+            c.glow(sx, sy - 16.0 * z, 80.0 * z, 0x9aa4c0ff);
+            c.alpha(1.0);
+        }
+        if indoors || k <= 0.0 {
+            return;
+        }
+        // what falls from the sky (thinner under the trees)
+        let under = 1.0 - 0.6 * fv;
+        match w {
+            Weather::Rain | Weather::Storm => {
+                let n = ((if w == Weather::Storm { 170.0 } else { 90.0 }) * k * under) as i32;
+                c.stroke(0x9ab0c8a8, self.pix.max(z));
+                for i in 0..n {
+                    let (a, b) = (h2(i, 41, 9), h2(i, 43, 10));
+                    let sp = 520.0 + b * 200.0;
+                    let x = (a * (self.w + 60.0) - t * 90.0).rem_euclid(self.w + 60.0);
+                    let y = (b * self.h + t * sp).rem_euclid(self.h + 40.0) - 20.0;
+                    c.line(x, y, x - 4.0 * z, y + 13.0 * z);
+                }
+                if w == Weather::Storm {
+                    // now and then the lightning
+                    let beat = (t * 0.31).floor() as i32;
+                    let ph = (t * 0.31).fract();
+                    if h2(beat, 47, 11) < 0.45 && ph < 0.05 {
+                        let a = if ph < 0.015 || (0.03..0.04).contains(&ph) {
+                            0.55
+                        } else {
+                            0.0
+                        };
+                        if a > 0.0 {
+                            c.fill(with_a(0xe8f0ffff, a * k));
+                            full(c);
+                        }
+                    }
+                }
+            }
+            Weather::Snow => {
+                let n = (140.0 * k * under) as i32;
+                c.fill(0xf4f8ffe0);
+                for i in 0..n {
+                    let (a, b) = (h2(i, 51, 12), h2(i, 53, 13));
+                    let x = (a * self.w + (t * 0.8 + i as f32).sin() * 14.0 * z - t * 12.0)
+                        .rem_euclid(self.w);
+                    let y = (b * self.h + t * (26.0 + a * 20.0)).rem_euclid(self.h);
+                    let r = (1.0 + a * 1.2) * self.pix.max(1.0);
+                    c.rect(x, y, r, r);
+                }
+            }
+            _ => {}
+        }
     }
 }

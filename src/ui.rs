@@ -243,10 +243,16 @@ impl Game {
             self.pl.count(item_idx("bandage")),
             self.pl.count(item_idx("healpotion")),
             self.is_night(),
-            if self.in_shadow {
-                esc(&format!("{} · {}", crate::pack::t(self.period()), crate::pack::t("in the Shadow")))
-            } else {
-                tx(self.period())
+            {
+                let mut s = crate::pack::t(self.period());
+                let w = self.weather_word();
+                if !w.is_empty() {
+                    s = format!("{s} · {}", crate::pack::t(w));
+                }
+                if self.in_shadow {
+                    s = format!("{s} · {}", crate::pack::t("in the Shadow"));
+                }
+                esc(&s)
             },
             self.pl.blocking,
             p.down_t > 0.0,
