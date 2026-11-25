@@ -381,6 +381,26 @@ chatter = [
 ]
 robe = "#2a2a3a"
 
+[vendor.villager]
+# the little folk of Hollowbrook, in their burrows behind the hedge
+names = [
+  "Pip Thistlebrook", "Daisy Hollowell", "Barnaby Mossfoot", "Clover Puddleby",
+  "Tobin Fernbank", "Wren Applethorn", "Bramble Sweetwater", "Nell Underbough",
+  "Ollie Hedgerow", "Poppy Fairbrook",
+]
+chatter = [
+  "Fine weather for the garden.",
+  "The mill-wheel on the Wend has turned since before my grandmother's time.",
+  "Mind the cabbages, if you please!",
+  "Nothing ever happens in Hollowbrook, and that's just how we like it.",
+  "Big Folk from Thornmere? You'll be wanting the Jolly Miller, I expect.",
+  "There's to be a party under the Midsummer Oak, and everyone's asked.",
+  "The hedge keeps out the wolves, and the hayward keeps out the rest.",
+  "Elevenses! Is it elevenses already?",
+  "Orcs? Vathmor? Not here, thank you. We've a garden to see to.",
+  "A pipe, a good chair and a window on the river. What more is there?",
+]
+
 [vendor.stablemaster]
 title = "the stablemaster"
 names = ["Edda Applegarth", "Garric Heathcote", "Wynn"]
@@ -405,6 +425,12 @@ chatter = [
 "Duskhold Pub" = "The King's Alehouse"
 "Castle" = "The King's Hall"
 "Places of note" = "Places of the North"
+"Village" = "Hollowbrook"
+"Village inn" = "The Jolly Miller"
+"Mill" = "Hollowbrook Mill"
+"Party tree" = "the Midsummer Oak"
+"West river" = "the Wend"
+"East river" = "the Greyflow"
 
 # the six periods of the day
 "Daytide" = "Morning"

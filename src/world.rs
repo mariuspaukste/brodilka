@@ -60,6 +60,10 @@ pub const O_THRONE: u8 = 35;
 pub const O_STAIRS: u8 = 36;
 pub const STAIR_UP: u8 = 1;
 pub const STAIR_DOWN: u8 = 2;
+/// a mill's water wheel, standing in the river beside the mill
+pub const O_WHEEL: u8 = 37;
+/// the village's great tree, under which its parties are held
+pub const O_BIGTREE: u8 = 38;
 /// seconds a door stays open before it swings shut
 pub const DOOR_OPEN: f32 = 5.0;
 
@@ -69,6 +73,10 @@ pub const POST_R: i32 = 6;
 /// wall styles of the castle: curtain walls, and the taller towers
 pub const WALL_CASTLE: u8 = 5;
 pub const WALL_TOWER: u8 = 6;
+/// a burrow house dug into a turf mound: earthen walls, a round door
+pub const WALL_BURROW: u8 = 7;
+/// fence style: a thick hedge (the village's ring)
+pub const HEDGE: u8 = 2;
 
 /// An object's footprint in tiles (along y unless mirrored with FACE_S, then
 /// along x) and its height in metres, for blocking, drawing and see-through.
@@ -85,6 +93,8 @@ pub fn size(o: u8) -> (i32, f32) {
         O_SHELF => (1, 1.9),
         O_LAMP => (1, 2.0),
         O_THRONE => (1, 1.6),
+        O_BIGTREE => (1, 7.0),
+        O_WHEEL => (1, 2.0),
         _ => (1, 0.6),
     }
 }
@@ -172,6 +182,10 @@ pub struct Map {
     pub city: (i32, i32, i32, i32),
     /// the stables east of the town: barn, yard and paddock (guarded ground)
     pub stable: (i32, i32, i32, i32),
+    /// the halfling village west of the town, inside its hedge: a peaceful place
+    pub village: (i32, i32, i32, i32),
+    /// the rivers, each tile by tile from its source to the sea
+    pub rivers: Vec<Vec<(i32, i32)>>,
     /// where the stablemaster's horses graze in the paddock
     pub paddock: Vec<(i32, i32)>,
     /// guard posts along the roads: monsters near one are struck down too
@@ -355,19 +369,34 @@ impl Map {
     pub fn door_shut(&self, x: i32, y: i32) -> bool {
         inb(x, y) && self.o[idx(x, y)] == O_DOOR && self.door[idx(x, y)] <= 0.0
     }
-    /// Open a door, and its other leaf if it is a double door.
-    pub fn open_door(&mut self, x: i32, y: i32) {
-        for dx in [-1, 0, 1] {
-            if inb(x + dx, y) && self.o[idx(x + dx, y)] == O_DOOR {
-                self.door[idx(x + dx, y)] = DOOR_OPEN;
+    /// The leaves of the door at (x, y): it and the door tiles in line with
+    /// it (a double door, or a gate a few tiles wide).
+    pub fn door_leaves(&self, x: i32, y: i32) -> Vec<(i32, i32)> {
+        let mut v = vec![];
+        if self.obj(x, y) != O_DOOR {
+            return v;
+        }
+        v.push((x, y));
+        for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+            for k in 1..=3 {
+                let (nx, ny) = (x + dx * k, y + dy * k);
+                if self.obj(nx, ny) != O_DOOR {
+                    break;
+                }
+                v.push((nx, ny));
             }
+        }
+        v
+    }
+    /// Open a door, and its other leaves.
+    pub fn open_door(&mut self, x: i32, y: i32) {
+        for (lx, ly) in self.door_leaves(x, y) {
+            self.door[idx(lx, ly)] = DOOR_OPEN;
         }
     }
     pub fn shut_door(&mut self, x: i32, y: i32) {
-        for dx in [-1, 0, 1] {
-            if inb(x + dx, y) && self.o[idx(x + dx, y)] == O_DOOR {
-                self.door[idx(x + dx, y)] = 0.0;
-            }
+        for (lx, ly) in self.door_leaves(x, y) {
+            self.door[idx(lx, ly)] = 0.0;
         }
     }
     pub fn level(&self, x: i32, y: i32) -> u8 {
@@ -468,10 +497,18 @@ impl Map {
             .any(|&(x0, y0, x1, y1)| x >= x0 - 3 && y >= y0 - 3 && x < x1 + 3 && y < y1 + 3)
     }
 
-    /// Ground the guards keep: the town, the city, the stables and around each road post.
+    /// Inside the village hedge.
+    pub fn in_village(&self, x: i32, y: i32) -> bool {
+        let (x0, y0, x1, y1) = self.village;
+        x >= x0 && y >= y0 && x < x1 && y < y1
+    }
+
+    /// Ground the guards keep: the town, the city, the stables, the village
+    /// and around each road post.
     pub fn guarded(&self, x: i32, y: i32) -> bool {
         let (sx0, sy0, sx1, sy1) = self.stable;
         self.in_town(x, y)
+            || self.in_village(x, y)
             || (x >= sx0 && y >= sy0 && x < sx1 && y < sy1)
             || self
                 .posts
@@ -803,7 +840,13 @@ impl Map {
         };
         // stairs alternate between the back corners, so each flight lands
         // clear of the next
-        let stair = |k: usize| if k.is_multiple_of(2) { (w - 2, 1) } else { (1, 1) };
+        let stair = |k: usize| {
+            if k.is_multiple_of(2) {
+                (w - 2, 1)
+            } else {
+                (1, 1)
+            }
+        };
         let (gx, gy) = stair(0);
         self.place(bx + gx, by + gy, O_STAIRS, false);
         self.style[idx(bx + gx, by + gy)] = STAIR_UP;
@@ -953,6 +996,14 @@ impl Map {
             }
         }
         // the town, the city, their buildings and the shrines sit on one flat level
+        let (vx0, vy0, vx1, vy1) = self.village;
+        for y in vy0..vy1 {
+            for x in vx0..vx1 {
+                if land(self.t[idx(x, y)]) {
+                    self.lv[idx(x, y)] = 1;
+                }
+            }
+        }
         for (x0, y0, x1, y1) in [self.town, self.city] {
             for y in y0 - 3..y1 + 3 {
                 for x in x0 - 3..x1 + 3 {
@@ -1145,6 +1196,8 @@ pub fn generate(seed: u32) -> Map {
         regrow: vec![],
         town: (62, 64, 98, 104),
         stable: (98, 80, 110, 99),
+        village: (12, 62, 50, 98),
+        rivers: vec![],
         paddock: vec![],
         city: (60, 14, 100, 56),
         posts: vec![],
@@ -1176,7 +1229,9 @@ pub fn generate(seed: u32) -> Map {
     let lair = (128, 128);
     let city_c = (80, 35);
     let stable_c = (104, 89);
-    let pois: [((i32, i32), f32); 7] = [
+    let village_c = (31, 80);
+    let pois: [((i32, i32), f32); 8] = [
+        (village_c, 24.0),
         (town_c, 30.0),
         (stable_c, 14.0),
         (city_c, 30.0),
@@ -1238,6 +1293,26 @@ pub fn generate(seed: u32) -> Map {
             m.t[i] = T_DIRT;
         }
     }
+
+    // --- rivers: one from the northern hills down through the village to the
+    // western sea, one from the eastern uplands to the south-eastern shore
+    m.carve_river(
+        &[
+            (52, 18),
+            (48, 44),
+            (38, 58),
+            (32, 68),
+            (30, 80),
+            (27, 92),
+            (16, 102),
+            (-2, 108),
+        ],
+        seed ^ 0x7177,
+    );
+    m.carve_river(
+        &[(118, 58), (126, 70), (134, 84), (146, 96), (162, 100)],
+        seed ^ 0x7178,
+    );
 
     // --- graveyard
     for y in grave.1 - 8..grave.1 + 8 {
@@ -1486,6 +1561,10 @@ pub fn generate(seed: u32) -> Map {
 
     city(&mut m);
 
+    // --- the village of the small folk, west along a lane from the town
+    m.village(&mut rng, seed, (x0 - 1, y0 + 13));
+    m.name_rivers();
+
     // --- spawn regions (monster, x, y, radius, max)
     m.assign_levels(&elev);
     m.spawns = vec![
@@ -1498,7 +1577,7 @@ pub fn generate(seed: u32) -> Map {
         ("mongbat", 130, 80, 10, 3),
         ("slime", 82, 128, 10, 3),
         ("slime", 110, 52, 8, 2),
-        ("wolf", 44, 66, 11, 4),
+        ("wolf", 20, 48, 11, 4),
         ("wolf", 112, 110, 11, 3),
         ("horse", 46, 94, 10, 4),
         ("skeleton", grave.0, grave.1, 8, 5),
@@ -1710,4 +1789,380 @@ pub fn mini_color(m: &Map, i: usize) -> [u8; 4] {
         (((c >> 8) & 255) as f32 * s).min(255.0) as u8,
         255,
     ]
+}
+
+// ---------------------------------------------------------------- rivers and the village
+impl Map {
+    /// A river along `pts`, wobbling between them: two tiles wide, three on
+    /// its lower course. Towns and the city are left dry.
+    fn carve_river(&mut self, pts: &[(i32, i32)], seed: u32) {
+        let mut line: Vec<(i32, i32)> = vec![];
+        let legs = (pts.len() - 1) as f32;
+        for (k, w) in pts.windows(2).enumerate() {
+            let (ax, ay) = (w[0].0 as f32, w[0].1 as f32);
+            let (bx, by) = (w[1].0 as f32, w[1].1 as f32);
+            let len = ((bx - ax).powi(2) + (by - ay).powi(2)).sqrt().max(1.0);
+            let (nx, ny) = (-(by - ay) / len, (bx - ax) / len);
+            let steps = (len * 3.0) as i32;
+            for s in 0..steps {
+                let t = s as f32 / steps as f32;
+                let wob = (vnoise(t * 3.0 + k as f32 * 7.0, 1.5, seed) - 0.5)
+                    * 6.0
+                    * (t * std::f32::consts::PI).sin();
+                let x = (ax + (bx - ax) * t + nx * wob).round() as i32;
+                let y = (ay + (by - ay) * t + ny * wob).round() as i32;
+                if line.last() != Some(&(x, y)) {
+                    line.push((x, y));
+                }
+                let wide = ((k as f32 + t) / legs > 0.65) as i32;
+                for oy in 0..=1 + wide {
+                    for ox in 0..=1 + wide {
+                        let (px, py) = (x + ox, y + oy);
+                        if !inb(px, py) || self.in_town(px, py) {
+                            continue;
+                        }
+                        let i = idx(px, py);
+                        self.t[i] = T_WATER;
+                        self.o[i] = O_NONE;
+                        self.road[i] = false;
+                    }
+                }
+            }
+        }
+        // reeds and a little sand along the banks
+        for &(x, y) in &line {
+            for (dx, dy) in [(-1, 0), (3, 0), (0, -1), (0, 3), (-1, 2), (3, 1)] {
+                let (px, py) = (x + dx, y + dy);
+                if !inb(px, py) || self.in_town(px, py) {
+                    continue;
+                }
+                let i = idx(px, py);
+                if self.t[i] == T_GRASS && self.o[i] == O_NONE {
+                    let h = hash(px, py, seed ^ 0x5eed);
+                    if h < 0.12 {
+                        self.o[i] = O_BUSH;
+                    } else if h > 0.93 {
+                        self.t[i] = T_SAND;
+                    }
+                }
+            }
+        }
+        // fords: short bridges here and there, so the land beyond is not cut off
+        let n = line.len();
+        for f in [0.22f32, 0.5, 0.8] {
+            let k = (n as f32 * f) as usize;
+            if k + 3 >= n {
+                continue;
+            }
+            let (ax, ay) = line[k];
+            let (bx, by) = line[k + 3];
+            let (dx, dy) = ((bx - ax) as f32, (by - ay) as f32);
+            let l = (dx * dx + dy * dy).sqrt().max(1.0);
+            // across the flow, along whichever axis is nearer
+            let (px, py) = if (dy / l).abs() > (dx / l).abs() {
+                (1, 0)
+            } else {
+                (0, 1)
+            };
+            if self.in_town(ax, ay) || self.in_village(ax, ay) {
+                continue;
+            }
+            for side in [-1, 1] {
+                for s in 0..6 {
+                    for w in 0..2 {
+                        let (x, y) = (ax + px * s * side + py * w, ay + py * s * side + px * w);
+                        if !inb(x, y) {
+                            continue;
+                        }
+                        let i = idx(x, y);
+                        if self.t[i] == T_WATER {
+                            self.t[i] = T_BRIDGE;
+                            self.road[i] = true;
+                        } else if self.t[i] != T_BRIDGE {
+                            // the bank where it lands takes a slope
+                            self.road[i] = true;
+                            if matches!(self.o[i], O_TREE | O_BUSH | O_BOULDER) {
+                                self.o[i] = O_NONE;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        self.rivers.push(line);
+    }
+
+    /// A label for each river on the map of places, midway along it.
+    fn name_rivers(&mut self) {
+        for (k, name) in ["West river", "East river"].into_iter().enumerate() {
+            if let Some(r) = self.rivers.get(k) {
+                let (x, y) = r[r.len() / 3];
+                self.pois.push((name, x, y));
+            }
+        }
+    }
+
+    /// Whether a w×h footprint at (bx, by), with a tile of room round it,
+    /// lies on clear dry ground inside the village hedge, off its lanes.
+    fn village_room(&self, bx: i32, by: i32, w: i32, h: i32) -> bool {
+        let (x0, y0, x1, y1) = self.village;
+        if bx - 1 <= x0 || by - 1 <= y0 || bx + w >= x1 - 1 || by + h + 1 >= y1 - 1 {
+            return false;
+        }
+        for y in by - 1..=by + h + 1 {
+            for x in bx - 1..=bx + w {
+                let i = idx(x, y);
+                if !matches!(self.t[i], T_GRASS | T_DIRT | T_SAND)
+                    || self.road[i]
+                    || !matches!(self.o[i], O_NONE | O_TREE | O_BUSH | O_FLOWERS | O_MUSHROOM)
+                {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
+    /// A burrow house dug into a turf mound: earthen walls round a snug
+    /// room, a round door in the middle of its front, a garden path.
+    /// Clear trees and shrubs from round a footprint, so its door is free.
+    fn clear_round(&mut self, bx: i32, by: i32, w: i32, h: i32) {
+        for y in by - 1..=by + h + 1 {
+            for x in bx - 1..=bx + w {
+                if inb(x, y) && matches!(self.o[idx(x, y)], O_TREE | O_BUSH | O_MUSHROOM) {
+                    self.o[idx(x, y)] = O_NONE;
+                }
+            }
+        }
+    }
+
+    fn burrow(&mut self, bx: i32, by: i32, w: i32, h: i32, vendor: usize) {
+        self.clear_round(bx, by, w, h);
+        for y in by..by + h {
+            for x in bx..bx + w {
+                let edge = x == bx || x == bx + w - 1 || y == by || y == by + h - 1;
+                let i = idx(x, y);
+                self.t[i] = T_FLOOR;
+                self.o[i] = if edge { O_WALL } else { O_NONE };
+                self.style[i] = WALL_BURROW;
+            }
+        }
+        let dx = bx + w / 2;
+        self.set_door(dx, by + h - 1);
+        // a path to the door, flowers either side of it
+        let i = idx(dx, by + h);
+        self.t[i] = T_DIRT;
+        self.o[i] = O_NONE;
+        for fx in [dx - 2, dx + 2] {
+            if inb(fx, by + h) && self.o[idx(fx, by + h)] == O_NONE {
+                self.o[idx(fx, by + h)] = O_FLOWERS;
+            }
+        }
+        let back = |x: i32| (x, by + 1, true);
+        let mut items: Vec<((i32, i32, bool), u8)> = if vendor == V_BARKEEP {
+            vec![
+                (back(bx + 1), O_BARREL),
+                (back(bx + 2), O_BARREL),
+                (back(bx + w - 3), O_HEARTH),
+                (back(bx + w - 2), O_SHELF),
+                ((bx + 2, by + h - 2, false), O_LONGTABLE),
+                ((bx + 3, by + h - 2, true), O_CHAIR),
+                ((bx + 3, by + h - 3, true), O_CHAIR),
+                ((bx + w - 2, by + h - 2, true), O_CHAIR),
+            ]
+        } else {
+            vec![
+                (back(bx + 1), O_SHELF),
+                (back(bx + w - 2), O_HEARTH),
+                ((bx + 1, by + h - 2, false), O_BED),
+                ((bx + w - 2, by + h - 2, true), O_BARREL),
+            ]
+        };
+        if w >= 7 {
+            items.push((back(bx + 2), O_TABLE));
+        }
+        for ((x, y, south), o) in items {
+            if size(o).0 > 1 {
+                self.place(x, y, o, south);
+            } else if inb(x, y) {
+                let i = idx(x, y);
+                self.o[i] = o;
+                if south {
+                    self.style[i] |= FACE_S;
+                }
+            }
+        }
+        self.buildings.push(Building {
+            x: bx,
+            y: by,
+            w,
+            h,
+            vendor,
+            style: WALL_BURROW,
+            floors: vec![],
+        });
+        self.npcs.push((vendor, dx, by + 2));
+    }
+
+    /// The village of the small folk west of the town: burrow houses in a
+    /// ring of hedge, a mill on the river, an inn, and a great tree on the
+    /// green. Nothing wild comes in: the hedge keeps beasts out, its gates
+    /// are shut, and a hayward keeps the gate.
+    fn village(&mut self, rng: &mut Rng, seed: u32, from: (i32, i32)) {
+        let (x0, y0, x1, y1) = self.village;
+        let (cx, cy) = ((x0 + x1) / 2, (y0 + y1) / 2);
+        // a gentle green: no rock, few trees
+        for y in y0..y1 {
+            for x in x0..x1 {
+                let i = idx(x, y);
+                match self.t[i] {
+                    T_WATER => continue,
+                    T_MOUNT | T_SAND => self.t[i] = T_GRASS,
+                    _ => {}
+                }
+                if self.o[i] == O_TREE && rng.f() < 0.85 {
+                    self.o[i] = O_NONE;
+                }
+                if matches!(self.o[i], O_BOULDER | O_BONES | O_SKULLS) {
+                    self.o[i] = O_NONE;
+                }
+            }
+        }
+        // the lane from the town, through the east gate and over the river
+        let road = self.carve_road(from, (x1 + 1, cy), seed ^ 31);
+        self.roads.push(Road {
+            from: "town",
+            to: "village",
+            tiles: road,
+        });
+        self.carve_road((x1, cy), (x0 + 4, cy + 2), seed ^ 32);
+        // the hedge all round, with gates where the lane runs through it
+        for y in y0..y1 {
+            for x in x0..x1 {
+                if x != x0 && x != x1 - 1 && y != y0 && y != y1 - 1 {
+                    continue;
+                }
+                let i = idx(x, y);
+                if self.t[i] == T_WATER {
+                    continue;
+                }
+                if self.road[i] {
+                    self.set_door(x, y);
+                    self.style[i] = HEDGE;
+                } else {
+                    self.t[i] = T_GRASS;
+                    self.o[i] = O_FENCE;
+                    self.style[i] = HEDGE;
+                }
+            }
+        }
+        // the mill: on the bank, its wheel turning in the river beside it
+        // the wheel on the river side: east of the mill if it can be, where
+        // it shows from the lane, else west
+        'mill: for east in [true, false] {
+            for by in y0 + 3..y1 - 9 {
+                for bx in x0 + 3..x1 - 10 {
+                    let wet = |x: i32, y: i32| self.t[idx(x, y)] == T_WATER;
+                    let wheel = if !east && wet(bx - 1, by + 2) && wet(bx - 1, by + 3) {
+                        (bx - 1, by + 2)
+                    } else if east && wet(bx + 8, by + 2) && wet(bx + 8, by + 3) {
+                        (bx + 8, by + 2)
+                    } else {
+                        continue;
+                    };
+                    // the mill and its yard in front must stand on dry,
+                    // clear ground; the river may run close by
+                    let (vx0, vy0, vx1, vy1) = self.village;
+                    let room = bx > vx0 + 1
+                        && by > vy0 + 1
+                        && bx + 8 < vx1 - 1
+                        && by + 7 < vy1 - 1
+                        && (by..=by + 6).all(|y| {
+                            (bx..=bx + 7).all(|x| {
+                                let i = idx(x, y);
+                                matches!(self.t[i], T_GRASS | T_DIRT | T_SAND)
+                                    && !self.road[i]
+                                    && matches!(
+                                        self.o[i],
+                                        O_NONE | O_TREE | O_BUSH | O_FLOWERS | O_MUSHROOM
+                                    )
+                            })
+                        });
+                    if room {
+                        self.clear_round(bx, by, 8, 6);
+                        self.building(bx, by, 2, V_VILLAGER);
+                        self.o[idx(wheel.0, wheel.1)] = O_WHEEL;
+                        self.pois.push(("Mill", bx + 4, by + 3));
+                        break 'mill;
+                    }
+                }
+            }
+        }
+        // the great tree on the green, near the middle, with tables beneath it
+        let mut best: Option<(i32, (i32, i32))> = None;
+        for ty in y0 + 4..y1 - 4 {
+            for tx in x0 + 4..x1 - 4 {
+                let d = (tx - cx - 5).pow(2) + (ty - cy).pow(2);
+                if best.is_none_or(|b| d < b.0) && self.village_room(tx - 2, ty - 2, 6, 4) {
+                    best = Some((d, (tx, ty)));
+                }
+            }
+        }
+        if let Some((_, (tx, ty))) = best {
+            self.set_o(tx, ty, O_BIGTREE);
+            self.place(tx + 2, ty + 2, O_LONGTABLE, false);
+            self.place(tx + 3, ty + 2, O_CHAIR, true);
+            self.place(tx + 3, ty + 1, O_CHAIR, true);
+            self.set_o(tx - 2, ty - 2, O_LAMP);
+            self.set_o(tx + 3, ty - 2, O_LAMP);
+            self.pois.push(("Party tree", tx, ty));
+        }
+        // the inn near the lane, then the houses wherever there is room,
+        // nearest the middle first
+        let mut spots: Vec<(i32, i32)> = (y0 + 2..y1 - 7)
+            .flat_map(|y| (x0 + 2..x1 - 8).map(move |x| (x, y)))
+            .collect();
+        spots.sort_by_key(|&(x, y)| (x + 4 - cx).pow(2) + (y + 3 - cy).pow(2));
+        if let Some(&(bx, by)) = spots
+            .iter()
+            .find(|&&(bx, by)| self.village_room(bx, by, 9, 6))
+        {
+            self.burrow(bx, by, 9, 6, V_BARKEEP);
+            self.pois.push(("Village inn", bx + 4, by + 3));
+        }
+        let mut homes = 0;
+        for (bx, by) in spots {
+            if homes < 8 && self.village_room(bx, by, 7, 5) {
+                self.burrow(bx, by, 7, 5, V_VILLAGER);
+                homes += 1;
+            }
+        }
+        // gardens: flowers and shrubs on the open green
+        for y in y0 + 1..y1 - 1 {
+            for x in x0 + 1..x1 - 1 {
+                let i = idx(x, y);
+                if self.o[i] != O_NONE || self.road[i] || self.t[i] != T_GRASS {
+                    continue;
+                }
+                let r = rng.f();
+                if r < 0.07 {
+                    self.o[i] = O_FLOWERS;
+                } else if r < 0.1 {
+                    self.o[i] = O_BUSH;
+                }
+            }
+        }
+        // the hayward at the east gate, and a few folk about the lanes
+        self.npcs.push((V_GUARD, x1 - 3, cy - 2));
+        let lanes: Vec<(i32, i32)> = (y0 + 2..y1 - 2)
+            .flat_map(|y| (x0 + 2..x1 - 2).map(move |x| (x, y)))
+            .filter(|&(x, y)| self.road[idx(x, y)] && self.t[idx(x, y)] == T_DIRT)
+            .collect();
+        for k in 0..3 {
+            if let Some(&(x, y)) = lanes.get(lanes.len() * (k + 1) / 4) {
+                self.npcs.push((V_VILLAGER, x, y));
+            }
+        }
+        self.pois.push(("Village", cx, cy));
+    }
 }

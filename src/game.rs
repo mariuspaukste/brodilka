@@ -2014,7 +2014,7 @@ impl Game {
         let (hx, hy) = self.ents[i].home;
         let r = match v {
             V_GUARD => 4,
-            V_FOLK => 6,
+            V_FOLK | V_VILLAGER => 6,
             V_LORD => 0,
             _ => 1,
         };
@@ -4286,6 +4286,88 @@ region = "dark"
                 stairs: false
             }
         ));
+    }
+
+    #[test]
+    fn the_village_is_built_whole_and_kept_in_peace() {
+        for seed in [1997u32, 640, 7, 3] {
+            let mut g = Game::new(seed);
+            let m = &g.map;
+            let (x0, y0, x1, y1) = m.village;
+            let (cx, cy) = ((x0 + x1) / 2, (y0 + y1) / 2);
+            let burrows: Vec<&Building> = m
+                .buildings
+                .iter()
+                .filter(|b| b.style == WALL_BURROW)
+                .collect();
+            assert!(burrows.len() >= 4, "seed {seed}: {} burrows", burrows.len());
+            assert!(
+                burrows.iter().any(|b| b.vendor == V_BARKEEP),
+                "seed {seed}: an inn"
+            );
+            for n in ["Mill", "Party tree", "Village", "West river"] {
+                assert!(m.pois.iter().any(|p| p.0 == n), "seed {seed}: {n}");
+            }
+            let all = |o: u8| {
+                (y0..y1)
+                    .flat_map(|y| (x0..x1).map(move |x| (x, y)))
+                    .filter(move |&(x, y)| m.obj(x, y) == o)
+                    .count()
+            };
+            assert_eq!(all(O_WHEEL), 1, "seed {seed}: one water wheel");
+            assert_eq!(all(O_BIGTREE), 1, "seed {seed}: one great tree");
+            // every door in the village reached from the town by people...
+            let (sx, sy) = m.start;
+            let doors: Vec<(i32, i32)> = burrows.iter().map(|b| (b.x + b.w / 2, b.y + 2)).collect();
+            for (dx, dy) in doors {
+                assert!(
+                    g.map.find_path_as(sx, sy, dx, dy, 1, PERSON).is_some(),
+                    "seed {seed}: house at {dx},{dy}"
+                );
+            }
+            // ...but by no beast: the hedge and its shut gates keep them out
+            let outside = (x1 + 4, cy);
+            assert!(
+                g.map
+                    .find_path(outside.0, outside.1, cx + 6, cy, 1)
+                    .is_none(),
+                "seed {seed}: a beast got in"
+            );
+            assert!(g.map.guarded(cx, cy));
+            // two rivers, bridged where the lanes cross them
+            assert_eq!(g.map.rivers.len(), 2);
+            assert!(
+                (y0..y1).any(|y| (x0..x1).any(|x| g.map.tile(x, y) == T_BRIDGE)),
+                "seed {seed}: a bridge in the village"
+            );
+            assert!(g
+                .map
+                .rivers
+                .iter()
+                .flatten()
+                .all(|&(x, y)| !g.map.in_town(x, y)));
+        }
+        // a dark power at full strength still casts no Shadow on the village,
+        // and no monster comes in however long one waits
+        let pack = crate::pack::Pack::parse(
+            "[pack]\nid = \"t\"\n[region.dark]\nstrength = 100\nshadow = true\n[site.orcs]\nregion = \"dark\"\nstrength = 100\n[site.hills]\nregion = \"dark\"\nstrength = 100\n",
+        )
+        .unwrap();
+        let mut g = Game::new(1997);
+        g.sim = crate::sim::Sim::new(&pack);
+        g.create("Calm", false, 0, "warrior", [0, 0, 0]);
+        for _ in 0..(30 * 240) {
+            g.update(1.0 / 30.0);
+        }
+        let (x0, y0, x1, y1) = g.map.village;
+        assert!((y0..y1).all(|y| (x0..x1).all(|x| g.gloom_at(x, y) == 0)));
+        let hostile = g.ents.iter().filter(|e| {
+            !e.dead
+                && matches!(e.k, EK::Mon(m) if !MONS[m].passive)
+                && g.map.in_village(e.tile().0, e.tile().1)
+        });
+        assert_eq!(hostile.count(), 0);
+        assert!(g.ents.iter().filter(|e| e.k == EK::Npc(V_VILLAGER)).count() >= 4);
     }
 
     #[test]

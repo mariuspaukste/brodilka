@@ -109,10 +109,11 @@ impl Game {
         if self.map.door_shut(x, y) {
             self.map.open_door(x, y);
         } else {
+            let leaves = self.map.door_leaves(x, y);
             let blocked = self
                 .ents
                 .iter()
-                .any(|e| !e.dead && e.fl == 0 && (e.tile().1 == y && (e.tile().0 - x).abs() <= 1));
+                .any(|e| !e.dead && e.fl == 0 && leaves.contains(&e.tile()));
             if blocked {
                 self.msg("Something is in the way.", C_SYS);
             } else {

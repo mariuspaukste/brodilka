@@ -821,6 +821,25 @@ impl Game {
                         l.skin = 0xd8a070ff;
                         l.bulk = 18;
                     }
+                    V_VILLAGER => {
+                        // the small folk: short and stout, curly-haired,
+                        // barefoot, in waistcoats and aprons of garden colours
+                        const COATS: [u32; 6] = [
+                            0x5a6a32ff, 0x7a5a2aff, 0x3a5a3aff, 0x8a6a3aff, 0x6a3a2aff, 0x4a5a6aff,
+                        ];
+                        const CURLS: [u32; 4] = [0x5a3a1aff, 0x7a5228ff, 0x3a2614ff, 0x9a6a30ff];
+                        l.scale = 70 + (r(7) % 6) as u16;
+                        l.bulk = 15 + (r(6) % 4) as u8;
+                        l.body = COATS[(r(8) % 6) as usize];
+                        l.legs = [0x6a5a3aff, 0x4a4a32ff, 0x5a4630ff][(r(2) % 3) as usize];
+                        l.boots = l.skin;
+                        l.hair = CURLS[(r(3) % 4) as usize];
+                        l.long_hair = l.female && r(4) % 2 == 0;
+                        if l.female && r(9) % 2 == 0 {
+                            l.robe = true;
+                            l.legs = l.body;
+                        }
+                    }
                     V_FOLK => {
                         l.body = CLOTH[(r(8) % 8) as usize];
                         match r(9) % 6 {
@@ -2044,11 +2063,11 @@ impl Game {
                 O_WELL => Some((bake::P_WELL, false)),
                 O_LONGTABLE => Some((bake::P_LONGTABLE, style & FACE_S != 0)),
                 O_CART => Some((bake::P_CART, style & FACE_S != 0)),
-                O_DOOR if self.map.door_shut(x, y) => Some((
+                O_DOOR if self.map.door_shut(x, y) && !self.odd_door(x, y) => Some((
                     bake::P_DOOR + (self.map.obj(x - 1, y) != O_WALL) as usize,
                     true,
                 )),
-                O_FENCE => Some((
+                O_FENCE if style & 0x7f != HEDGE => Some((
                     if style & 0x7f == 1 {
                         bake::P_RAIL
                     } else {
@@ -2218,6 +2237,7 @@ impl Game {
                     c.outline(INK, self.pix.max(z));
                 }
             }
+            O_WALL if style == WALL_BURROW => self.burrow_wall(c, x, y, sx, sy, z),
             O_WALL => {
                 let castle = style == WALL_CASTLE || style == WALL_TOWER;
                 let storeys = self.wall_storeys(x, y);
@@ -2308,6 +2328,10 @@ impl Game {
                 }
                 self.wall_deco(c, x, y, sx, sy, style, z, t, lights);
             }
+            O_DOOR if self.odd_door(x, y) => self.odd_door_draw(c, x, y, sx, sy, z),
+            O_FENCE if style & 0x7f == HEDGE => self.hedge(c, x, y, sx, sy, z),
+            O_WHEEL => self.water_wheel(c, x, y, z, t),
+            O_BIGTREE => self.great_tree(c, x, y, sx, sy, z, t, lights),
             O_DOOR if self.map.door_shut(x, y) => {
                 c.fill(0x4a2e18ff);
                 c.poly(&[
@@ -2648,6 +2672,9 @@ impl Game {
         let (bw, bh) = (b.w - 1, b.h - 1);
         if px >= b.x && px <= b.x + bw && py >= b.y && py <= b.y + bh {
             return;
+        }
+        if b.style == WALL_BURROW {
+            return self.mound(c, b, z);
         }
         // taller walls hide more of what is behind them
         let reach = (wall_h(b.style) * b.storeys() as f32 * 5.0).round() as i32;
@@ -3810,6 +3837,7 @@ fn wall_h(style: u8) -> f32 {
     match style & !FACE_S {
         WALL_CASTLE => 1.45,
         WALL_TOWER => 1.9,
+        WALL_BURROW => 0.95,
         _ => 1.0,
     }
 }
@@ -4046,5 +4074,381 @@ impl Game {
             self.object(c, uo, x, y, gx, gy - e * lz, sh, us, z, t, lights);
             c.outline(0, 0.0);
         }
+    }
+}
+
+// ---------------------------------------------------------------- the village
+impl Game {
+    /// A door drawn its own way: a gate in the village hedge, or the round
+    /// door of a burrow house.
+    fn odd_door(&self, x: i32, y: i32) -> bool {
+        match self.map.building_at(x, y) {
+            None => true,
+            Some(b) => self.map.buildings[b].style == WALL_BURROW,
+        }
+    }
+    fn odd_door_draw(&self, c: &mut Canvas, x: i32, y: i32, sx: f32, sy: f32, z: f32) {
+        if self.map.building_at(x, y).is_some() {
+            self.burrow_face(c, x, y, sx, sy, z, true);
+        } else {
+            self.gate(c, x, y, sx, sy, z);
+        }
+    }
+
+    /// One tile of a burrow's earthen front: a bank of earth faced with
+    /// timber, turf on top; a round window now and then, or the round door.
+    fn burrow_wall(&self, c: &mut Canvas, x: i32, y: i32, sx: f32, sy: f32, z: f32) {
+        self.burrow_face(c, x, y, sx, sy, z, false);
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn burrow_face(&self, c: &mut Canvas, x: i32, y: i32, sx: f32, sy: f32, z: f32, door: bool) {
+        let (hw, hh) = (32.0 * z + 0.6, 16.0 * z + 0.6);
+        let hgt = STOREY_PX * z * wall_h(WALL_BURROW);
+        let ink = self.pix.max(z);
+        let left = [
+            (sx - hw, sy),
+            (sx, sy + hh),
+            (sx, sy + hh - hgt),
+            (sx - hw, sy - hgt),
+        ];
+        let right = [
+            (sx, sy + hh),
+            (sx + hw, sy),
+            (sx + hw, sy - hgt),
+            (sx, sy + hh - hgt),
+        ];
+        let top = [
+            (sx, sy - hh - hgt),
+            (sx + hw, sy - hgt),
+            (sx, sy + hh - hgt),
+            (sx - hw, sy - hgt),
+        ];
+        c.outline(INK, ink);
+        c.fill(0x5a4430ff);
+        c.poly(&left);
+        c.fill(0x6a5038ff);
+        c.poly(&right);
+        // turf over the top
+        c.fill(0x4e6e2cff);
+        c.poly(&top);
+        c.outline(0, 0.0);
+        // a course of stones at the foot
+        c.fill(0x6a645aff);
+        c.poly(&[
+            (sx - hw, sy),
+            (sx, sy + hh),
+            (sx, sy + hh - hgt * 0.22),
+            (sx - hw, sy - hgt * 0.22),
+        ]);
+        // the face toward y+1 is the front of the house
+        let front = self.map.obj(x, y + 1) != O_WALL
+            && !self
+                .map
+                .buildings
+                .iter()
+                .any(|b| b.style == WALL_BURROW && b.interior(x, y + 1));
+        let (fx, fy) = (sx - hw * 0.5, sy + hh * 0.5);
+        if door {
+            let r = 13.5 * z;
+            let (cx, cy) = (fx, fy - r - 1.0 * z);
+            c.outline(INK, ink);
+            c.fill(0x8a6a3aff);
+            c.ell(cx, cy, r + 2.0 * z, r + 2.0 * z);
+            if self.map.door_shut(x, y) {
+                const GREENS: [u32; 3] = [0x2f6a2aff, 0x3a5a7aff, 0x7a3a24ff];
+                c.fill(GREENS[(x as usize + y as usize) % 3]);
+                c.ell(cx, cy, r, r);
+                c.outline(0, 0.0);
+                c.fill(0xe0c050ff);
+                c.ell(cx, cy, 2.0 * z, 2.0 * z);
+            } else {
+                c.fill(0x140c06ff);
+                c.ell(cx, cy, r, r);
+            }
+            c.outline(0, 0.0);
+        } else if front && (x + y) % 2 == 0 {
+            let (cx, cy) = (fx, fy - hgt * 0.55);
+            c.outline(INK, ink);
+            c.fill(0x8a6a3aff);
+            c.ell(cx, cy, 7.5 * z, 7.0 * z);
+            c.fill(0x1a1410ff);
+            c.ell(cx, cy, 5.5 * z, 5.0 * z);
+            c.outline(0, 0.0);
+            c.stroke(0x8a6a3aff, ink);
+            c.line(cx - 5.5 * z, cy, cx + 5.5 * z, cy);
+            c.line(cx, cy - 5.0 * z, cx, cy + 5.0 * z);
+            // a warm glow within
+            c.fill(0xffb04830);
+            c.ell(cx, cy, 4.0 * z, 3.5 * z);
+        }
+    }
+
+    /// A burrow's roof: a low turf mound grown over it, with a chimney pot.
+    fn mound(&self, c: &mut Canvas, b: &Building, z: f32) {
+        let (bw, bh) = (b.w - 1, b.h - 1);
+        let floor = self.map.level(b.x + 1, b.y + 1) as f32 * LH * z;
+        let eave = STOREY_PX * z * wall_h(WALL_BURROW);
+        let rise = 26.0 * z + 5.0 * z * b.h as f32;
+        let (x0, y0, x1, y1) = (
+            b.x as f32 - 0.3,
+            b.y as f32 - 0.3,
+            (b.x + bw) as f32 + 0.3,
+            (b.y + bh) as f32 + 0.3,
+        );
+        let (mx, my) = ((x0 + x1) / 2.0, (y0 + y1) / 2.0);
+        let sp = |x: f32, y: f32, h: f32| {
+            let (a, b) = self.to_screen(x, y);
+            (a, b - h - floor)
+        };
+        // rings from the eaves to the crown, each a little smaller and higher,
+        // so the mound swells like a hill
+        let ink = self.pix.max(z);
+        let n = 9;
+        for k in 0..n {
+            let f = k as f32 / n as f32;
+            // a dome's profile: steep at the eaves, flat on the crown
+            let s = (1.0 - f * f).sqrt() * 0.92 + 0.08 * (1.0 - f);
+            let h = eave + rise * f;
+            let (ax, ay, bx2, by2) = (
+                mx + (x0 - mx) * s,
+                my + (y0 - my) * s,
+                mx + (x1 - mx) * s,
+                my + (y1 - my) * s,
+            );
+            // rounded corners: an octagon round the rectangle
+            let cut = 0.35 * s;
+            let pts = [
+                sp(ax + cut, ay, h),
+                sp(bx2 - cut, ay, h),
+                sp(bx2, ay + cut, h),
+                sp(bx2, by2 - cut, h),
+                sp(bx2 - cut, by2, h),
+                sp(ax + cut, by2, h),
+                sp(ax, by2 - cut, h),
+                sp(ax, ay + cut, h),
+            ];
+            if k == 0 {
+                c.outline(INK, ink);
+            } else {
+                c.outline(0, 0.0);
+            }
+            c.fill(shade(0x456a28ff, 0.7 + f * 0.55));
+            c.poly(&pts);
+        }
+        c.outline(0, 0.0);
+        // tufts and flowers in the turf
+        for k in 0..((b.w * b.h) as u32) {
+            let hx = h2(k as i32, b.x * 7 + b.y, 41);
+            let hy = h2(k as i32, b.y * 5 + b.x, 43);
+            let (tx, ty) = (
+                x0 + 0.5 + hx * (x1 - x0 - 1.0),
+                y0 + 0.5 + hy * (y1 - y0 - 1.0),
+            );
+            let d =
+                (((tx - mx) / (x1 - x0)).powi(2) + ((ty - my) / (y1 - y0)).powi(2)).sqrt() * 2.0;
+            let h = eave + rise * (1.0 - d.min(1.0).powi(2)).max(0.0).sqrt();
+            let (a, bb) = sp(tx, ty, h);
+            if k % 5 == 0 {
+                c.fill([0xe8d070ff, 0xd8a0c0ff, 0xf0f0e0ff][(k / 5 % 3) as usize]);
+                c.ell(a, bb, 1.5 * z, 1.2 * z);
+            } else {
+                c.stroke(0x3a5a20ff, ink);
+                c.line(a, bb, a + 1.0 * z, bb - 3.0 * z);
+            }
+        }
+        // the chimney pot, smoking
+        let (cx, cy) = sp(mx + 0.8, my - 0.6, eave + rise * 0.9);
+        c.outline(INK, ink);
+        c.fill(0x7a5a44ff);
+        c.rect(cx - 3.0 * z, cy - 12.0 * z, 6.0 * z, 12.0 * z);
+        c.outline(0, 0.0);
+        let t = self.clock;
+        for k in 0..3 {
+            let f = (t * 0.4 + k as f32 / 3.0) % 1.0;
+            c.fill(with_a(0xb0aaa0ff, 0.35 * (1.0 - f)));
+            c.ell(
+                cx + f * 8.0 * z,
+                cy - 14.0 * z - f * 26.0 * z,
+                (3.0 + f * 5.0) * z,
+                (2.5 + f * 4.0) * z,
+            );
+        }
+    }
+
+    /// A tile of the village's thick hedge.
+    fn hedge(&self, c: &mut Canvas, x: i32, y: i32, sx: f32, sy: f32, z: f32) {
+        let (hw, hh) = (30.0 * z, 15.0 * z);
+        let hgt = STOREY_PX * z * 0.9;
+        let ink = self.pix.max(z);
+        c.outline(INK, ink);
+        c.fill(0x24401aff);
+        c.poly(&[
+            (sx - hw, sy),
+            (sx, sy + hh),
+            (sx, sy + hh - hgt),
+            (sx - hw, sy - hgt),
+        ]);
+        c.fill(0x2e4e20ff);
+        c.poly(&[
+            (sx, sy + hh),
+            (sx + hw, sy),
+            (sx + hw, sy - hgt),
+            (sx, sy + hh - hgt),
+        ]);
+        c.fill(0x3c6228ff);
+        c.poly(&[
+            (sx, sy - hh - hgt),
+            (sx + hw, sy - hgt),
+            (sx, sy + hh - hgt),
+            (sx - hw, sy - hgt),
+        ]);
+        c.outline(0, 0.0);
+        // leaves
+        for k in 0..14 {
+            let a = h2(x * 13 + k, y * 7, 51) * 2.0 - 1.0;
+            let b = h2(x * 5, y * 11 + k, 53);
+            let (lx, ly) = (sx + a * hw * 0.9, sy + hh * 0.6 - b * (hgt + hh));
+            c.fill(if k % 3 == 0 { 0x5a8238ff } else { 0x1c3414ff });
+            c.ell(lx, ly, 3.0 * z, 2.2 * z);
+        }
+    }
+
+    /// A gate in the hedge: two posts and, when shut, a barred wooden gate.
+    fn gate(&self, c: &mut Canvas, x: i32, y: i32, sx: f32, sy: f32, z: f32) {
+        let along_x = matches!(self.map.obj(x - 1, y), O_FENCE | O_DOOR)
+            || matches!(self.map.obj(x + 1, y), O_FENCE | O_DOOR);
+        let p = P {
+            x: sx,
+            y: sy,
+            s: z,
+            f: 1.0,
+        };
+        let (a, b) = if along_x {
+            (p.at(-16.0, -8.0), p.at(16.0, 8.0))
+        } else {
+            (p.at(16.0, -8.0), p.at(-16.0, 8.0))
+        };
+        let ink = self.pix.max(z);
+        if self.map.door_shut(x, y) {
+            c.stroke(0x6a4a2aff, 3.0 * z);
+            for k in [6.0f32, 13.0, 20.0] {
+                c.line(a.0, a.1 - k * z, b.0, b.1 - k * z);
+            }
+            c.stroke(0x4a3018ff, 2.0 * z);
+            c.line(a.0, a.1 - 6.0 * z, b.0, b.1 - 20.0 * z);
+        }
+        c.outline(INK, ink);
+        c.fill(0x4a3018ff);
+        for (px, py) in [a, b] {
+            c.rect(px - 2.0 * z, py - 24.0 * z, 4.0 * z, 24.0 * z);
+        }
+        c.outline(0, 0.0);
+    }
+
+    /// The mill's water wheel, turning in the river beside it.
+    fn water_wheel(&self, c: &mut Canvas, x: i32, y: i32, z: f32, t: f32) {
+        let r = 0.95f32;
+        let lz = 32.0 * z;
+        let base = self.map.level(x, y) as f32 * LH * z;
+        let pt = |a: f32, rr: f32, dx: f32| {
+            let (sx, sy) = self.to_screen(x as f32 + dx, y as f32 + 0.5 + a.cos() * rr);
+            (sx, sy - base - (0.45 + a.sin()) * rr * lz)
+        };
+        let spin = -t * 0.9;
+        let ink = self.pix.max(z);
+        // the far rim, the paddles, then the near rim
+        for side in [-0.18f32, 0.18] {
+            let rim: Vec<(f32, f32)> = (0..20)
+                .map(|k| pt(k as f32 / 20.0 * std::f32::consts::TAU, r, side))
+                .collect();
+            c.stroke(if side < 0.0 { 0x3a2614ff } else { 0x5a3e22ff }, 2.5 * z);
+            c.poly_s(&rim);
+            if side < 0.0 {
+                for k in 0..10 {
+                    let a = spin + k as f32 / 10.0 * std::f32::consts::TAU;
+                    let (p0, p1) = (pt(a, r, -0.18), pt(a, r, 0.18));
+                    c.outline(INK, ink);
+                    c.fill(0x6a4a2aff);
+                    let (q0, q1) = (pt(a, r * 0.78, -0.18), pt(a, r * 0.78, 0.18));
+                    c.poly(&[p0, p1, q1, q0]);
+                    c.outline(0, 0.0);
+                }
+            }
+        }
+        c.stroke(0x4a3018ff, 1.5 * z);
+        for k in 0..5 {
+            let a = spin + k as f32 / 5.0 * std::f32::consts::TAU;
+            let (p0, p1) = (pt(a, r, 0.18), pt(a + std::f32::consts::PI, r, 0.18));
+            c.line(p0.0, p0.1, p1.0, p1.1);
+        }
+        // foam where the paddles meet the water
+        let (fx, fy) = self.to_screen(x as f32, y as f32 + 0.5);
+        c.fill(0xe0e8f060);
+        c.ell(fx, fy - base, 18.0 * z, 5.0 * z);
+    }
+
+    /// The village's great tree, lanterns hung in its boughs.
+    #[allow(clippy::too_many_arguments)]
+    fn great_tree(
+        &self,
+        c: &mut Canvas,
+        x: i32,
+        y: i32,
+        sx: f32,
+        sy: f32,
+        z: f32,
+        t: f32,
+        lights: &mut Vec<(f32, f32, f32, u32)>,
+    ) {
+        let ink = self.pix.max(z);
+        c.outline(INK, ink);
+        // roots and trunk
+        c.fill(0x4a3220ff);
+        c.poly(&[
+            (sx - 16.0 * z, sy + 4.0 * z),
+            (sx + 16.0 * z, sy + 4.0 * z),
+            (sx + 8.0 * z, sy - 50.0 * z),
+            (sx - 8.0 * z, sy - 50.0 * z),
+        ]);
+        c.fill(0x5a3e26ff);
+        c.poly(&[
+            (sx - 2.0 * z, sy + 4.0 * z),
+            (sx + 16.0 * z, sy + 4.0 * z),
+            (sx + 8.0 * z, sy - 50.0 * z),
+            (sx + 1.0 * z, sy - 50.0 * z),
+        ]);
+        // the crown, in layers from dark to light
+        let blobs: [(f32, f32, f32, f32, u32); 7] = [
+            (0.0, -86.0, 70.0, 44.0, 0x22401cff),
+            (-34.0, -78.0, 38.0, 28.0, 0x2a4a20ff),
+            (34.0, -80.0, 40.0, 28.0, 0x2a4a20ff),
+            (-12.0, -104.0, 44.0, 28.0, 0x33582aff),
+            (20.0, -98.0, 36.0, 24.0, 0x3a6230ff),
+            (-22.0, -92.0, 24.0, 16.0, 0x46723aff),
+            (8.0, -116.0, 26.0, 16.0, 0x46723aff),
+        ];
+        for (k, &(dx, dy, rx, ry, col)) in blobs.iter().enumerate() {
+            if k > 0 {
+                c.outline(0, 0.0);
+            }
+            c.fill(col);
+            c.ell(sx + dx * z, sy + dy * z, rx * z, ry * z);
+        }
+        c.outline(0, 0.0);
+        // lanterns on strings through the lower boughs
+        for k in 0..7 {
+            let a = k as f32 / 7.0 * std::f32::consts::TAU + 0.3;
+            let (lx, ly) = (sx + a.cos() * 56.0 * z, sy - 70.0 * z + a.sin() * 18.0 * z);
+            let fl = 0.8 + (t * 5.0 + k as f32).sin() * 0.15;
+            c.alpha(0.5);
+            c.glow(lx, ly, 10.0 * z * fl, 0xffb050ff);
+            c.alpha(1.0);
+            c.fill([0xffd070ff, 0xff9050ff, 0xfff0a0ff][k % 3]);
+            c.ell(lx, ly, 2.5 * z, 3.0 * z);
+            if k % 2 == 0 {
+                lights.push((lx, ly, 60.0, 0xffb050ff));
+            }
+        }
+        let _ = (x, y);
     }
 }

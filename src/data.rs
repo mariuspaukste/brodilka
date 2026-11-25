@@ -1086,6 +1086,8 @@ pub const V_LIBRARIAN: usize = 8;
 pub const V_LORD: usize = 9;
 /// the stablemaster by the town's east side: sells horses, fetches lost ones
 pub const V_STABLE: usize = 10;
+/// the small folk of the village in the west: no trade, a quiet life
+pub const V_VILLAGER: usize = 11;
 
 #[derive(Clone)]
 pub struct VendorDef {
@@ -1317,6 +1319,37 @@ static VENDORS_DEF: &[VendorDef] = &[
             "A heavy blow will throw thee from the saddle. Hold on tight.",
         ],
     },
+    VendorDef {
+        title: "",
+        names: &[
+            "Pip Thistlebrook",
+            "Daisy Hollowell",
+            "Barnaby Mossfoot",
+            "Clover Puddleby",
+            "Tobin Fernbank",
+            "Wren Applethorn",
+            "Bramble Sweetwater",
+            "Nell Underbough",
+            "Ollie Hedgerow",
+            "Poppy Fairbrook",
+        ],
+        sells: &[],
+        buys: &[],
+        buys_ids: &[],
+        robe: 0x5a6a32ff,
+        chatter: &[
+            "Fine weather for the garden.",
+            "The mill-wheel's been turning since before my grandmother's time.",
+            "Mind the cabbages, if you please!",
+            "Nothing ever happens here, and that's just how we like it.",
+            "Big Folk from the town? You'll be wanting the inn, I expect.",
+            "There's to be a party under the great tree come midsummer.",
+            "The hedge keeps out the wolves, and the hayward keeps out the rest.",
+            "Elevenses! Is it elevenses already?",
+            "A pipe, a good chair and a window on the river. What more is there?",
+            "Adventures are for Big Folk. We have a garden to see to.",
+        ],
+    },
 ];
 
 // ---------------------------------------------------------------- templates
@@ -1415,7 +1448,7 @@ pub const HAIR: [u32; 6] = [
 
 // ---------------------------------------------------------------- world packs
 /// Vendor ids as a world pack names them in `[vendor.<id>]`, by V_* index.
-pub const VENDOR_IDS: [&str; 11] = [
+pub const VENDOR_IDS: [&str; 12] = [
     "smith",
     "mage",
     "provisioner",
@@ -1427,6 +1460,7 @@ pub const VENDOR_IDS: [&str; 11] = [
     "librarian",
     "lord",
     "stablemaster",
+    "villager",
 ];
 
 /// A game table built once from the engine's data and the active world pack

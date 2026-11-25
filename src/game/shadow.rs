@@ -73,7 +73,12 @@ impl Game {
                     continue;
                 }
                 // the walls and the hedge hold it off
-                for rect in [self.map.town, self.map.city, self.map.stable] {
+                for rect in [
+                    self.map.town,
+                    self.map.city,
+                    self.map.stable,
+                    self.map.village,
+                ] {
                     v *= ((outside(x, y, rect) - 3.0) / EDGE).clamp(0.0, 1.0);
                 }
                 for &((wx, wy), r) in &wards {

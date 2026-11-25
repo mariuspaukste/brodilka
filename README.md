@@ -119,6 +119,23 @@ Tap your horse to mount, yourself to dismount.
 Keyboard: WASD/arrows, Tab war mode, Space (hold) block, F kick, E mount/dismount, B bandage, P pack, K skills, M map,
 1–9 cast, Esc close.
 
+## The village and the rivers
+
+Two rivers run through the land: one from the northern hills down through the
+west to the sea, one from the eastern uplands to the south-eastern shore.
+Where a road crosses one there is a bridge, and fords here and there keep the
+land beyond them within reach.
+
+West of the town, along a lane, the small folk live in a village of burrow
+houses: earthen walls dug into turf mounds, round doors and round lit windows,
+a chimney pot smoking on each mound and a flower bed by every door. There is an
+inn, a mill whose wheel turns in the river beside it, and a great tree hung
+with lanterns over the tables on the green. The village is a peaceful place: a
+thick hedge runs all round it, its gates are shut to beasts like any door, a
+hayward keeps the gate, nothing spawns inside, and no Shadow falls there. The
+small folk stand about chest-high to a man, barefoot and curly-haired, and talk
+of gardens, elevenses and parties rather than war. (`world::Map::village`.)
+
 ## Doors and storeys
 
 Doors are shut until someone opens them (`src/game/storeys.rs`). The player
