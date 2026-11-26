@@ -66,6 +66,9 @@ pub const O_WHEEL: u8 = 37;
 pub const O_BIGTREE: u8 = 38;
 /// a white ship with a swan's prow, moored at the elven haven
 pub const O_SHIP: u8 = 39;
+/// a market stall: a counter under a striped awning; its style is what it
+/// sells (an index into `data::STALL_WARES`)
+pub const O_STALL: u8 = 40;
 /// seconds a door stays open before it swings shut
 pub const DOOR_OPEN: f32 = 5.0;
 
@@ -216,6 +219,11 @@ pub struct Map {
     pub doors: Vec<usize>,
     /// townsfolk who live upstairs: (vendor kind, x, y, storey)
     pub guests: Vec<(usize, i32, i32, u8)>,
+    /// Duskhold's market square, x0, y0, x1, y1 (exclusive)
+    pub market: (i32, i32, i32, i32),
+    /// where a shopper stands to look over a stall: the tile before each
+    /// stall tile
+    pub stalls: Vec<(i32, i32)>,
     // pathfinding scratch
     pf_g: Vec<f32>,
     pf_par: Vec<i32>,
@@ -514,6 +522,17 @@ impl Map {
     }
 
     /// Inside the village hedge.
+    /// inside Duskhold's market square
+    pub fn in_market(&self, x: i32, y: i32) -> bool {
+        let (x0, y0, x1, y1) = self.market;
+        x >= x0 && y >= y0 && x < x1 && y < y1
+    }
+    /// what the stall on this tile sells, if there is one
+    pub fn stall_kind(&self, x: i32, y: i32) -> Option<usize> {
+        (inb(x, y) && self.o[idx(x, y)] == O_STALL)
+            .then(|| self.style[idx(x, y)] as usize % STALL_WARES.len())
+    }
+
     pub fn in_village(&self, x: i32, y: i32) -> bool {
         let (x0, y0, x1, y1) = self.village;
         x >= x0 && y >= y0 && x < x1 && y < y1
@@ -1231,6 +1250,8 @@ pub fn generate(seed: u32) -> Map {
         door: vec![0.0; N],
         doors: vec![],
         guests: vec![],
+        market: (0, 0, 0, 0),
+        stalls: vec![],
         pf_g: vec![0.0; N],
         pf_par: vec![-1; N],
         pf_stamp: vec![0; N],
@@ -1833,11 +1854,52 @@ fn city(m: &mut Map) {
     for (dx, dy) in [(3, 18), (36, 18), (10, 28), (30, 28), (12, 39), (27, 39)] {
         m.set_o(x0 + dx, y0 + dy, O_LAMP);
     }
-    for (dx, o) in [(12, O_SACKS), (15, O_CRATE), (24, O_BARREL), (27, O_SACKS)] {
-        m.set_o(x0 + dx, y0 + 37, O_TABLE);
-        m.set_o(x0 + dx + 1, y0 + 37, o);
+    // the market: six stalls of two tiles each round the fountain, each
+    // keeper at the end of their counter, and a crowd of shoppers going
+    // between them
+    m.market = (x0 + 11, y0 + 29, x0 + 30, y0 + 41);
+    for (k, (dx, dy)) in [(16, 31), (23, 31), (12, 37), (16, 37), (23, 37), (27, 37)]
+        .into_iter()
+        .enumerate()
+    {
+        for sx in [dx, dx + 1] {
+            m.set_o(x0 + sx, y0 + dy, O_STALL);
+            m.style[idx(x0 + sx, y0 + dy)] = k as u8;
+            m.stalls.push((x0 + sx, y0 + dy + 1));
+        }
+        m.npcs.push((V_STALL, x0 + dx - 1, y0 + dy));
+    }
+    for (dx, dy, o) in [
+        (18, 30, O_BARREL),
+        (25, 30, O_CRATE),
+        (14, 36, O_SACKS),
+        (29, 36, O_CRATE),
+        (29, 37, O_BARREL),
+    ] {
+        m.set_o(x0 + dx, y0 + dy, o);
     }
     m.place(x0 + 15, y0 + 40, O_CART, true);
+    for (dx, dy) in [
+        (13, 32),
+        (15, 33),
+        (18, 33),
+        (21, 32),
+        (25, 33),
+        (28, 32),
+        (14, 34),
+        (23, 35),
+        (26, 35),
+        (12, 38),
+        (15, 39),
+        (18, 38),
+        (21, 39),
+        (24, 38),
+        (27, 39),
+        (29, 34),
+    ] {
+        m.npcs.push((V_FOLK, x0 + dx, y0 + dy));
+    }
+    m.pois.push(("Market", mid, y0 + 33));
     m.npcs.push((V_GUARD, mid + 2, ye - 2));
     m.npcs.push((V_GUARD, x0 + 2, gy + 1));
     m.npcs.push((V_GUARD, xe - 2, gy + 1));
@@ -1857,6 +1919,7 @@ pub fn mini_color(m: &Map, i: usize) -> [u8; 4] {
     let c: u32 = match (m.t[i], m.o[i]) {
         (_, O_WALL) => 0x5a4a3aff,
         (_, O_CART) | (_, O_PART) => 0x5a4028ff,
+        (_, O_STALL) => 0xb05a30ff,
         (_, O_TREE) => 0x2e5a22ff,
         (T_WATER, _) => 0x2a5582ff,
         (T_SAND, _) => 0xcdb882ff,

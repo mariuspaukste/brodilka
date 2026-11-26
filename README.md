@@ -150,6 +150,43 @@ and snow in winter. It fades in and out, shows beside the hour in the HUD, and
 the journal says when it turns; under a roof nothing falls. Walking into thick
 forest dims the light to a green gloom, with sun coming through in patches.
 
+## Art details
+
+The ground is painted in two greens, a deep one and a sunlit olive, with
+blades of grass, clover and the odd flower; tracks have pebbles, ruts and dry
+grass at their edges; water swells and catches the sky, with a line of foam
+where it meets the bank; rock is cracked and spotted with lichen. Woods mix
+oaks, pines and white-barked birches, and the oaks turn amber in autumn and
+stand bare in winter. Hedges are banks of leafy clumps.
+
+Plastered houses are half-timbered; windows have frames, mullions, painted
+shutters and, on the ground floor, boxes of flowers, and they glow warm after
+dark. Roofs are laid tile by tile, a few darker, some green with moss, under
+an eave that shades the wall below. Halls and houses have a woven rug on the
+ground floor. The burrow mounds catch the light on one side and fall into
+shade on the other.
+
+Figures are lit warm on the lit side and cool in the shade, the top edge of
+each shape catches the light, and outlines take a deep shade of the colour
+they border rather than plain black. Orcs and trolls have tusks and wear
+pelts over their shoulders, orcs a black topknot; elves have long pointed
+ears. Giant spiders hunt the deep woods: eight jointed legs walking in two
+alternating sets, a cluster of red eyes, fangs that open to strike.
+
+## The market
+
+Duskhold's square holds a market round the fountain: six stalls under
+striped awnings, each with its keeper standing at the end of the counter: the
+herb-seller (garlic, ginseng, mandrake, blood moss), the baker, the
+fishmonger, the clothier (robes and leather), the alewife and the
+apothecary (bandages and potions). Each keeper sells only what is on their own
+stall, and cries it across the square. A crowd of townsfolk, many with
+baskets on their arms, goes from stall to stall: they stop at a free one,
+look the wares over, haggle with the keeper, and move on to the next, or
+stroll across the square. After dusk the wares are covered, a lantern is lit
+on each stall and the crowd only wanders. (`game/market.rs`,
+`world::Map::market`.)
+
 ## The village and the rivers
 
 Two rivers run through the land: one from the northern hills down through the

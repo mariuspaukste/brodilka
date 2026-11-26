@@ -1105,6 +1105,71 @@ pub const V_STABLE: usize = 10;
 pub const V_VILLAGER: usize = 11;
 /// the elves of the valley, the wood and the haven: no trade, long memories
 pub const V_ELF: usize = 12;
+/// the keepers of the market stalls in Duskhold: each sells its stall's wares
+pub const V_STALL: usize = 13;
+
+/// What each kind of market stall sells, by its style.
+pub const STALL_WARES: [&[&str]; 6] = [
+    &["ga", "gi", "mr", "bm"],
+    &["bread"],
+    &["fish"],
+    &["robe", "leather"],
+    &["ale"],
+    &["bandage", "healpotion"],
+];
+/// The keeper of each kind of stall.
+pub const STALL_TITLES: [&str; 6] = [
+    "the herb-seller",
+    "the baker",
+    "the fishmonger",
+    "the clothier",
+    "the alewife",
+    "the apothecary",
+];
+/// What the keepers cry over the square.
+pub const STALL_CRIES: [&[&str]; 6] = [
+    &[
+        "Garlic! Ginseng! Mandrake root!",
+        "Herbs for the pot and the spell-book!",
+    ],
+    &[
+        "Bread! Fresh from the oven!",
+        "Warm loaves, a copper the loaf!",
+    ],
+    &[
+        "Fish! Caught at dawn in the Greyflow!",
+        "Trout and pike, fresh as the morning!",
+    ],
+    &[
+        "Good wool, fine leather!",
+        "Cloth to keep the cold off, cheap!",
+    ],
+    &[
+        "Ale! Brown ale, the best in the north!",
+        "Wet your throats, friends!",
+    ],
+    &["Bandages and draughts!", "A potion for every hurt!"],
+];
+/// What shoppers say at a stall.
+pub const SHOP_TALK: [&str; 8] = [
+    "How much for this?",
+    "Two of those, if you please.",
+    "That's too dear!",
+    "I'll take it.",
+    "Is it fresh?",
+    "Half that, and not a copper more.",
+    "A fine day for the market.",
+    "What will you give me for the lot?",
+];
+/// And what the keepers answer.
+pub const KEEP_REPLY: [&str; 6] = [
+    "For you, a copper less.",
+    "Fresh this morning!",
+    "Done, and thank you kindly.",
+    "Haggle elsewhere, then!",
+    "Best in Duskhold, I swear it.",
+    "Come back tomorrow, there'll be more.",
+];
 
 #[derive(Clone)]
 pub struct VendorDef {
@@ -1388,6 +1453,34 @@ static VENDORS_DEF: &[VendorDef] = &[
             "Our lamps burn without smoke and our songs without end.",
         ],
     },
+    VendorDef {
+        title: "the stallholder",
+        names: &[
+            "Edda", "Hob", "Marn", "Tilda", "Osric", "Brenna", "Col", "Sabine", "Aldo", "Greta",
+        ],
+        // all a market sells; each keeper sells only their own stall's
+        sells: &[
+            "ga",
+            "gi",
+            "mr",
+            "bm",
+            "bread",
+            "fish",
+            "robe",
+            "leather",
+            "ale",
+            "bandage",
+            "healpotion",
+        ],
+        buys: &[],
+        buys_ids: &[],
+        robe: 0x7a5a3aff,
+        chatter: &[
+            "Market day, friend! Best prices in the north.",
+            "Come closer, come and see!",
+            "All fresh, all honest, all cheap.",
+        ],
+    },
 ];
 
 // ---------------------------------------------------------------- templates
@@ -1486,7 +1579,7 @@ pub const HAIR: [u32; 6] = [
 
 // ---------------------------------------------------------------- world packs
 /// Vendor ids as a world pack names them in `[vendor.<id>]`, by V_* index.
-pub const VENDOR_IDS: [&str; 13] = [
+pub const VENDOR_IDS: [&str; 14] = [
     "smith",
     "mage",
     "provisioner",
@@ -1500,6 +1593,7 @@ pub const VENDOR_IDS: [&str; 13] = [
     "stablemaster",
     "villager",
     "elf",
+    "stallholder",
 ];
 
 /// A game table built once from the engine's data and the active world pack

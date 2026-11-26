@@ -640,7 +640,7 @@ impl Game {
                     "\"{}\"",
                     vd.chatter[(self.clock as usize / 4) % vd.chatter.len()]
                 ));
-                if !vd.sells.is_empty() {
+                if !self.wares(i).is_empty() {
                     w.foot("Buy", &format!("vendor:{}:buy", id));
                 }
                 if !vd.buys.is_empty() || !vd.buys_ids.is_empty() {
@@ -674,7 +674,7 @@ impl Game {
                 w.head
                     .push(format!("Trade on the roads is {}.", self.sim.trade_word()));
                 if !sell {
-                    for sid in vd.sells {
+                    for sid in self.wares(i) {
                         let ix = item_idx(sid);
                         let d = &ITEMS[ix];
                         let price = self.buy_price(d);
@@ -976,26 +976,26 @@ impl Game {
             .any(|e| e.k == EK::Npc(v) && e.dist(px, py) <= 5.0)
     }
 
-    fn vendor_ctx(&self) -> Option<(usize, bool)> {
+    fn vendor_ctx(&self) -> Option<(usize, bool, usize)> {
         if let Win::Vendor(id, sell) = self.win {
             let i = self.find(id)?;
             if self.ents[i].dist(self.ents[0].x, self.ents[0].y) > 5.0 {
                 return None;
             }
             if let EK::Npc(v) = self.ents[i].k {
-                return Some((v, sell));
+                return Some((v, sell, i));
             }
         }
         None
     }
 
     fn buy(&mut self, id: &str, n: u32) {
-        let Some((v, _)) = self.vendor_ctx() else {
+        let Some((_, _, vi)) = self.vendor_ctx() else {
             self.msg("Thou art too far away to trade.", C_WARN);
             self.win = Win::None;
             return;
         };
-        if self.pl.ghost || !VENDORS[v].sells.contains(&id) {
+        if self.pl.ghost || !self.wares(vi).contains(&id) {
             return;
         }
         let ix = item_idx(id);
@@ -1023,7 +1023,7 @@ impl Game {
     }
 
     fn sell(&mut self, k: usize, n: u32) {
-        let Some((v, _)) = self.vendor_ctx() else {
+        let Some((v, _, _)) = self.vendor_ctx() else {
             self.msg("Thou art too far away to trade.", C_WARN);
             self.win = Win::None;
             return;

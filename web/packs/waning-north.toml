@@ -416,8 +416,22 @@ chatter = [
   "A heavy blow will throw thee from the saddle. Hold on tight.",
 ]
 
+[vendor.stallholder]
+# the market folk of Caer Ardun's square; each is named for their stall
+names = [
+  "Edda Brightwell", "Hob Tallow", "Marn of the Ford", "Tilda Crookshank", "Osric Pennyweather",
+  "Brenna Saltmarsh", "Col Fairweather", "Sabine Dunmore", "Aldo Whitlock", "Greta Barrowfield",
+]
+chatter = [
+  "Market day in Caer Ardun! Best prices in the North.",
+  "Come closer, come and see!",
+  "All fresh, all honest, all cheap.",
+  "The caravans bring the salt; we bring the rest.",
+]
+
 # ------------------------------------------------------------------ places and whole lines
 [text]
+"Market" = "the Market Cross"
 "Town" = "Thornmere"
 "Pub" = "The Leaping Hart"
 "Library" = "House of Records"

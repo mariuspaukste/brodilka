@@ -999,6 +999,8 @@ impl Game {
                     }
                     V_FOLK => {
                         l.body = CLOTH[(r(8) % 8) as usize];
+                        // shoppers at the market carry baskets
+                        l.basket = self.map.in_market(e.home.0, e.home.1) && r(10) % 3 != 0;
                         match r(9) % 6 {
                             // a long dress or a monk's habit
                             0 | 1 => {
@@ -2699,6 +2701,7 @@ impl Game {
             O_DOOR if self.odd_door(x, y) => self.odd_door_draw(c, x, y, sx, sy, z),
             O_FENCE if style & 0x7f == HEDGE => self.hedge(c, x, y, sx, sy, z),
             O_WHEEL => self.water_wheel(c, x, y, z, t),
+            O_STALL => self.stall(c, x, y, sx, sy, style, z, t, lights),
             O_SHIP => self.ship(c, x, y, z, t),
             O_BIGTREE => self.great_tree(c, x, y, sx, sy, z, t, lights),
             O_DOOR if self.map.door_shut(x, y) => {
@@ -4740,6 +4743,324 @@ impl Game {
                 (2.5 + f * 4.0) * z,
             );
         }
+    }
+
+    /// One tile of a market stall: a counter with a cloth skirt and its
+    /// wares on top, poles at the stall's ends and a striped awning with a
+    /// scalloped valance. After dark the wares are covered and a lantern is lit.
+    #[allow(clippy::too_many_arguments)]
+    fn stall(
+        &self,
+        c: &mut Canvas,
+        x: i32,
+        y: i32,
+        sx: f32,
+        sy: f32,
+        style: u8,
+        z: f32,
+        t: f32,
+        lights: &mut Vec<(f32, f32, f32, u32)>,
+    ) {
+        let kind = style as usize % 6;
+        let ink = self.pix.max(z);
+        // a point on the tile: u along x, v along y (both -0.5..0.5), h up
+        let at =
+            |u: f32, v: f32, h: f32| (sx + (u - v) * 32.0 * z, sy + (u + v) * 16.0 * z - h * z);
+        let quad = |c: &mut Canvas, p: [(f32, f32); 4]| c.poly(&p);
+        let left_end = self.map.obj(x - 1, y) != O_STALL;
+        let right_end = self.map.obj(x + 1, y) != O_STALL;
+        let (awn_a, awn_b, skirt) = [
+            (0x3a6a2aff, 0xe0d8b8ff, 0x2e4a22ff),
+            (0xa02a22ff, 0xe8dcc0ff, 0x6a2018ff),
+            (0x2a5a8aff, 0xe8ecf0ff, 0x203a5aff),
+            (0x5a2a6aff, 0xd8b048ff, 0x3a1a48ff),
+            (0xb07a2aff, 0x5a3a1eff, 0x6a4a1aff),
+            (0x2a7a72ff, 0xe8f0e8ff, 0x1a4a46ff),
+        ][kind];
+        let open = self.market_open();
+        let (v0, v1, top) = (-0.12f32, 0.3f32, 13.0f32);
+        let (u0, u1) = (
+            if left_end { -0.46 } else { -0.5 },
+            if right_end { 0.46 } else { 0.5 },
+        );
+        // the back poles, behind the counter
+        c.outline(INK, ink);
+        let pole = |c: &mut Canvas, u: f32, v: f32, h: f32| {
+            let (a, b) = (at(u, v, 0.0), at(u, v, h));
+            c.fill(0x4a3220ff);
+            c.rect(a.0 - 1.5 * z, b.1, 3.0 * z, a.1 - b.1);
+        };
+        if left_end {
+            pole(c, -0.46, -0.42, 46.0);
+        }
+        if right_end {
+            pole(c, 0.46, -0.42, 46.0);
+        }
+        // the counter
+        c.fill(0x5a3c22ff);
+        quad(
+            c,
+            [
+                at(u0, v1, 0.0),
+                at(u1, v1, 0.0),
+                at(u1, v1, top),
+                at(u0, v1, top),
+            ],
+        );
+        if right_end {
+            c.fill(0x6e4c2cff);
+            quad(
+                c,
+                [
+                    at(u1, v1, 0.0),
+                    at(u1, v0, 0.0),
+                    at(u1, v0, top),
+                    at(u1, v1, top),
+                ],
+            );
+        }
+        c.fill(0x8a6a42ff);
+        quad(
+            c,
+            [
+                at(u0, v0, top),
+                at(u1, v0, top),
+                at(u1, v1, top),
+                at(u0, v1, top),
+            ],
+        );
+        // the cloth hung over the front, in the stall's colour
+        c.outline(0, 0.0);
+        c.fill(skirt);
+        quad(
+            c,
+            [
+                at(u0, v1 + 0.01, top),
+                at(u1, v1 + 0.01, top),
+                at(u1, v1 + 0.01, top - 8.0),
+                at(u0, v1 + 0.01, top - 8.0),
+            ],
+        );
+        c.fill(with_a(awn_b, 0.5));
+        for k in 0..3 {
+            let u = u0 + (u1 - u0) * (k as f32 + 0.5) / 3.0;
+            let (a, b) = (
+                at(u - 0.05, v1 + 0.01, top - 8.0),
+                at(u + 0.05, v1 + 0.01, top - 8.0),
+            );
+            c.poly(&[a, b, ((a.0 + b.0) / 2.0, (a.1 + b.1) / 2.0 + 3.0 * z)]);
+        }
+        // the wares
+        let hv = |k: i32, s: i32| h2(x * 7 + k, y * 3 + k * 5, s);
+        if !open {
+            // covered for the night
+            c.outline(INK, ink);
+            c.fill(0x5a5650ff);
+            quad(
+                c,
+                [
+                    at(u0 + 0.04, v0 + 0.02, top),
+                    at(u1 - 0.04, v0 + 0.02, top),
+                    at(u1 - 0.04, v1 - 0.02, top + 4.0),
+                    at(u0 + 0.04, v1 - 0.02, top + 4.0),
+                ],
+            );
+            c.outline(0, 0.0);
+        } else {
+            match kind {
+                0 => {
+                    // bundles of herbs, bulbs of garlic, gnarled roots
+                    for k in 0..7 {
+                        let (u, v) = (-0.38 + k as f32 * 0.12, -0.02 + hv(k, 1) * 0.22);
+                        let p = at(u, v, top + 2.0);
+                        match k % 3 {
+                            0 => {
+                                c.fill(0x3a6a2aff);
+                                c.ell(p.0, p.1 - 1.0 * z, 3.5 * z, 2.5 * z);
+                                c.fill(0x5a8a3aff);
+                                c.ell(p.0 - 1.0 * z, p.1 - 2.0 * z, 2.0 * z, 1.5 * z);
+                            }
+                            1 => {
+                                c.fill(0xe8e0d0ff);
+                                c.ell(p.0, p.1, 2.4 * z, 2.0 * z);
+                                c.fill(0xffffffff);
+                                c.ell(p.0 - 0.8 * z, p.1 - 0.8 * z, 0.8 * z, 0.8 * z);
+                            }
+                            _ => {
+                                c.fill(0x8a5a32ff);
+                                c.ell(p.0, p.1, 3.0 * z, 1.4 * z);
+                            }
+                        }
+                    }
+                }
+                1 => {
+                    // a basket of loaves
+                    for k in 0..5 {
+                        let (u, v) = (-0.34 + k as f32 * 0.17, 0.02 + hv(k, 2) * 0.16);
+                        let p = at(u, v, top + 2.5);
+                        c.fill(0x9a6024ff);
+                        c.ell(p.0, p.1, 4.5 * z, 2.6 * z);
+                        c.fill(0xd09a4cff);
+                        c.ell(p.0 - 0.5 * z, p.1 - 1.0 * z, 3.4 * z, 1.6 * z);
+                        c.stroke(0x7a4a1aff, ink);
+                        c.line(p.0 - 1.5 * z, p.1 - 1.5 * z, p.0 + 0.5 * z, p.1 - 0.2 * z);
+                    }
+                }
+                2 => {
+                    // fish laid out on straw
+                    c.fill(0xc8b060ff);
+                    quad(
+                        c,
+                        [
+                            at(u0 + 0.06, v0 + 0.04, top + 0.5),
+                            at(u1 - 0.06, v0 + 0.04, top + 0.5),
+                            at(u1 - 0.06, v1 - 0.04, top + 0.5),
+                            at(u0 + 0.06, v1 - 0.04, top + 0.5),
+                        ],
+                    );
+                    for k in 0..6 {
+                        let (u, v) = (-0.36 + k as f32 * 0.14, 0.0 + hv(k, 3) * 0.2);
+                        let p = at(u, v, top + 1.5);
+                        c.fill(0x6a8a9aff);
+                        c.ell(p.0, p.1, 4.0 * z, 1.4 * z);
+                        c.fill(0xc0d0d8ff);
+                        c.ell(p.0 - 0.5 * z, p.1 - 0.5 * z, 2.5 * z, 0.6 * z);
+                        c.fill(0x4a6a7aff);
+                        c.poly(&[
+                            (p.0 + 3.5 * z, p.1),
+                            (p.0 + 6.0 * z, p.1 - 1.6 * z),
+                            (p.0 + 6.0 * z, p.1 + 1.6 * z),
+                        ]);
+                    }
+                }
+                3 => {
+                    // bolts of cloth and a folded hide
+                    for k in 0..4 {
+                        let (u, v) = (-0.33 + k as f32 * 0.22, 0.08);
+                        let p = at(u, v, top + 3.0);
+                        let col =
+                            [0x8a2a2aff, 0x2a4a7aff, 0x4a6a3aff, 0xb09040ff][(k + x) as usize % 4];
+                        c.outline(INK, ink);
+                        c.fill(col);
+                        c.rect(p.0 - 4.0 * z, p.1 - 3.0 * z, 8.0 * z, 6.0 * z);
+                        c.outline(0, 0.0);
+                        c.fill(shade(col, 1.3));
+                        c.rect(p.0 - 4.0 * z, p.1 - 3.0 * z, 8.0 * z, 1.5 * z);
+                    }
+                }
+                4 => {
+                    // a keg on its cradle and jugs of ale
+                    let p = at(-0.2, 0.05, top + 5.0);
+                    c.outline(INK, ink);
+                    c.fill(0x6a4424ff);
+                    c.ell(p.0, p.1, 7.0 * z, 5.0 * z);
+                    c.outline(0, 0.0);
+                    c.stroke(0x2a2a2aff, ink);
+                    c.line(p.0 - 3.0 * z, p.1 - 4.5 * z, p.0 - 3.0 * z, p.1 + 4.5 * z);
+                    c.line(p.0 + 3.0 * z, p.1 - 4.5 * z, p.0 + 3.0 * z, p.1 + 4.5 * z);
+                    for k in 0..3 {
+                        let q = at(0.12 + k as f32 * 0.11, 0.1 + hv(k, 4) * 0.1, top + 3.0);
+                        c.outline(INK, ink);
+                        c.fill(0xa07a50ff);
+                        c.rect(q.0 - 2.0 * z, q.1 - 3.0 * z, 4.0 * z, 5.0 * z);
+                        c.outline(0, 0.0);
+                        c.fill(0xe8d8a8ff);
+                        c.ell(q.0, q.1 - 3.0 * z, 2.0 * z, 0.8 * z);
+                    }
+                }
+                _ => {
+                    // rows of little bottles, red, blue and green, catching the light
+                    for k in 0..8 {
+                        let (u, v) = (-0.38 + (k % 4) as f32 * 0.25, 0.0 + (k / 4) as f32 * 0.16);
+                        let p = at(u, v, top + 3.0);
+                        let col =
+                            [0xb02a2aff, 0x2a4ab0ff, 0x3a9a3aff][(k as usize + x as usize) % 3];
+                        c.fill(col);
+                        c.ell(p.0, p.1, 1.8 * z, 2.4 * z);
+                        c.fill(0xd8d0c0ff);
+                        c.rect(p.0 - 0.6 * z, p.1 - 4.5 * z, 1.2 * z, 2.0 * z);
+                        c.fill(0xffffffc0);
+                        c.rect(p.0 - 1.0 * z, p.1 - 1.5 * z, 0.8 * z, 0.8 * z);
+                    }
+                }
+            }
+        }
+        // the front poles
+        c.outline(INK, ink);
+        if left_end {
+            pole(c, -0.46, 0.46, 37.0);
+        }
+        if right_end {
+            pole(c, 0.46, 0.46, 37.0);
+        }
+        // the awning, striped along the stall, sloping down to the front
+        let (av0, av1, ah0, ah1) = (-0.5f32, 0.58f32, 47.0f32, 35.0f32);
+        let n = 4;
+        for j in 0..n {
+            let (ua, ub) = (-0.5 + j as f32 / n as f32, -0.5 + (j + 1) as f32 / n as f32);
+            c.outline(0, 0.0);
+            c.fill(if (x * n + j) % 2 == 0 { awn_a } else { awn_b });
+            quad(
+                c,
+                [
+                    at(ua, av0, ah0),
+                    at(ub, av0, ah0),
+                    at(ub, av1, ah1),
+                    at(ua, av1, ah1),
+                ],
+            );
+        }
+        // shade on the awning's far half, light on its near
+        c.fill(0x00000020);
+        quad(
+            c,
+            [
+                at(-0.5, av0, ah0),
+                at(0.5, av0, ah0),
+                at(0.5, 0.0, (ah0 + ah1) / 2.0),
+                at(-0.5, 0.0, (ah0 + ah1) / 2.0),
+            ],
+        );
+        // the scalloped valance hanging from the front edge
+        for j in 0..(n * 2) {
+            let u = -0.5 + (j as f32 + 0.5) / (n * 2) as f32;
+            let p = at(u, av1, ah1);
+            c.fill(if (x * n + j / 2) % 2 == 0 {
+                awn_a
+            } else {
+                awn_b
+            });
+            c.ell(p.0, p.1 + 1.0 * z, 4.0 * z, 3.0 * z);
+        }
+        c.stroke(INK, ink);
+        let (a, b) = (at(-0.5, av1, ah1), at(0.5, av1, ah1));
+        c.line(a.0, a.1, b.0, b.1);
+        let (a, b) = (at(-0.5, av0, ah0), at(0.5, av0, ah0));
+        c.line(a.0, a.1, b.0, b.1);
+        if left_end {
+            let (a, b) = (at(-0.5, av0, ah0), at(-0.5, av1, ah1));
+            c.line(a.0, a.1, b.0, b.1);
+        }
+        if right_end {
+            let (a, b) = (at(0.5, av0, ah0), at(0.5, av1, ah1));
+            c.line(a.0, a.1, b.0, b.1);
+        }
+        // after dark, a lantern on the front pole
+        if !open && left_end {
+            let p = at(-0.46, 0.46, 30.0);
+            let fl = 0.9 + (t * 9.0 + x as f32).sin() * 0.1;
+            c.outline(INK, ink);
+            c.fill(0x2a2a2aff);
+            c.rect(p.0 - 2.5 * z, p.1 - 3.0 * z, 5.0 * z, 6.0 * z);
+            c.outline(0, 0.0);
+            c.fill(0xffc060ff);
+            c.rect(p.0 - 1.5 * z, p.1 - 2.0 * z, 3.0 * z, 4.0 * z);
+            c.alpha(0.45);
+            c.glow(p.0, p.1, 14.0 * z * fl, 0xffa040ff);
+            c.alpha(1.0);
+            lights.push((p.0, p.1, 55.0, 0xffa050ff));
+        }
+        c.outline(INK, ink);
     }
 
     /// A tile of the village's thick hedge: a bank of leafy clumps, uneven

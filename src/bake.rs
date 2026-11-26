@@ -253,6 +253,8 @@ pub struct Look {
     pub ears: bool,
     /// shaggy furs over the shoulders (0 = none)
     pub furs: u32,
+    /// a market basket on the left arm
+    pub basket: bool,
 }
 
 impl Look {
@@ -288,6 +290,7 @@ impl Look {
             tusks: false,
             ears: false,
             furs: 0,
+            basket: false,
         }
     }
     pub fn creature(body: Body, color: u32, scale: u16) -> Look {
@@ -924,6 +927,21 @@ fn build(look: &Look, q: &Pose) -> Vec<Prim> {
         }
         hands[i] = wr;
         fdir[i] = d2;
+    }
+    // a wicker basket hung from the left hand, with the day's shopping in it
+    if look.basket && look.shield == 0 {
+        let h = hands[1];
+        let rim = add(h, [0.0, 0.0, -0.1]);
+        let bottom = add(h, [0.0, 0.0, -0.22]);
+        p(rim, bottom, 0.1, 0.075, 0x9a7a44ff, Mat::Hair);
+        p(h, rim, 0.012, 0.012, 0x6a5030ff, Mat::Hair);
+        for (k, col) in [0xb03a2aff, 0x5a8a2aff, 0xd8a050ff].iter().enumerate() {
+            let o = add(
+                rim,
+                [0.03 * (k as f32 - 1.0), 0.02 * (k as f32 - 1.0), 0.02],
+            );
+            p(o, o, 0.035, 0.035, *col, Mat::Matte);
+        }
     }
     // shield on the left forearm
     if look.shield != 0 {

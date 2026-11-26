@@ -5,6 +5,7 @@ use crate::rng::Rng;
 use crate::world::*;
 use std::collections::VecDeque;
 
+pub mod market;
 pub mod shadow;
 pub mod sky;
 pub mod storeys;
@@ -749,7 +750,15 @@ impl Game {
         for (v, x, y, fl) in npcs {
             let id = g.nid();
             let vd = &VENDORS[v];
-            let nm = if vd.title.is_empty() {
+            let nm = if v == V_STALL {
+                // named for what their stall sells
+                let k = g.map.stall_kind(x + 1, y).unwrap_or(0);
+                format!(
+                    "{} {}",
+                    g.rng.pick(vd.names),
+                    crate::pack::t(STALL_TITLES[k])
+                )
+            } else if vd.title.is_empty() {
                 g.rng.pick(vd.names).to_string()
             } else {
                 format!("{} {}", g.rng.pick(vd.names), vd.title)
@@ -2018,8 +2027,16 @@ impl Game {
             let line = rumour.unwrap_or_else(|| self.rng.pick(VENDORS[v].chatter).to_string());
             self.ents[i].talk(&line, 0xffffffff);
         }
-        // wander a little around home
         let (hx, hy) = self.ents[i].home;
+        if v == V_STALL {
+            self.keeper_tick(i, pd);
+            return;
+        }
+        if v == V_FOLK && self.map.in_market(hx, hy) && self.market_open() {
+            self.shopper_tick(i, pd);
+            return;
+        }
+        // wander a little around home
         let r = match v {
             V_GUARD => 4,
             V_FOLK | V_VILLAGER | V_ELF => 6,
@@ -4300,6 +4317,99 @@ region = "dark"
                 stairs: false
             }
         ));
+    }
+
+    #[test]
+    fn the_market_is_busy_with_shoppers_by_day() {
+        let mut g = Game::new(1997);
+        g.create("Marius", false, 0, "warrior", [0, 0, 0]);
+        let day = crate::sim::DAY;
+        g.time = day * 3.1;
+        assert!(g.market_open());
+        let m = &g.map;
+        let (x0, y0, x1, y1) = m.market;
+        let tiles = (y0..y1)
+            .flat_map(|y| (x0..x1).map(move |x| (x, y)))
+            .filter(|&(x, y)| m.obj(x, y) == O_STALL)
+            .count();
+        assert_eq!(tiles, 12, "six stalls of two tiles");
+        assert_eq!(m.stalls.len(), 12);
+        assert!(m.pois.iter().any(|p| p.0 == "Market"));
+        // a keeper beside every stall, selling its own wares under its own title
+        let keepers: Vec<usize> = (0..g.ents.len())
+            .filter(|&i| g.ents[i].k == EK::Npc(V_STALL))
+            .collect();
+        assert_eq!(keepers.len(), 6);
+        let mut kinds = std::collections::HashSet::new();
+        for &i in &keepers {
+            let (hx, hy) = g.ents[i].home;
+            let k = g
+                .map
+                .stall_kind(hx + 1, hy)
+                .expect("a stall beside its keeper");
+            kinds.insert(k);
+            assert_eq!(g.wares(i), STALL_WARES[k]);
+            assert!(
+                g.ents[i].name.ends_with(STALL_TITLES[k]),
+                "{}",
+                g.ents[i].name
+            );
+        }
+        assert_eq!(kinds.len(), 6, "six different stalls");
+        let fish = *keepers
+            .iter()
+            .find(|&&i| g.ents[i].name.ends_with("the fishmonger"))
+            .unwrap();
+        assert!(g.wares(fish).contains(&"fish") && !g.wares(fish).contains(&"bread"));
+        // every stall can be reached from the town by people
+        let (sx, sy) = g.map.start;
+        for &(tx, ty) in &g.map.stalls.clone() {
+            assert!(
+                g.map.find_path_as(sx, sy, tx, ty, 0, PERSON).is_some(),
+                "{tx},{ty}"
+            );
+        }
+        // and a crowd goes from stall to stall
+        let shoppers: Vec<usize> = (0..g.ents.len())
+            .filter(|&i| {
+                let e = &g.ents[i];
+                e.k == EK::Npc(V_FOLK) && g.map.in_market(e.home.0, e.home.1)
+            })
+            .collect();
+        assert!(shoppers.len() >= 14, "{} shoppers", shoppers.len());
+        let mut visits = std::collections::HashSet::new();
+        for k in 0..30 * 90 {
+            g.update(1.0 / 30.0);
+            if k % 30 == 0 {
+                for &i in &shoppers {
+                    let t = g.ents[i].tile();
+                    if g.map.stalls.contains(&t) {
+                        visits.insert((i, t));
+                    }
+                }
+            }
+        }
+        let at = shoppers
+            .iter()
+            .filter(|&&i| g.map.stalls.contains(&g.ents[i].tile()))
+            .count();
+        assert!(at >= 4, "{at} shoppers at the stalls");
+        let movers = visits
+            .iter()
+            .map(|v| v.0)
+            .collect::<std::collections::HashSet<_>>();
+        assert!(
+            movers.len() >= 10,
+            "{} shoppers went shopping",
+            movers.len()
+        );
+        assert!(
+            visits.len() > movers.len(),
+            "shoppers move on to other stalls"
+        );
+        // after dark the stalls close
+        g.time = day * 3.7;
+        assert!(!g.market_open());
     }
 
     #[test]
