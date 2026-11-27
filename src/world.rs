@@ -118,6 +118,8 @@ pub const WALL_HAVELI: u8 = 11;
 pub const WALL_PALACE: u8 = 12;
 /// a temple: carved sandstone under a tall curved tower
 pub const WALL_TEMPLE: u8 = 13;
+/// the dark granite halls of the dwarves of Karak Dhum
+pub const WALL_DWARF: u8 = 14;
 /// great-tree style: the golden trees of the elven wood
 pub const GOLDEN: u8 = 1;
 /// fence style: a thick hedge (the village's ring)
@@ -277,6 +279,9 @@ pub struct Map {
     pub tropic_line: Vec<i32>,
     /// the southern cities, Suryagarh and Kanakpur: x0, y0, x1, y1 (guarded ground)
     pub raj: Vec<(i32, i32, i32, i32)>,
+    /// Karak Dhum, the dwarf hold in the eastern range, with its gate
+    /// forecourt and mines: x0, y0, x1, y1 (guarded ground)
+    pub hold: (i32, i32, i32, i32),
     // pathfinding scratch
     pf_g: Vec<f32>,
     pf_par: Vec<i32>,
@@ -599,6 +604,7 @@ impl Map {
             || self.in_village(x, y)
             || self.in_elf(x, y)
             || self.in_raj(x, y)
+            || self.in_hold(x, y)
             || (x >= sx0 && y >= sy0 && x < sx1 && y < sy1)
             || self
                 .posts
@@ -1356,7 +1362,9 @@ const TOWER_TOP: &[(i32, i32, bool, u8)] = &[
     (1, 4, false, O_ORRERY),
 ];
 
+mod dwarves;
 mod south;
+pub use dwarves::HOLD;
 pub use south::{KANAK, SURYA};
 
 pub fn generate(seed: u32) -> Map {
@@ -1392,6 +1400,7 @@ pub fn generate(seed: u32) -> Map {
         stalls: vec![],
         tropic_line: vec![],
         raj: vec![],
+        hold: (0, 0, 0, 0),
         pf_g: vec![0.0; N],
         pf_par: vec![-1; N],
         pf_stamp: vec![0; N],
@@ -1829,6 +1838,9 @@ pub fn generate(seed: u32) -> Map {
     // --- the tropics south of the southern range, and their cities
     m.tropics(&mut elev, &moist, seed);
 
+    // --- Karak Dhum, the dwarf hold in the eastern range
+    m.dwarf_hold(&mut elev, seed);
+
     // --- spawn regions (monster, x, y, radius, max)
     m.assign_levels(&elev);
     m.spawns = vec![
@@ -1845,7 +1857,7 @@ pub fn generate(seed: u32) -> Map {
         // the new lands east and south
         ("wolf", 150, 30, 12, 4),
         ("wolf", 60, 206, 12, 4),
-        ("troll", 196, 40, 12, 2),
+        ("troll", 198, 14, 12, 2),
         ("troll", 120, 176, 12, 2),
         ("mongbat", 210, 100, 10, 3),
         ("rabbit", 130, 160, 10, 5),

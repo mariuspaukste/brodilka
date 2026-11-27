@@ -15,7 +15,7 @@ fn wall_tex(style: u8) -> u32 {
     match style {
         2 => TEX_WOODWALL,
         3 => TEX_PLASTER,
-        WALL_CASTLE | WALL_TOWER | WALL_ELVEN => TEX_ASHLAR,
+        WALL_CASTLE | WALL_TOWER | WALL_ELVEN | WALL_DWARF => TEX_ASHLAR,
         WALL_FORT | WALL_BASTION | WALL_PALACE | WALL_TEMPLE => TEX_SANDSTONE,
         WALL_HAVELI => TEX_LIMEWASH,
         _ => TEX_BRICK,
@@ -633,6 +633,8 @@ impl Game {
         let (field, border, motif) = match b.style {
             WALL_CASTLE | WALL_TOWER => (0x6a1a1aff, 0x2a1a30ff, 0xc8a040ff),
             WALL_ELVEN => (0x2a4a6aff, 0xc8d0d8ff, 0xe8e8f0ff),
+            // the dwarves': madder red bordered in soot black, knotwork in gold
+            WALL_DWARF => (0x6a2418ff, 0x1e1c1cff, 0xc89a3aff),
             WALL_BURROW => (0x8a5a2aff, 0x3a5a2aff, 0xe8c060ff),
             // the south's cotton dhurries: indigo, madder and saffron
             WALL_HAVELI | WALL_PALACE | WALL_TEMPLE => [
@@ -1192,6 +1194,11 @@ impl Game {
                             Weapon::None
                         };
                     }
+                }
+                // the dwarves of Karak Dhum: short and broad, ruddy and
+                // bearded, in leather, wool and mail of earth colours
+                if self.map.in_hold(e.home.0, e.home.1) || v == V_THANE {
+                    dwarf_look(&mut l, v, &r, e.home.0 >= HOLD.0 + HOLD.2);
                 }
                 Some(l)
             }
@@ -2763,7 +2770,9 @@ impl Game {
             }
             O_WALL if style == WALL_BURROW => self.burrow_wall(c, x, y, sx, sy, z),
             O_WALL => {
-                let castle = matches!(style, WALL_CASTLE | WALL_TOWER | WALL_FORT | WALL_BASTION);
+                // the dwarves' gate walls are battlemented; their halls are not
+                let castle = matches!(style, WALL_CASTLE | WALL_TOWER | WALL_FORT | WALL_BASTION)
+                    || (style == WALL_DWARF && self.map.tile(x, y) != T_FLOOR);
                 let storeys = self.wall_storeys(x, y);
                 let hgt = 38.0 * ZS * z * wall_h(style) * storeys as f32;
                 let tex = wall_tex(style);
@@ -2802,6 +2811,20 @@ impl Game {
                     c.poly(&right);
                     c.fill(0x2a3a5020);
                     c.poly(&left);
+                } else if style == WALL_DWARF {
+                    // dark granite, with a band of bronze knotwork high on
+                    // each face where the old runes are cut
+                    c.fill(0x10141aa8);
+                    c.poly(&left);
+                    c.fill(0x10141a70);
+                    c.poly(&right);
+                    let band = hgt * 0.8;
+                    c.stroke(0x8a6a2aff, 2.0 * self.pix.max(z));
+                    c.line(sx - hw, sy - band, sx, sy + hh - band);
+                    c.line(sx, sy + hh - band, sx + hw, sy - band);
+                    c.stroke(0xd8b050c0, self.pix.max(z));
+                    c.line(sx - hw, sy - band - z, sx, sy + hh - band - z);
+                    c.line(sx, sy + hh - band - z, sx + hw, sy - band - z);
                 } else {
                     c.fill(if style == 4 { 0x000000a0 } else { 0x00000068 });
                     c.poly(&left);
@@ -3267,6 +3290,8 @@ impl Game {
             3 => [0x7a3a28ff, 0x8a4a2cff, 0x6a3a2eff][(b.x * 7 + b.y * 3).rem_euclid(3) as usize],
             WALL_CASTLE => 0x34383fff,
             WALL_ELVEN => 0x6a8098ff,
+            // heavy slabs of dark slate
+            WALL_DWARF => 0x2a2e34ff,
             _ => 0x3a3a40ff,
         };
         let faces: [(Vec<(f32, f32)>, f32); 4] = [
@@ -3389,6 +3414,11 @@ impl Game {
         c.stroke(shade(base, 0.45), 2.0 * ink);
         let (r0, r1) = (sp(rx0, ym, ridge), sp(rx1, ym, ridge));
         c.line(r0.0, r0.1, r1.0, r1.1);
+        if b.style == WALL_DWARF {
+            // a bronze ridge cap, catching what light reaches the hold
+            c.stroke(0xa8823aff, ink);
+            c.line(r0.0, r0.1 - 0.5 * z, r1.0, r1.1 - 0.5 * z);
+        }
         if b.style == WALL_ELVEN {
             // slender silver spires at the ridge's ends, each with a star
             for (sx, sy) in [r0, r1] {
@@ -3401,7 +3431,13 @@ impl Game {
                 c.alpha(1.0);
             }
         }
-        if inn || b.vendor == V_SMITH || b.vendor == V_BARKEEP || b.vendor == V_LORD {
+        // every hall under the mountain keeps a fire going
+        if inn
+            || b.vendor == V_SMITH
+            || b.vendor == V_BARKEEP
+            || b.vendor == V_LORD
+            || b.style == WALL_DWARF
+        {
             // a stone chimney with a wisp of smoke
             let (cx, cy) = sp(rx1 - 0.6, ym - 0.4, ridge - 6.0 * z);
             c.outline(INK, ink);
@@ -4472,6 +4508,7 @@ fn wall_h(style: u8) -> f32 {
         WALL_BASTION => 2.05,
         WALL_PALACE => 1.35,
         WALL_TEMPLE => 1.1,
+        WALL_DWARF => 1.25,
         _ => 1.0,
     }
 }
@@ -5621,6 +5658,116 @@ impl Game {
                 }
             }
             _ => {}
+        }
+    }
+}
+
+/// Dress a dwarf of Karak Dhum: `r` draws from their look seed, and `mine`
+/// says they work down in the mines.
+fn dwarf_look(l: &mut Look, v: usize, r: &dyn Fn(u32) -> u32, mine: bool) {
+    const SKIN: [u32; 4] = [0xd8a080ff, 0xc89070ff, 0xe0b090ff, 0xb87a58ff];
+    const BEARD: [u32; 7] = [
+        0x6a3a1aff, 0x3a2a1aff, 0x8a8680ff, 0xa8501eff, 0x1a1612ff, 0x7a5a2aff, 0xc8c4bcff,
+    ];
+    const WOOL: [u32; 6] = [
+        0x5a3a2aff, 0x4a4a52ff, 0x6a2a20ff, 0x3a4a5aff, 0x5a5030ff, 0x2e3a2eff,
+    ];
+    let pick = |k: u32, a: &[u32]| a[(r(k) % a.len() as u32) as usize];
+    l.scale = 76 + (r(7) % 7) as u16;
+    l.bulk = 22 + (r(6) % 6) as u8;
+    l.hunch = 0;
+    l.skin = pick(1, &SKIN);
+    l.hair = pick(3, &BEARD);
+    l.beard = if l.female { 0 } else { l.hair };
+    l.long_hair = l.female;
+    l.robe = false;
+    l.ears = false;
+    l.turban = 0;
+    l.sash = 0;
+    l.basket = false;
+    l.hat = 0;
+    l.hood = 0;
+    l.helm = 0;
+    l.furs = 0;
+    l.metal_body = false;
+    l.skirt = false;
+    l.body = pick(8, &WOOL);
+    l.legs = shade(pick(2, &WOOL), 0.7);
+    l.boots = [0x2a1e14ff, 0x3a2a1aff, 0x1e1a18ff][(r(5) % 3) as usize];
+    l.weapon = Weapon::None;
+    l.shield = 0;
+    match v {
+        V_GUARD => {
+            // the gatewardens: mail to the knee, a steel cap, axe and a
+            // round shield bossed in bronze
+            l.female = false;
+            l.long_hair = false;
+            l.beard = l.hair;
+            l.metal_body = true;
+            l.skirt = true;
+            l.body = 0x7a8088ff;
+            l.helm = 0x9aa0a8ff;
+            l.legs = 0x5a5e66ff;
+            l.weapon = Weapon::Axe;
+            l.shield = 0x8a5a2aff;
+            l.scale = 82;
+        }
+        V_THANE => {
+            // the King: a long crimson robe, a gilt crown-helm, a white
+            // beard to the belt and his war-hammer at hand
+            l.female = false;
+            l.long_hair = false;
+            l.hair = 0xd8d4ccff;
+            l.beard = l.hair;
+            l.robe = true;
+            l.body = 0x7a1a1aff;
+            l.legs = l.body;
+            l.helm = 0xd8b040ff;
+            l.furs = 0x4a3a2aff;
+            l.weapon = Weapon::Mace;
+            l.scale = 84;
+        }
+        V_SMITH => {
+            // bare-armed in a leather apron, hammer in hand
+            l.body = 0x4a3020ff;
+            l.bulk = 28;
+            l.weapon = Weapon::Mace;
+        }
+        V_MAGE => {
+            // the runecaster: a hooded robe of deep blue and a staff
+            l.robe = true;
+            l.body = 0x24305aff;
+            l.legs = l.body;
+            l.hood = 0x1e2648ff;
+            l.weapon = Weapon::Staff;
+        }
+        V_HEALER => {
+            l.robe = true;
+            l.body = 0x6a6a5aff;
+            l.legs = l.body;
+            l.hair = 0xb0aca4ff;
+            l.beard = if l.female { 0 } else { l.hair };
+        }
+        V_BARKEEP => {
+            l.bulk = 30;
+            l.body = 0x7a5a3aff;
+        }
+        _ => {
+            // miners with picks and hoods, smiths at the forge with
+            // hammers, the rest about their business
+            if mine || r(9).is_multiple_of(4) {
+                l.weapon = Weapon::Pick;
+                l.hood = shade(l.body, 0.75);
+                l.long_hair = false;
+            } else if r(9) % 4 == 1 {
+                l.weapon = Weapon::Mace;
+                l.body = 0x4a3020ff;
+            } else if r(9) % 4 == 2 && !l.female {
+                // an elder, grey to the belt
+                l.hair = 0xc8c4bcff;
+                l.beard = l.hair;
+                l.hunch = 10;
+            }
         }
     }
 }

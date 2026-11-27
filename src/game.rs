@@ -758,6 +758,15 @@ impl Game {
                     g.rng.pick(vd.names),
                     crate::pack::t(STALL_TITLES[k])
                 )
+            } else if g.map.in_hold(x, y) && !dwarf_folk(v).0.is_empty() {
+                // the dwarves of the hold
+                let (names, title, _) = dwarf_folk(v);
+                let n = g.rng.pick(names);
+                if title.is_empty() {
+                    n.to_string()
+                } else {
+                    format!("{n} {}", crate::pack::t(title))
+                }
             } else if g.map.in_raj(x, y) && !south_folk(v).0.is_empty() {
                 // the southern cities' own people
                 let (names, title, _) = south_folk(v);
@@ -2028,15 +2037,20 @@ impl Game {
             let day = crate::sim::Sim::day(self.time);
             let pick = self.rng.next_u32();
             let rumour = match v {
-                V_GUARD | V_FOLK | V_BARKEEP | V_LORD | V_RAJA if self.rng.chance(0.4) => {
+                V_GUARD | V_FOLK | V_BARKEEP | V_LORD | V_RAJA | V_THANE
+                    if self.rng.chance(0.4) =>
+                {
                     self.sim.rumour(day, pick).map(|s| s.to_string())
                 }
                 _ => None,
             };
             let (hx, hy) = self.ents[i].home;
             let south = south_folk(v).2;
+            let dwarf = dwarf_folk(v).2;
             let line = rumour.unwrap_or_else(|| {
-                if self.map.in_raj(hx, hy) && !south.is_empty() {
+                if self.map.in_hold(hx, hy) && !dwarf.is_empty() {
+                    crate::pack::t(self.rng.pick(dwarf))
+                } else if self.map.in_raj(hx, hy) && !south.is_empty() {
                     crate::pack::t(self.rng.pick(south))
                 } else {
                     self.rng.pick(VENDORS[v].chatter).to_string()
@@ -2057,7 +2071,7 @@ impl Game {
         let r = match v {
             V_GUARD => 4,
             V_FOLK | V_VILLAGER | V_ELF => 6,
-            V_LORD | V_RAJA => 0,
+            V_LORD | V_RAJA | V_THANE => 0,
             _ => 1,
         };
         let (tx, ty) = (hx + self.rng.range(-r, r), hy + self.rng.range(-r, r));
@@ -3323,8 +3337,14 @@ impl Game {
                     } else if self.walk_to(x, y, 2) {
                         self.pl.pending = Pending::Talk(id);
                     }
-                    if v == V_GUARD || v == V_LORD {
-                        let line = *self.rng.pick(VENDORS[v].chatter);
+                    if v == V_GUARD || v == V_LORD || v == V_THANE {
+                        let (hx, hy) = self.ents[i].home;
+                        let own = dwarf_folk(v).2;
+                        let line = if self.map.in_hold(hx, hy) && !own.is_empty() {
+                            *self.rng.pick(own)
+                        } else {
+                            *self.rng.pick(VENDORS[v].chatter)
+                        };
                         self.ents[i].talk(line, 0xffffffff);
                     }
                 }

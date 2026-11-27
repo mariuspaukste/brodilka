@@ -1124,6 +1124,8 @@ pub const V_ELF: usize = 12;
 pub const V_STALL: usize = 13;
 /// the Raja of Suryagarh, on the throne in the palace in the south
 pub const V_RAJA: usize = 14;
+/// the King of Karak Dhum, the dwarf hold in the eastern range, on his throne
+pub const V_THANE: usize = 15;
 
 /// What each kind of market stall sells, by its style.
 pub const STALL_WARES: [&[&str]; 6] = [
@@ -1514,6 +1516,22 @@ static VENDORS_DEF: &[VendorDef] = &[
             "Kanakpur's temple is greater than mine, its priests remind me daily.",
         ],
     },
+    VendorDef {
+        title: "the King of Karak Dhum",
+        names: &["Durgan Ironbrow", "Hjalmar Coalbeard", "Grimdal Deepdelver"],
+        sells: &[],
+        buys: &[],
+        buys_ids: &[],
+        robe: 0x7a1a1aff,
+        chatter: &[
+            "Thou standest in Karak Dhum, under the mountain. Speak, surface-dweller.",
+            "My fathers cut this hall from the living rock. It will stand when thy towns are dust.",
+            "The deep seams run rich again. Our forges have not been so loud in an age.",
+            "Trolls gnaw at the eastern passes. Bring me their hides and I'll think well of thee.",
+            "The elves of the valley below call us hard. Stone is hard. That is the point of it.",
+            "My guards keep the gate. Inside, thou art under my peace; mind that thou keep it.",
+        ],
+    },
 ];
 
 /// The southern cities' own people: their names by trade (none: the trade's
@@ -1618,6 +1636,110 @@ pub fn south_folk(
     }
 }
 
+/// The dwarves of Karak Dhum, the hold in the eastern range: for each trade,
+/// their names, title and talk (empty for a kind with none of its own there).
+pub fn dwarf_folk(
+    v: usize,
+) -> (
+    &'static [&'static str],
+    &'static str,
+    &'static [&'static str],
+) {
+    match v {
+        V_SMITH => (
+            &["Thorgrim", "Bruna", "Sindri Hammerhand", "Halli Anvilson"],
+            "the forgemaster",
+            &[
+                "Dwarf steel. It will outlast thine arm, and thy grandson's arm.",
+                "Hear that? Forty hammers and not one out of time.",
+                "Mine thine own ore if thou wilt. The great forge is free to any who keep it hot.",
+            ],
+        ),
+        V_MAGE => (
+            &["Runa", "Odvar Runecutter", "Skeggi"],
+            "the runecaster",
+            &[
+                "Our magic is cut in stone, not mumbled into the wind.",
+                "A rune is a word that does not forget itself.",
+                "Buy a scroll if thou must. Thy kind never learnt to carve.",
+            ],
+        ),
+        V_PROV => (
+            &["Gudrik", "Hilde", "Orri Sackhauler", "Asta"],
+            "the outfitter",
+            &[
+                "Rope, lanterns, picks, provisions. All that a delving needs.",
+                "Thou'lt want a lantern. The deeps are darker than thy darkest night.",
+                "Mushroom bread keeps a month. Tastes of it too.",
+            ],
+        ),
+        V_HEALER => (
+            &["Ingrid", "Old Fjalar", "Sigrun"],
+            "the stone-priest",
+            &[
+                "The mountain mends what it can. I mend the rest.",
+                "Rest a while. Even granite needs a quiet age now and then.",
+                "Thou art not the first to stagger in from the passes.",
+            ],
+        ),
+        V_BANKER => (
+            &["Nali Goldcount", "Ragna", "Fror"],
+            "the vault-warden",
+            &[
+                "Our vaults are cut thirty fathoms into the rock. Thy gold sleeps soundly.",
+                "Every coin weighed, every coin counted, every coin remembered.",
+                "Thy box is safe here as in any vault from the sea to the mountains.",
+            ],
+        ),
+        V_BARKEEP => (
+            &["Barli", "Gunnhild", "Orm Aletap"],
+            "the brewmaster",
+            &[
+                "Stout, brewed deep where it's cool. Sit, drink, sing if thou knowest the words.",
+                "The beds upstairs are dwarf-length. Bend thy knees.",
+                "Ale's the only thing we trade the elves. They pretend not to like it.",
+            ],
+        ),
+        V_GUARD => (
+            &[
+                "Brokk", "Hrolf", "Thrar", "Ulfar", "Dagna", "Grimm", "Vali", "Eitri",
+            ],
+            "the gatewarden",
+            &[
+                "Halt. State thy name and thy business under the mountain.",
+                "No troll has passed this gate in three hundred years.",
+                "Keep to the lit halls, stranger.",
+                "The road down runs to the elves' valley. Mind the wolves on it.",
+            ],
+        ),
+        V_FOLK => (
+            &[
+                "Bofri",
+                "Hlin",
+                "Nyr",
+                "Tora",
+                "Hepti Deepseam",
+                "Svala",
+                "Draupnir",
+                "Ketil",
+                "Frida",
+                "Austri",
+            ],
+            "",
+            &[
+                "Mind thy head. No, lower.",
+                "A good seam this week. Silver in the iron.",
+                "The surface? Too much sky. Makes me dizzy.",
+                "Hammer, pick and flame. What more does a body need?",
+                "My grandmother dug the hall thou'rt standing in. Mind the floor.",
+                "Hear the forges? That's the mountain's heart beating.",
+                "I went down to the elves' valley once. All trees and singing.",
+            ],
+        ),
+        _ => (&[], "", &[]),
+    }
+}
+
 // ---------------------------------------------------------------- templates
 #[derive(Clone)]
 pub struct Template {
@@ -1714,7 +1836,7 @@ pub const HAIR: [u32; 6] = [
 
 // ---------------------------------------------------------------- world packs
 /// Vendor ids as a world pack names them in `[vendor.<id>]`, by V_* index.
-pub const VENDOR_IDS: [&str; 15] = [
+pub const VENDOR_IDS: [&str; 16] = [
     "smith",
     "mage",
     "provisioner",
@@ -1730,6 +1852,7 @@ pub const VENDOR_IDS: [&str; 15] = [
     "elf",
     "stallholder",
     "raja",
+    "thane",
 ];
 
 /// A game table built once from the engine's data and the active world pack

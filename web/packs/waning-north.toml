@@ -454,6 +454,10 @@ chatter = [
 "Elf valley" = "Starfall Vale"
 "Elf wood" = "Amberwood"
 "Elf haven" = "Swanhaven"
+"Dwarf gate" = "the Hallowgate"
+"King's hall" = "the Hall of the Mountain-king"
+"Great forge" = "the Deepforge"
+"Mines" = "the Delvings"
 
 # the six periods of the day
 "Daytide" = "Morning"
@@ -476,6 +480,7 @@ chatter = [
 "ankh shrine" = "waystone"
 "ankh" = "waystone"
 "Duskhold" = "Caer Ardun"
+"Karak Dhum" = "Greyhallow"
 "dragon fire" = "drake-fire"
 "dragon" = "drake"
 "Dragon" = "Drake"

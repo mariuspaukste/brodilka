@@ -264,6 +264,9 @@ pub struct Look {
     pub sash: u32,
     /// a four-legged beast's stripes (a tiger's), 0 = none
     pub stripes: u32,
+    /// a full beard from the chin down over the chest, with a moustache
+    /// (0 = none)
+    pub beard: u32,
 }
 
 impl Look {
@@ -303,6 +306,7 @@ impl Look {
             turban: 0,
             sash: 0,
             stripes: 0,
+            beard: 0,
         }
     }
     pub fn creature(body: Body, color: u32, scale: u16) -> Look {
@@ -1187,6 +1191,39 @@ fn build(look: &Look, q: &Pose) -> Vec<Prim> {
                 0.008,
                 shade_col(look.skin, 0.5),
                 Mat::Matte,
+            );
+        }
+        if look.beard != 0 && !look.skeleton {
+            // a long beard: a broad mass under the chin tapering down over
+            // the chest, a darker parting, and a moustache over the mouth
+            let chin = add(add(hc, mul(fwd, 0.075)), [0.0, 0.0, -0.05]);
+            let tip = add(add(hc, mul(fwd, 0.15)), [0.0, 0.0, -0.3]);
+            p(chin, tip, 0.1, 0.055, look.beard, Mat::Hair);
+            p(
+                add(hc, add(mul(fwd, 0.035), [0.0, 0.0, -0.02])),
+                chin,
+                0.098,
+                0.085,
+                look.beard,
+                Mat::Hair,
+            );
+            let mid = add(add(hc, mul(fwd, 0.17)), [0.0, 0.0, -0.13]);
+            p(
+                mid,
+                add(tip, mul(fwd, 0.012)),
+                0.012,
+                0.008,
+                shade_col(look.beard, 0.7),
+                Mat::Hair,
+            );
+            let lip = add(add(hc, mul(fwd, 0.105)), [0.0, 0.0, -0.03]);
+            p(
+                add(lip, mul(la, -0.045)),
+                add(lip, mul(la, 0.045)),
+                0.017,
+                0.017,
+                shade_col(look.beard, 1.1),
+                Mat::Hair,
             );
         }
         if look.eyes != 0 {

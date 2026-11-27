@@ -39,6 +39,9 @@ canvas and renders the windows ("gumps") from JSON; all game logic is in Rust.
   meadows, and the stablemaster's own graze in his paddock.
 - **Death** turns you into a ghost and leaves your belongings on your corpse;
   find a healer or an ankh shrine, then run back for your things.
+- **Karak Dhum**, a dwarf hold hewn into the eastern range: a gate through
+  the rock, granite halls along a street, the King's hall, a great forge and
+  the mines.
 - **Places**: a haunted graveyard (skeletons, zombies, a lich), an orc camp,
   troll hills and a dragon's lair. Karma, fame and a day/night cycle.
 - Autosaves to the browser's localStorage.
@@ -139,6 +142,33 @@ the heart of a deep wood; and a haven on the eastern shore, where a white ship
 with a swan's prow lies at the quay. The elves are tall, slender and
 long-haired, and speak of stars, ships and the long years. Roads with guard
 posts run to each.
+
+## Karak Dhum, the dwarf hold
+
+North of the elves' valley the eastern range closes round **Karak Dhum**
+(`src/world/dwarves.rs`), a hold hewn into a high bowl of the mountains and
+walled in by rock on every side. A road climbs to it from the valley road,
+and another runs up to the old pass over the range.
+
+- **The gate** is a passage cut through the west face between battlemented
+  walls of dark granite, with a gatehouse tower either side of its mouth and
+  statues of the old kings on the forecourt, where the gatewardens stand.
+- **The hall street** runs from the gate to the mines. Along it stand squat
+  granite halls under heavy slate roofs with bronze ridges, a band of bronze
+  knotwork round their walls and every chimney smoking: the forgemaster, the
+  stone-priest, the runecaster, the vault-warden, the outfitter and the
+  brewmaster's alehouse with rooms upstairs. The **King's hall** stands at
+  its head, the King on his throne inside.
+- **The great forge** is an open yard of forges and anvils where anyone may
+  smelt and smith, and **the mines** are a gallery driven east into the rock,
+  ore carts standing in it and rock all round to dig.
+
+The dwarves stand a head shorter than a man and twice as broad: ruddy,
+bearded (the men to the belt), in wool and leather of earth colours, miners
+with picks and hoods, smiths with hammers, gatewardens in mail with axes and
+round shields, the King in crimson with a gilt crown-helm and a white beard.
+They have their own names and talk. The hold is guarded, peaceful ground,
+and the Shadow cannot reach into it.
 
 ## The tropics
 
@@ -305,7 +335,7 @@ name = "a warg"
 name = "long knife"
 
 [vendor.guard]               # smith mage provisioner healer banker guard folk
-title = "the watchman"       # barkeep librarian lord stablemaster:
+title = "the watchman"       # barkeep librarian lord stablemaster thane:
 names = ["Ned", "Tom"]       # title, names, chatter, robe
 chatter = ["All quiet."]
 

@@ -78,6 +78,7 @@ impl Game {
                     self.map.city,
                     self.map.stable,
                     self.map.village,
+                    self.map.hold,
                 ];
                 for &rect in walls.iter().chain(self.map.elves.iter()) {
                     v *= ((outside(x, y, rect) - 3.0) / EDGE).clamp(0.0, 1.0);
