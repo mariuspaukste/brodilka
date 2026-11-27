@@ -2406,6 +2406,19 @@ impl Game {
                 O_WELL => Some((bake::P_WELL, false)),
                 O_LONGTABLE => Some((bake::P_LONGTABLE, style & FACE_S != 0)),
                 O_CART => Some((bake::P_CART, style & FACE_S != 0)),
+                O_WARDROBE => Some((bake::P_WARDROBE, style & FACE_S != 0)),
+                O_DRESSER => Some((bake::P_DRESSER, style & FACE_S != 0)),
+                O_RACK => Some((bake::P_RACK, style & FACE_S != 0)),
+                O_ARMOUR => Some((bake::P_ARMOUR, style & FACE_S != 0)),
+                O_CAULDRON => Some((bake::P_CAULDRON, flip_v)),
+                O_PLANT => Some((bake::P_PLANT + (sh as usize % 2), flip_v)),
+                O_CANDLES => Some((bake::P_CANDLES, style & FACE_S != 0)),
+                O_JARS => Some((bake::P_JARS, flip_v)),
+                O_SPINWHEEL => Some((bake::P_SPINWHEEL, style & FACE_S != 0)),
+                O_DESK => Some((bake::P_DESK, style & FACE_S != 0)),
+                O_ORRERY => Some((bake::P_ORRERY, false)),
+                O_STOOL => Some((bake::P_STOOL, flip_v)),
+                O_HERBS => Some((bake::P_HERBS, style & FACE_S != 0)),
                 O_DOOR if self.map.door_shut(x, y) && !self.odd_door(x, y) => Some((
                     bake::P_DOOR + (self.map.obj(x - 1, y) != O_WALL) as usize,
                     true,
@@ -2471,6 +2484,14 @@ impl Game {
                         lights.push((sx, sy - 30.0 * z, 110.0, 0xffe090ff));
                     }
                     O_HOARD => lights.push((sx, sy - 6.0 * z, 70.0, 0xffd060ff)),
+                    O_CANDLES => {
+                        glow(c, 36.0, 12.0, 0xffb050ff, 0.35);
+                        lights.push((sx, sy - 34.0 * z, 90.0, 0xffb060ff));
+                    }
+                    O_CAULDRON => {
+                        glow(c, 20.0, 12.0, 0x80e050ff, 0.3);
+                        lights.push((sx, sy - 6.0 * z, 60.0, 0xff9040ff));
+                    }
                     _ => {}
                 }
                 let (ax, ay) = bake::PROP_ANCHOR;

@@ -69,6 +69,30 @@ pub const O_SHIP: u8 = 39;
 /// a market stall: a counter under a striped awning; its style is what it
 /// sells (an index into `data::STALL_WARES`)
 pub const O_STALL: u8 = 40;
+// house furniture and decorations
+pub const O_WARDROBE: u8 = 41;
+/// a kitchen dresser: cupboard below, plates and jugs on a rack above
+pub const O_DRESSER: u8 = 42;
+/// a weapon rack: swords, a spear and an axe
+pub const O_RACK: u8 = 43;
+/// a suit of mail on a stand
+pub const O_ARMOUR: u8 = 44;
+/// an iron cauldron on embers
+pub const O_CAULDRON: u8 = 45;
+/// a potted plant (two kinds, by the tile)
+pub const O_PLANT: u8 = 46;
+/// an iron candle-stand, lit
+pub const O_CANDLES: u8 = 47;
+/// storage jars and a basket
+pub const O_JARS: u8 = 48;
+pub const O_SPINWHEEL: u8 = 49;
+/// a writing desk with pigeonholes
+pub const O_DESK: u8 = 50;
+/// an armillary sphere on its stand
+pub const O_ORRERY: u8 = 51;
+pub const O_STOOL: u8 = 52;
+/// a rack of herbs hung to dry
+pub const O_HERBS: u8 = 53;
 /// seconds a door stays open before it swings shut
 pub const DOOR_OPEN: f32 = 5.0;
 
@@ -105,6 +129,18 @@ pub fn size(o: u8) -> (i32, f32) {
         O_BIGTREE => (1, 7.0),
         O_WHEEL => (1, 2.0),
         O_SHIP => (1, 3.0),
+        O_WARDROBE => (1, 2.0),
+        O_DRESSER => (1, 1.95),
+        O_RACK => (1, 1.9),
+        O_ARMOUR => (1, 1.8),
+        O_CANDLES => (1, 1.6),
+        O_HERBS => (1, 1.5),
+        O_ORRERY => (1, 1.35),
+        O_DESK => (1, 1.25),
+        O_SPINWHEEL => (1, 1.1),
+        O_PLANT => (1, 0.9),
+        O_CAULDRON => (1, 0.8),
+        O_JARS => (1, 0.8),
         _ => (1, 0.6),
     }
 }
@@ -759,6 +795,10 @@ impl Map {
                 (back(bx + 6), O_CHEST),
                 (side(by + 3), O_SHELF),
                 ((bx + 6, by + 3, false), O_TABLE),
+                // the counting-house: a desk, a candle-stand, a plant by the window
+                (side(by + 2), O_DESK),
+                (back(bx + 4), O_CANDLES),
+                ((bx + 6, by + 4, false), O_PLANT),
             ],
             V_MAGE => vec![
                 (back(bx + 1), O_SHELF),
@@ -766,18 +806,33 @@ impl Map {
                 (back(bx + 6), O_SHELF),
                 ((bx + 6, by + 3, false), O_TABLE),
                 ((bx + 6, by + 4, true), O_CHAIR),
+                // a brew on the boil, the heavens on a stand, candles
+                (side(by + 3), O_CAULDRON),
+                (side(by + 4), O_ORRERY),
+                (back(bx + 4), O_CANDLES),
+                (back(bx + 2), O_JARS),
             ],
             V_HEALER => vec![
                 (back(bx + 5), O_BED),
                 (back(bx + 6), O_BED),
                 (side(by + 3), O_TABLE),
                 (back(bx + 1), O_CHEST),
+                // herbs drying, simples in jars, a pot of something warming
+                (back(bx + 2), O_HERBS),
+                (side(by + 4), O_JARS),
+                ((bx + 6, by + 3, false), O_CAULDRON),
+                ((bx + 6, by + 4, false), O_PLANT),
+                (back(bx + 4), O_CANDLES),
             ],
             V_SMITH => vec![
                 (back(bx + 1), O_CHEST),
                 (back(bx + 6), O_BARREL),
                 ((bx + 6, by + 2, false), O_CRATE),
                 (back(bx + 5), O_CRATE),
+                // the smith's work on show
+                (side(by + 3), O_RACK),
+                (back(bx + 2), O_ARMOUR),
+                (side(by + 4), O_ARMOUR),
             ],
             V_BARKEEP => vec![
                 // kegs and a hearth along the back, two trestle tables with benches
@@ -791,6 +846,9 @@ impl Map {
                 ((bx + 5, by + 4, false), O_LONGTABLE),
                 ((bx + 6, by + 4, true), O_CHAIR),
                 ((bx + 6, by + 3, true), O_CHAIR),
+                // behind the bar: crockery and jars of pickles
+                (back(bx + 3), O_DRESSER),
+                (back(bx + 4), O_JARS),
             ],
             V_STABLE => vec![
                 // feed sacks and water barrels, a tack chest, a cart of hay
@@ -800,6 +858,7 @@ impl Map {
                 (back(bx + 5), O_CHEST),
                 ((bx + 6, by + 3, false), O_BARREL),
                 (side(by + 3), O_CRATE),
+                (side(by + 4), O_STOOL),
             ],
             V_LIBRARIAN => vec![
                 // shelves on every wall that faces the room, a reading table
@@ -812,6 +871,10 @@ impl Map {
                 ((bx + 5, by + 4, false), O_LONGTABLE),
                 ((bx + 6, by + 4, true), O_CHAIR),
                 ((bx + 6, by + 3, true), O_CHAIR),
+                // the librarian's desk, a globe of the heavens, light to read by
+                (side(by + 2), O_DESK),
+                (back(bx + 3), O_ORRERY),
+                (back(bx + 4), O_CANDLES),
             ],
             _ if inn => vec![
                 (back(bx + 5), O_HEARTH),
@@ -820,6 +883,21 @@ impl Map {
                 ((bx + 5, by + 4, false), O_LONGTABLE),
                 ((bx + 6, by + 4, true), O_CHAIR),
                 ((bx + 6, by + 3, true), O_CHAIR),
+                (back(bx + 6), O_DRESSER),
+                (back(bx + 2), O_WARDROBE),
+                (side(by + 3), O_PLANT),
+                (side(by + 4), O_STOOL),
+            ],
+            // the mill: sacks of grain and flour, the miller's home in a corner
+            V_VILLAGER => vec![
+                (back(bx + 1), O_SACKS),
+                (back(bx + 2), O_SACKS),
+                (back(bx + 5), O_HEARTH),
+                (back(bx + 6), O_DRESSER),
+                (side(by + 3), O_SACKS),
+                (side(by + 4), O_JARS),
+                ((bx + 6, by + 3, false), O_TABLE),
+                ((bx + 6, by + 4, true), O_STOOL),
             ],
             _ => vec![
                 (back(bx + 1), O_SHELF),
@@ -827,6 +905,9 @@ impl Map {
                 (back(bx + 5), O_BARREL),
                 ((bx + 6, by + 3, false), O_BARREL),
                 (side(by + 3), O_CRATE),
+                (back(bx + 2), O_JARS),
+                (side(by + 4), O_SACKS),
+                ((bx + 6, by + 4, false), O_PLANT),
             ],
         };
         for ((x, y, south), o) in items {
@@ -959,7 +1040,7 @@ impl Map {
         self.set_door(door, by + h - 1);
         let back = |x: i32| (x, by + 1, true);
         let side = |y: i32| (bx + 1, y, false);
-        let items: [((i32, i32, bool), u8); 15] = [
+        let items: [((i32, i32, bool), u8); 22] = [
             (back(door - 1), O_THRONE),
             (back(door - 3), O_HEARTH),
             (back(door + 2), O_HEARTH),
@@ -976,6 +1057,14 @@ impl Map {
             ((door + 3, by + 6, true), O_CHAIR),
             ((door + 3, by + 5, true), O_CHAIR),
             ((bx + w - 2, by + 6, false), O_BARREL),
+            // the lord's arms and armour, candles either side of the throne
+            (back(door - 2), O_CANDLES),
+            (back(door + 1), O_CANDLES),
+            (side(by + 5), O_RACK),
+            (back(bx + w - 3), O_ARMOUR),
+            ((bx + w - 2, by + 2, false), O_ARMOUR),
+            (side(by + 2), O_WARDROBE),
+            ((bx + w - 2, by + 3, false), O_DRESSER),
         ];
         for ((x, y, south), o) in items {
             self.place(x, y, o, south);
@@ -1183,6 +1272,8 @@ const INN_ROOMS: &[(i32, i32, bool, u8)] = &[
     (6, 4, true, O_BED),
     (3, 3, false, O_TABLE),
     (3, 4, true, O_CHAIR),
+    (2, 1, true, O_WARDROBE),
+    (5, 1, true, O_STOOL),
 ];
 const WARD: &[(i32, i32, bool, u8)] = &[
     (1, 1, true, O_SHELF),
@@ -1192,6 +1283,9 @@ const WARD: &[(i32, i32, bool, u8)] = &[
     (3, 1, true, O_BED),
     (4, 1, true, O_BED),
     (5, 4, false, O_TABLE),
+    (5, 1, true, O_HERBS),
+    (6, 4, false, O_JARS),
+    (2, 1, true, O_CANDLES),
 ];
 const GALLERY: &[(i32, i32, bool, u8)] = &[
     (1, 1, true, O_SHELF),
@@ -1203,6 +1297,8 @@ const GALLERY: &[(i32, i32, bool, u8)] = &[
     (1, 4, false, O_SHELF),
     (4, 3, false, O_TABLE),
     (4, 4, true, O_CHAIR),
+    (5, 1, true, O_DESK),
+    (6, 4, false, O_ORRERY),
 ];
 const STUDY: &[(i32, i32, bool, u8)] = &[
     (2, 1, true, O_SHELF),
@@ -1212,6 +1308,8 @@ const STUDY: &[(i32, i32, bool, u8)] = &[
     (1, 4, false, O_SHELF),
     (5, 3, false, O_TABLE),
     (5, 4, true, O_CHAIR),
+    (6, 4, false, O_DESK),
+    (5, 1, true, O_CANDLES),
 ];
 const TOWER_TOP: &[(i32, i32, bool, u8)] = &[
     (6, 1, true, O_CHEST),
@@ -1219,6 +1317,9 @@ const TOWER_TOP: &[(i32, i32, bool, u8)] = &[
     (4, 3, false, O_STATUE),
     (6, 4, true, O_BED),
     (2, 4, false, O_TABLE),
+    (3, 1, true, O_WARDROBE),
+    (1, 3, false, O_CAULDRON),
+    (1, 4, false, O_ORRERY),
 ];
 
 pub fn generate(seed: u32) -> Map {
@@ -2120,6 +2221,10 @@ impl Map {
                 ((bx + 3, by + h - 2, true), O_CHAIR),
                 ((bx + 3, by + h - 3, true), O_CHAIR),
                 ((bx + w - 2, by + h - 2, true), O_CHAIR),
+                // a dresser of crockery, a stool by the fire, flowers in a pot
+                (back(bx + w - 4), O_DRESSER),
+                ((bx + w - 2, by + 2, true), O_STOOL),
+                ((bx + w - 2, by + 3, true), O_PLANT),
             ]
         } else {
             vec![
@@ -2127,10 +2232,22 @@ impl Map {
                 (back(bx + w - 2), O_HEARTH),
                 ((bx + 1, by + h - 2, false), O_BED),
                 ((bx + w - 2, by + h - 2, true), O_BARREL),
+                // a spinning wheel, plates on the dresser, a plant by the door
+                ((bx + 1, by + 2, false), O_SPINWHEEL),
+                ((bx + w - 2, by + 2, true), O_PLANT),
             ]
         };
         if w >= 7 {
             items.push((back(bx + 2), O_TABLE));
+        }
+        if vendor != V_BARKEEP && w >= 7 {
+            // each home keeps its crockery or its clothes by the back wall
+            let o = if (bx + by) % 2 == 0 {
+                O_DRESSER
+            } else {
+                O_WARDROBE
+            };
+            items.push((back(bx + w - 3), o));
         }
         for ((x, y, south), o) in items {
             if size(o).0 > 1 {
@@ -2569,5 +2686,81 @@ impl Map {
         self.npcs.push((V_GUARD, hx + 1, hy - 10));
         self.elves.push((hx - 10, hy - 10, hx + 19, hy + 11));
         self.pois.push(("Elf haven", hx, hy));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every open tile of a storey is reached from `from` (4-way steps).
+    fn all_reached(
+        w: i32,
+        h: i32,
+        open: &dyn Fn(i32, i32) -> bool,
+        from: &[(i32, i32)],
+    ) -> Option<(i32, i32)> {
+        let mut seen = vec![false; (w * h) as usize];
+        let mut todo: Vec<(i32, i32)> = from.to_vec();
+        for &(x, y) in from {
+            seen[(y * w + x) as usize] = true;
+        }
+        while let Some((x, y)) = todo.pop() {
+            for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+                let (nx, ny) = (x + dx, y + dy);
+                if nx > 0 && ny > 0 && nx < w - 1 && ny < h - 1 {
+                    let i = (ny * w + nx) as usize;
+                    if !seen[i] && open(nx, ny) {
+                        seen[i] = true;
+                        todo.push((nx, ny));
+                    }
+                }
+            }
+        }
+        (1..h - 1)
+            .flat_map(|y| (1..w - 1).map(move |x| (x, y)))
+            .find(|&(x, y)| open(x, y) && !seen[(y * w + x) as usize])
+    }
+
+    /// Furniture never walls off part of a room, a shopkeeper or a stair.
+    #[test]
+    fn furnished_rooms_stay_walkable() {
+        for seed in [1409u32, 7, 99] {
+            let m = generate(seed);
+            for b in &m.buildings {
+                let (bx, by) = (b.x, b.y);
+                let open = |x: i32, y: i32| !blocks(m.obj(bx + x, by + y));
+                // in from the door(s) in the front wall
+                let doors: Vec<(i32, i32)> = (1..b.w - 1)
+                    .filter(|&x| m.obj(bx + x, by + b.h - 1) == O_DOOR)
+                    .map(|x| (x, b.h - 2))
+                    .filter(|&(x, y)| open(x, y))
+                    .collect();
+                assert!(
+                    !doors.is_empty(),
+                    "building at {bx},{by} has its door blocked"
+                );
+                if let Some((x, y)) = all_reached(b.w, b.h, &open, &doors) {
+                    panic!(
+                        "building at {bx},{by} (vendor {}): tile {x},{y} walled off",
+                        b.vendor
+                    );
+                }
+                for (k, f) in b.floors.iter().enumerate() {
+                    let open = |x: i32, y: i32| !blocks(f.o[(y * b.w + x) as usize]);
+                    let stairs: Vec<(i32, i32)> = (0..b.h)
+                        .flat_map(|y| (0..b.w).map(move |x| (x, y)))
+                        .filter(|&(x, y)| f.o[(y * b.w + x) as usize] == O_STAIRS)
+                        .collect();
+                    assert!(!stairs.is_empty());
+                    if let Some((x, y)) = all_reached(b.w, b.h, &open, &stairs[..1]) {
+                        panic!(
+                            "building at {bx},{by} storey {}: tile {x},{y} walled off",
+                            k + 1
+                        );
+                    }
+                }
+            }
+        }
     }
 }

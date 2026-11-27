@@ -5,6 +5,7 @@
 //! Rendering is "sphere splatting": every limb is a chain of overlapping
 //! spheres rasterised with a depth buffer, lit from the upper left, rendered
 //! at 2x and reduced, then given a dark silhouette outline.
+mod furniture;
 pub mod icons;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -617,6 +618,12 @@ enum Mat {
     Leaf,
     /// clothing: deeper shadows than plain matte, with faint fold streaks
     Cloth,
+    /// sawn timber: grain running along each board's long side, the seams
+    /// between planks on wide faces, and the odd knot
+    Wood,
+    /// dressed stone: courses of blocks with mortar between, each block its
+    /// own shade (flagstones on a top face)
+    Stone,
 }
 
 /// a primitive in local model space (metres): a tapered chain of spheres
@@ -2506,7 +2513,21 @@ pub const P_RAIL: usize = 99;
 pub const P_BIRCH: usize = 100; // 2
 /// oaks in autumn: rust, amber and gold
 pub const P_AUTUMN: usize = 102; // 2
-pub const N_PROPS: usize = 104;
+                                 // house furniture and decorations (`bake/furniture.rs`)
+pub const P_WARDROBE: usize = 104;
+pub const P_DRESSER: usize = 105;
+pub const P_RACK: usize = 106;
+pub const P_ARMOUR: usize = 107;
+pub const P_CAULDRON: usize = 108;
+pub const P_PLANT: usize = 109; // shrub, flowering herb
+pub const P_CANDLES: usize = 111;
+pub const P_JARS: usize = 112;
+pub const P_SPINWHEEL: usize = 113;
+pub const P_DESK: usize = 114;
+pub const P_ORRERY: usize = 115;
+pub const P_STOOL: usize = 116;
+pub const P_HERBS: usize = 117;
+pub const N_PROPS: usize = 118;
 
 /// flames licking up from `base`, varied by animation frame `f`
 fn flames(p: &mut Vec<Prim>, base: V3, size: f32, f: usize) {
@@ -2561,114 +2582,16 @@ fn prop(kind: usize) -> Figure {
     let mut b: Vec<BoxP> = vec![];
     let wood = 0x6a4628ff;
     let dark = 0x3e2816ff;
+    if furniture::build(kind, &mut p, &mut b) {
+        return Figure {
+            prims: p,
+            boxes: b,
+            pitch: 0.0,
+            roll: 0.0,
+            lift: 0.0,
+        };
+    }
     match kind {
-        P_BED => {
-            bx(
-                &mut b,
-                [0.0, 0.0, 0.18],
-                [0.62, 0.36, 0.18],
-                wood,
-                Mat::Matte,
-            );
-            bx(
-                &mut b,
-                [0.02, 0.0, 0.4],
-                [0.58, 0.33, 0.05],
-                0xd0c8b0ff,
-                Mat::Matte,
-            );
-            bx(
-                &mut b,
-                [-0.14, 0.0, 0.45],
-                [0.44, 0.34, 0.04],
-                0x7a2420ff,
-                Mat::Matte,
-            );
-            bx(
-                &mut b,
-                [0.44, 0.0, 0.5],
-                [0.1, 0.24, 0.05],
-                0xe0d8c8ff,
-                Mat::Matte,
-            );
-            bx(
-                &mut b,
-                [0.62, 0.0, 0.42],
-                [0.04, 0.38, 0.42],
-                dark,
-                Mat::Matte,
-            );
-            bx(
-                &mut b,
-                [-0.62, 0.0, 0.28],
-                [0.04, 0.38, 0.28],
-                dark,
-                Mat::Matte,
-            );
-        }
-        P_TABLE => {
-            bx(
-                &mut b,
-                [0.0, 0.0, 0.74],
-                [0.46, 0.36, 0.035],
-                wood,
-                Mat::Matte,
-            );
-            for (x, y) in [
-                (0.38f32, 0.28f32),
-                (-0.38, 0.28),
-                (0.38, -0.28),
-                (-0.38, -0.28),
-            ] {
-                bx(&mut b, [x, y, 0.36], [0.035, 0.035, 0.36], dark, Mat::Matte);
-            }
-            // a candle and a tankard
-            prim(
-                &mut p,
-                [0.1, -0.1, 0.78],
-                [0.1, -0.1, 0.9],
-                0.025,
-                0.025,
-                0xe8e0c0ff,
-                Mat::Matte,
-            );
-            prim(
-                &mut p,
-                [0.1, -0.1, 0.93],
-                [0.1, -0.1, 0.93],
-                0.018,
-                0.018,
-                0xffc040ff,
-                Mat::Glow,
-            );
-            prim(
-                &mut p,
-                [-0.15, 0.12, 0.79],
-                [-0.15, 0.12, 0.88],
-                0.045,
-                0.045,
-                0x8a8e94ff,
-                Mat::Metal,
-            );
-        }
-        P_CHAIR => {
-            bx(&mut b, [0.0, 0.0, 0.44], [0.2, 0.2, 0.03], wood, Mat::Matte);
-            for (x, y) in [
-                (0.16f32, 0.16f32),
-                (-0.16, 0.16),
-                (0.16, -0.16),
-                (-0.16, -0.16),
-            ] {
-                bx(&mut b, [x, y, 0.22], [0.025, 0.025, 0.22], dark, Mat::Matte);
-            }
-            bx(
-                &mut b,
-                [-0.18, 0.0, 0.76],
-                [0.025, 0.2, 0.3],
-                wood,
-                Mat::Matte,
-            );
-        }
         P_THRONE => {
             // a high-backed oak throne on a stone step, crimson seat, gilt finials
             let gold = 0xd8b050ff;
@@ -2678,14 +2601,14 @@ fn prop(kind: usize) -> Figure {
                 [0.0, 0.0, 0.06],
                 [0.38, 0.38, 0.06],
                 0x5a5852ff,
-                Mat::Matte,
+                Mat::Stone,
             );
             bx(
                 &mut b,
                 [0.02, 0.0, 0.3],
                 [0.24, 0.26, 0.18],
                 wood,
-                Mat::Matte,
+                Mat::Wood,
             );
             bx(
                 &mut b,
@@ -2700,7 +2623,7 @@ fn prop(kind: usize) -> Figure {
                 [-0.2, 0.0, 0.95],
                 [0.05, 0.26, 0.5],
                 wood,
-                Mat::Matte,
+                Mat::Wood,
             );
             bx(
                 &mut b,
@@ -2716,9 +2639,9 @@ fn prop(kind: usize) -> Figure {
                     [0.02, y, 0.66],
                     [0.22, 0.04, 0.03],
                     dark,
-                    Mat::Matte,
+                    Mat::Wood,
                 );
-                bx(&mut b, [0.2, y, 0.58], [0.03, 0.035, 0.1], dark, Mat::Matte);
+                bx(&mut b, [0.2, y, 0.58], [0.03, 0.035, 0.1], dark, Mat::Wood);
             }
             for y in [-0.22f32, 0.0, 0.22] {
                 prim(
@@ -2729,147 +2652,6 @@ fn prop(kind: usize) -> Figure {
                     0.02,
                     gold,
                     Mat::Metal,
-                );
-            }
-        }
-        P_SHELF => {
-            bx(
-                &mut b,
-                [0.0, 0.0, 0.95],
-                [0.17, 0.48, 0.95],
-                dark,
-                Mat::Matte,
-            );
-            for row in 0..4 {
-                let z = 0.3 + row as f32 * 0.45;
-                bx(
-                    &mut b,
-                    [0.08, 0.0, z - 0.05],
-                    [0.1, 0.44, 0.02],
-                    wood,
-                    Mat::Matte,
-                );
-                let mut y = -0.42;
-                let mut k = 0;
-                while y < 0.4 {
-                    let w = 0.03 + hsh(row * 31 + k, 1) * 0.04;
-                    let hgt = 0.12 + hsh(row * 31 + k, 2) * 0.08;
-                    let col = [0x7a2a20ff, 0x2a4a7aff, 0x3a6a2aff, 0x8a6a2aff, 0x5a2a5aff]
-                        [(hsh(row * 31 + k, 3) * 5.0) as usize % 5];
-                    bx(
-                        &mut b,
-                        [0.1, y + w, z + hgt],
-                        [0.08, w * 0.9, hgt],
-                        col,
-                        Mat::Matte,
-                    );
-                    y += w * 2.0 + 0.005;
-                    k += 1;
-                }
-            }
-        }
-        P_HEARTH => {
-            let stone = 0x6a6660ff;
-            bx(
-                &mut b,
-                [-0.05, 0.0, 0.9],
-                [0.28, 0.6, 0.9],
-                stone,
-                Mat::Matte,
-            );
-            bx(
-                &mut b,
-                [0.2, 0.0, 0.33],
-                [0.06, 0.36, 0.33],
-                0x0c0806ff,
-                Mat::Matte,
-            );
-            bx(
-                &mut b,
-                [0.25, 0.0, 0.72],
-                [0.08, 0.64, 0.05],
-                0x5a4a3aff,
-                Mat::Matte,
-            );
-            for k in 0..5 {
-                let kf = k as f32;
-                prim(
-                    &mut p,
-                    [0.22, -0.15 + kf * 0.075, 0.08],
-                    [0.22, -0.13 + kf * 0.07, 0.2 + 0.06 * (kf * 1.7).sin().abs()],
-                    0.06,
-                    0.02,
-                    if k % 2 == 0 { 0xff8a20ff } else { 0xffd050ff },
-                    Mat::Glow,
-                );
-            }
-        }
-        P_CHEST => {
-            bx(&mut b, [0.0, 0.0, 0.2], [0.26, 0.4, 0.2], wood, Mat::Matte);
-            bx(
-                &mut b,
-                [0.0, 0.0, 0.43],
-                [0.27, 0.41, 0.05],
-                dark,
-                Mat::Matte,
-            );
-            for y in [-0.28f32, 0.28] {
-                bx(
-                    &mut b,
-                    [0.0, y, 0.25],
-                    [0.275, 0.03, 0.25],
-                    0x5a5e66ff,
-                    Mat::Metal,
-                );
-            }
-            prim(
-                &mut p,
-                [0.28, 0.0, 0.34],
-                [0.28, 0.0, 0.34],
-                0.04,
-                0.04,
-                0xd8b050ff,
-                Mat::Metal,
-            );
-        }
-        P_BARREL => {
-            // an eight-sided stave barrel with two iron hoops
-            for k in 0..8 {
-                let yaw = k as f32 / 8.0 * std::f32::consts::PI;
-                b.push(BoxP {
-                    c: [0.0, 0.0, 0.42],
-                    h: [0.29, 0.12, 0.42],
-                    yaw,
-                    color: if k % 2 == 0 { wood } else { 0x5e3e22ff },
-                    mat: Mat::Matte,
-                });
-                for z in [0.16f32, 0.68] {
-                    b.push(BoxP {
-                        c: [0.0, 0.0, z],
-                        h: [0.3, 0.125, 0.03],
-                        yaw,
-                        color: 0x2e2e30ff,
-                        mat: Mat::Metal,
-                    });
-                }
-            }
-        }
-        P_CRATE => {
-            bx(
-                &mut b,
-                [0.0, 0.0, 0.3],
-                [0.3, 0.3, 0.3],
-                0x7a5632ff,
-                Mat::Matte,
-            );
-            for (y, z) in [(0.0f32, 0.0f32), (0.0, 0.5), (0.0, 0.25)] {
-                let _ = y;
-                bx(
-                    &mut b,
-                    [0.0, 0.0, 0.04 + z],
-                    [0.305, 0.305, 0.03],
-                    dark,
-                    Mat::Matte,
                 );
             }
         }
@@ -3650,17 +3432,17 @@ fn prop(kind: usize) -> Figure {
                 [0.0, 0.0, 0.74],
                 [0.42, 1.25, 0.035],
                 wood,
-                Mat::Matte,
+                Mat::Wood,
             );
             for y in [-1.0f32, 1.0] {
-                bx(&mut b, [0.0, y, 0.37], [0.3, 0.04, 0.37], dark, Mat::Matte);
-                bx(&mut b, [0.0, y, 0.05], [0.36, 0.06, 0.05], dark, Mat::Matte);
+                bx(&mut b, [0.0, y, 0.37], [0.3, 0.04, 0.37], dark, Mat::Wood);
+                bx(&mut b, [0.0, y, 0.05], [0.36, 0.06, 0.05], dark, Mat::Wood);
             }
-            bx(&mut b, [0.0, 0.0, 0.3], [0.03, 1.0, 0.03], dark, Mat::Matte);
+            bx(&mut b, [0.0, 0.0, 0.3], [0.03, 1.0, 0.03], dark, Mat::Wood);
             for x in [-0.68f32, 0.68] {
-                bx(&mut b, [x, 0.0, 0.44], [0.12, 1.15, 0.03], wood, Mat::Matte);
+                bx(&mut b, [x, 0.0, 0.44], [0.12, 1.15, 0.03], wood, Mat::Wood);
                 for y in [-0.95f32, 0.95] {
-                    bx(&mut b, [x, y, 0.21], [0.03, 0.03, 0.21], dark, Mat::Matte);
+                    bx(&mut b, [x, y, 0.21], [0.03, 0.03, 0.21], dark, Mat::Wood);
                 }
             }
             // supper: tankards, a loaf, a candle
@@ -3711,17 +3493,17 @@ fn prop(kind: usize) -> Figure {
                 [0.0, -0.2, 0.7],
                 [0.55, 0.9, 0.05],
                 wood,
-                Mat::Matte,
+                Mat::Wood,
             );
             for x in [-0.53f32, 0.53] {
-                bx(&mut b, [x, -0.2, 0.88], [0.03, 0.9, 0.15], dark, Mat::Matte);
+                bx(&mut b, [x, -0.2, 0.88], [0.03, 0.9, 0.15], dark, Mat::Wood);
             }
             bx(
                 &mut b,
                 [0.0, -1.08, 0.88],
                 [0.55, 0.03, 0.15],
                 dark,
-                Mat::Matte,
+                Mat::Wood,
             );
             prim(
                 &mut p,
@@ -3730,7 +3512,7 @@ fn prop(kind: usize) -> Figure {
                 0.04,
                 0.04,
                 dark,
-                Mat::Matte,
+                Mat::Wood,
             );
             for x in [-0.66f32, 0.66] {
                 for k in 0..16 {
@@ -3743,7 +3525,7 @@ fn prop(kind: usize) -> Figure {
                         0.045,
                         0.045,
                         dark,
-                        Mat::Matte,
+                        Mat::Wood,
                     );
                 }
                 for k in 0..4 {
@@ -3755,7 +3537,7 @@ fn prop(kind: usize) -> Figure {
                         0.02,
                         0.02,
                         wood,
-                        Mat::Matte,
+                        Mat::Wood,
                     );
                 }
                 prim(
@@ -3765,7 +3547,7 @@ fn prop(kind: usize) -> Figure {
                     0.035,
                     0.03,
                     wood,
-                    Mat::Matte,
+                    Mat::Wood,
                 );
             }
             // a load of sacks and a barrel
@@ -3955,14 +3737,14 @@ fn prop(kind: usize) -> Figure {
                 [0.0, 0.0, 1.17],
                 [0.2, 0.72, 0.07],
                 dark,
-                Mat::Matte,
+                Mat::Wood,
             );
             bx(
                 &mut b,
                 [0.0, side * 0.66, 0.55],
                 [0.2, 0.07, 0.55],
                 dark,
-                Mat::Matte,
+                Mat::Wood,
             );
             let hinge = [-0.12, side * 0.58];
             let ang = std::f32::consts::FRAC_PI_2 * 0.85;
@@ -4048,7 +3830,7 @@ fn prop(kind: usize) -> Figure {
                     0.04,
                     0.036,
                     wood,
-                    Mat::Matte,
+                    Mat::Wood,
                 );
                 prim(
                     &mut p,
@@ -4057,7 +3839,7 @@ fn prop(kind: usize) -> Figure {
                     0.036,
                     0.04,
                     wood,
-                    Mat::Matte,
+                    Mat::Wood,
                 );
             }
         }
@@ -4567,7 +4349,7 @@ fn prop(kind: usize) -> Figure {
                 0.05,
                 0.045,
                 dark,
-                Mat::Matte,
+                Mat::Wood,
             );
             prim(
                 &mut p,
@@ -4576,7 +4358,7 @@ fn prop(kind: usize) -> Figure {
                 0.035,
                 0.035,
                 dark,
-                Mat::Matte,
+                Mat::Wood,
             );
             for y in [-0.15f32, 0.25] {
                 prim(
@@ -4594,14 +4376,14 @@ fn prop(kind: usize) -> Figure {
                 [0.0, 0.05, 1.06],
                 [0.03, 0.3, 0.19],
                 0x7a5630ff,
-                Mat::Matte,
+                Mat::Wood,
             );
             bx(
                 &mut b,
                 [0.0, 0.05, 1.06],
                 [0.035, 0.27, 0.16],
                 0x8a6238ff,
-                Mat::Matte,
+                Mat::Wood,
             );
         }
         P_ANVIL => {
@@ -4951,6 +4733,10 @@ struct Raster {
     nrm: Vec<[f32; 3]>,
     col: Vec<u32>,
     mat: Vec<u8>,
+    /// where on a box's face the pixel lies, for wood and stone: distance
+    /// along the face's long side and across it (supersampled pixels), and
+    /// the box's seed (0 for anything that is not a box face)
+    tex: Vec<[f32; 4]>,
 }
 
 impl Raster {
@@ -4962,6 +4748,7 @@ impl Raster {
             nrm: vec![[0.0; 3]; w * h],
             col: vec![0; w * h],
             mat: vec![0; w * h],
+            tex: vec![[0.0; 4]; w * h],
         }
     }
     /// c = (pixel x, pixel y, depth in px), r = radius in px
@@ -4989,6 +4776,7 @@ impl Raster {
                     self.nrm[i] = [dx, -dy, dz];
                     self.col[i] = color;
                     self.mat[i] = mat;
+                    self.tex[i] = [0.0; 4];
                 }
             }
         }
@@ -4997,7 +4785,17 @@ impl Raster {
 
 impl Raster {
     /// an oriented box: centre in pixels (+ depth), half-axes in pixels (u, v up, w)
-    fn boxp(&mut self, cx: f32, cy: f32, cz: f32, ax: [[f32; 3]; 3], color: u32, mat: u8) {
+    #[allow(clippy::too_many_arguments)]
+    fn boxp(
+        &mut self,
+        cx: f32,
+        cy: f32,
+        cz: f32,
+        ax: [[f32; 3]; 3],
+        color: u32,
+        mat: u8,
+        seed: f32,
+    ) {
         let ext_u: f32 = ax.iter().map(|a| a[0].abs()).sum();
         let ext_v: f32 = ax.iter().map(|a| a[1].abs()).sum();
         let x0 = (cx - ext_u).floor().max(0.0) as usize;
@@ -5046,6 +4844,29 @@ impl Raster {
                     self.nrm[i] = [sign * a[0] / m, sign * a[1] / m, sign * a[2] / m];
                     self.col[i] = color;
                     self.mat[i] = mat;
+                    if mat >= 8 {
+                        // the face's own coordinates: along its two edges, in pixels
+                        let at = |k: usize| {
+                            let a = (du * ax[k][0] + dv * ax[k][1]) / l2[k];
+                            let b = ax[k][2] / l2[k];
+                            (a + b * hi).clamp(-1.0, 1.0) * l2[k].sqrt()
+                        };
+                        let (j, k) = match face {
+                            0 => (1, 2),
+                            1 => (0, 2),
+                            _ => (0, 1),
+                        };
+                        let (lj, lk) = (l2[j].sqrt(), l2[k].sqrt());
+                        // stone lays its courses level; wood runs along the long side
+                        let (u, v, across) = if (mat == 9 && face != 2) || lj >= lk {
+                            (at(j), at(k), lk)
+                        } else {
+                            (at(k), at(j), lj)
+                        };
+                        self.tex[i] = [u, v + across, seed + face as f32 * 0.37, across * 2.0];
+                    } else {
+                        self.tex[i] = [0.0; 4];
+                    }
                 }
             }
         }
@@ -5137,6 +4958,67 @@ fn mat_code(m: Mat) -> u8 {
         Mat::Membrane => 5,
         Mat::Leaf => 6,
         Mat::Cloth => 7,
+        Mat::Wood => 8,
+        Mat::Stone => 9,
+    }
+}
+
+fn hash3(a: i32, b: i32, s: u32) -> f32 {
+    let mut h = (a as u32).wrapping_mul(0x8da6_b343) ^ (b as u32).wrapping_mul(0xd816_3841) ^ s;
+    h ^= h >> 13;
+    h = h.wrapping_mul(0x5bd1_e995);
+    h ^= h >> 15;
+    ((h >> 8) & 0xffff) as f32 / 65535.0
+}
+
+/// The light a wood or stone face keeps at one (supersampled) pixel:
+/// `tex` is (along, across, seed, width across) from the raster.
+fn surface(mat: u8, tex: [f32; 4], x: u32, y: u32) -> f32 {
+    let [u, v, seed, wide] = tex;
+    let sd = (seed * 97.0) as u32;
+    if seed == 0.0 {
+        // a rounded shape (a post, a log): faint level streaks
+        return 0.92 + hash3(0, (y / 3) as i32, 5 + mat as u32) * 0.14;
+    }
+    if mat == 8 {
+        // planks across a wide face, a dark seam between each
+        let plank = 11.0;
+        let mut f = 1.0;
+        let (row, inrow) = if wide > plank * 1.6 {
+            let r = (v / plank).floor();
+            (r as i32, v - r * plank)
+        } else {
+            (0, 99.0)
+        };
+        if inrow < 1.3 {
+            f *= 0.62;
+        }
+        // each board its own shade, grain lines along it, waving a little
+        f *= 0.9 + hash3(row, 0, sd) * 0.16;
+        let wave = (u * 0.21 + hash3(row, 1, sd) * 6.0).sin() * 1.3;
+        let line = ((v + wave) / 1.7).floor() as i32;
+        f *= 0.9 + hash3(line, row, sd ^ 0x55) * 0.17;
+        // a knot now and then
+        let (ku, kv) = ((u / 7.0).floor() as i32, (v / 5.0).floor() as i32);
+        if hash3(ku, kv, sd ^ 0x99) < 0.025 {
+            f *= 0.72;
+        }
+        f
+    } else {
+        // stone: courses of blocks, every other course shifted by half
+        let (ch, bl) = (8.0, 15.0);
+        let r = (v / ch).floor();
+        let off = if (r as i32) & 1 == 0 { 0.0 } else { bl * 0.5 };
+        let c = ((u + off + seed * 3.0) / bl).floor();
+        let (dv, du) = (v - r * ch, u + off + seed * 3.0 - c * bl);
+        let mut f = 0.84 + hash3(r as i32, c as i32, sd) * 0.24;
+        if dv < 1.6 || du < 1.6 {
+            f *= 0.6;
+        } else if dv > ch - 2.0 {
+            // the lower lip of each block in shade
+            f *= 0.9;
+        }
+        f * (0.94 + hash3(x as i32, y as i32, 31) * 0.1)
     }
 }
 
@@ -5238,7 +5120,7 @@ fn render_frame(
             ras.sphere(ax + u * kk, ay - v * kk, w * kk, rr * kk, pr.color, mat);
         }
     }
-    for bx in boxes.iter() {
+    for (bi, bx) in boxes.iter().enumerate() {
         let c = view(tf(bx.c), true);
         let (cy, sy) = (bx.yaw.cos(), bx.yaw.sin());
         let axes = [
@@ -5254,6 +5136,7 @@ fn render_frame(
             [px(axes[0]), px(axes[1]), px(axes[2])],
             bx.color,
             mat_code(bx.mat),
+            1.0 + bi as f32 * 1.618,
         );
     }
     // shade at 2x, reduce to 1x with a hard alpha edge
@@ -5298,6 +5181,9 @@ fn render_frame(
                             h ^= h >> 13;
                             h = h.wrapping_mul(0x5bd1_e995);
                             let f = 0.9 + ((h >> 8) & 0xffff) as f32 / 65535.0 * 0.2;
+                            c = [c[0] * f, c[1] * f, c[2] * f];
+                        } else if ras.mat[i] == 8 || ras.mat[i] == 9 {
+                            let f = surface(ras.mat[i], ras.tex[i], x as u32, ry as u32);
                             c = [c[0] * f, c[1] * f, c[2] * f];
                         }
                         acc = [acc[0] + c[0], acc[1] + c[1], acc[2] + c[2]];

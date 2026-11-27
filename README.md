@@ -163,7 +163,22 @@ Plastered houses are half-timbered; windows have frames, mullions, painted
 shutters and, on the ground floor, boxes of flowers, and they glow warm after
 dark. Roofs are laid tile by tile, a few darker, some green with moss, under
 an eave that shades the wall below. Halls and houses have a woven rug on the
-ground floor. The burrow mounds catch the light on one side and fall into
+ground floor.
+
+Timber and masonry are textured as they are baked: wood shows grain along
+each board, dark seams between planks and the odd knot, and stone is laid in
+courses of blocks, each its own shade, with mortar between. Houses are
+furnished to suit who lives there (`src/bake/furniture.rs`): four-poster
+beds under patchwork quilts, ladder-back chairs, tables laid for supper,
+bookcases with gilt spines, jars, scrolls and a skull, iron-bound chests,
+and chimney breasts with a mantel, candlesticks and a pot by the fire. Then
+the trades: the smith shows a weapon rack and suits of mail, the mage brews
+in a cauldron beside an armillary sphere, the healer hangs herbs to dry, the
+banker and the librarian write at desks with pigeonholes, the pubs keep
+dressers of crockery and jars of pickles behind the bar, and the small folk
+have spinning wheels, wardrobes, dressers and potted plants. Iron
+candle-stands light the halls, and the castle keeps its lord's arms and
+armour. The burrow mounds catch the light on one side and fall into
 shade on the other.
 
 Figures are lit warm on the lit side and cool in the shade, the top edge of
@@ -345,6 +360,8 @@ python3 -m http.server -d web   # open http://localhost:8000
 `cargo test` runs world, combat, magic and save tests natively, and CI runs
 `tools/smoke.mjs` against the built `.wasm` in Node before deploying.
 `cargo run --example dump -- /tmp/dump` dumps draw commands for inspection.
+`cargo run --release --example props_sheet -- /tmp/props.rgba` bakes the prop
+atlas alone and writes it as raw RGBA (it prints the width and height).
 
 Pushes to `main` are built and deployed to GitHub Pages by
 `.github/workflows/pages.yml`.
