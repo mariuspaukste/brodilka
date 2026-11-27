@@ -5,7 +5,10 @@ use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 
 pub const W: i32 = 240;
-pub const H: i32 = 240;
+/// the land runs further south than east: below `NORTH_H` lie the tropics
+pub const H: i32 = 320;
+/// the height of the northern lands, as they were before the tropics were added
+pub const NORTH_H: i32 = 240;
 pub const N: usize = (W * H) as usize;
 
 pub const T_WATER: u8 = 0;
@@ -106,6 +109,15 @@ pub const WALL_TOWER: u8 = 6;
 pub const WALL_BURROW: u8 = 7;
 /// the pale stone halls of the elves
 pub const WALL_ELVEN: u8 = 8;
+/// the south's red sandstone: a fort's curtain walls, and its round bastions
+pub const WALL_FORT: u8 = 9;
+pub const WALL_BASTION: u8 = 10;
+/// a haveli: lime-washed walls under a flat roof with domed kiosks
+pub const WALL_HAVELI: u8 = 11;
+/// a raja's palace: sandstone under white domes
+pub const WALL_PALACE: u8 = 12;
+/// a temple: carved sandstone under a tall curved tower
+pub const WALL_TEMPLE: u8 = 13;
 /// great-tree style: the golden trees of the elven wood
 pub const GOLDEN: u8 = 1;
 /// fence style: a thick hedge (the village's ring)
@@ -260,6 +272,11 @@ pub struct Map {
     /// where a shopper stands to look over a stall: the tile before each
     /// stall tile
     pub stalls: Vec<(i32, i32)>,
+    /// where the tropics begin, by column: every tile at or south of it is
+    /// tropical (see `world/south.rs`)
+    pub tropic_line: Vec<i32>,
+    /// the southern cities, Suryagarh and Kanakpur: x0, y0, x1, y1 (guarded ground)
+    pub raj: Vec<(i32, i32, i32, i32)>,
     // pathfinding scratch
     pf_g: Vec<f32>,
     pf_par: Vec<i32>,
@@ -581,6 +598,7 @@ impl Map {
         self.in_town(x, y)
             || self.in_village(x, y)
             || self.in_elf(x, y)
+            || self.in_raj(x, y)
             || (x >= sx0 && y >= sy0 && x < sx1 && y < sy1)
             || self
                 .posts
@@ -789,6 +807,18 @@ impl Map {
         let side = |y: i32| (bx + 1, y, false);
         let inn = vendor == V_PROV && style == 2;
         let items: Vec<((i32, i32, bool), u8)> = match vendor {
+            // a temple's hall: the image in its shrine at the back between
+            // lamps, flowers and offerings, bells and incense
+            _ if style == WALL_TEMPLE => vec![
+                (back(bx + 3), O_STATUE),
+                (back(bx + 2), O_CANDLES),
+                (back(bx + 5), O_CANDLES),
+                (back(bx + 1), O_PLANT),
+                (back(bx + 6), O_PLANT),
+                (side(by + 3), O_JARS),
+                ((bx + 6, by + 3, false), O_FLOWERS),
+                ((bx + 6, by + 4, false), O_CANDLES),
+            ],
             V_BANKER => vec![
                 (back(bx + 1), O_CHEST),
                 (back(bx + 5), O_CHEST),
@@ -1025,6 +1055,10 @@ impl Map {
     /// The castle keep: a 12×8 hall of castle stone under one great roof, a
     /// throne at the back facing the double door, the lord standing by it.
     fn keep(&mut self, bx: i32, by: i32, lord: usize) {
+        self.keep_styled(bx, by, lord, WALL_CASTLE);
+    }
+    /// A great hall like the keep in another style of stone (the Raja's palace).
+    fn keep_styled(&mut self, bx: i32, by: i32, lord: usize, style: u8) {
         let (w, h) = (12, 8);
         for y in by..by + h {
             for x in bx..bx + w {
@@ -1032,7 +1066,7 @@ impl Map {
                 let i = idx(x, y);
                 self.t[i] = T_FLOOR;
                 self.o[i] = if edge { O_WALL } else { O_NONE };
-                self.style[i] = WALL_CASTLE;
+                self.style[i] = style;
             }
         }
         let door = bx + w / 2;
@@ -1075,7 +1109,7 @@ impl Map {
             w,
             h,
             vendor: lord,
-            style: WALL_CASTLE,
+            style,
             floors: vec![],
         });
         self.npcs.push((lord, door - 1, by + 2));
@@ -1322,6 +1356,9 @@ const TOWER_TOP: &[(i32, i32, bool, u8)] = &[
     (1, 4, false, O_ORRERY),
 ];
 
+mod south;
+pub use south::{KANAK, SURYA};
+
 pub fn generate(seed: u32) -> Map {
     let mut rng = Rng::new(seed as u64 ^ 0xABCD);
     let mut m = Map {
@@ -1353,6 +1390,8 @@ pub fn generate(seed: u32) -> Map {
         guests: vec![],
         market: (0, 0, 0, 0),
         stalls: vec![],
+        tropic_line: vec![],
+        raj: vec![],
         pf_g: vec![0.0; N],
         pf_par: vec![-1; N],
         pf_stamp: vec![0; N],
@@ -1385,26 +1424,43 @@ pub fn generate(seed: u32) -> Map {
 
     let mut elev = vec![0f32; N];
     let mut moist = vec![0f32; N];
+    // which tiles were grass before the land ran on south past the old shore
+    let mut old_grass = vec![false; N];
     for y in 0..H {
         for x in 0..W {
             let i = idx(x, y);
-            let mut e = fbm(x as f32 / 26.0, y as f32 / 26.0, seed);
-            let edge = x.min(y).min(W - 1 - x).min(H - 1 - y) as f32;
-            if edge < 12.0 {
-                e -= (12.0 - edge) * 0.05;
-            }
-            for &((px, py), r) in pois.iter() {
-                let d = (((x - px).pow(2) + (y - py).pow(2)) as f32).sqrt();
-                if d < r {
-                    let t = ((r - d) / (r * 0.4)).min(1.0);
-                    e += (0.5 - e) * t;
+            let noise = fbm(x as f32 / 26.0, y as f32 / 26.0, seed);
+            // the height of the land, falling away to the sea within 12
+            // tiles of the shore `bottom` (the old one or the new)
+            let height = |bottom: i32| {
+                let mut e = noise;
+                let edge = x.min(y).min(W - 1 - x).min(bottom - 1 - y) as f32;
+                if edge < 12.0 {
+                    e -= (12.0 - edge) * 0.05;
                 }
-            }
+                for &((px, py), r) in pois.iter() {
+                    let d = (((x - px).pow(2) + (y - py).pow(2)) as f32).sqrt();
+                    if d < r {
+                        let t = ((r - d) / (r * 0.4)).min(1.0);
+                        e += (0.5 - e) * t;
+                    }
+                }
+                e
+            };
+            let e = height(H);
             elev[i] = e;
+            if y < NORTH_H {
+                let old = if y < NORTH_H - 12 { e } else { height(NORTH_H) };
+                old_grass[i] = (0.36..0.69).contains(&old);
+            }
             moist[i] = fbm(x as f32 / 18.0 + 50.0, y as f32 / 18.0 + 50.0, seed ^ 0x77);
             m.shade[i] = (hash(x, y, seed ^ 0x55) * 255.0) as u8;
         }
     }
+    // the new southern lands draw on their own stream of chance, so the
+    // northern ones come out as they always have for a seed: a tile takes
+    // from the old stream exactly when it was grass before
+    let mut trng = Rng::new(seed as u64 ^ 0x7209);
     for i in 0..N {
         let e = elev[i];
         let mo = moist[i];
@@ -1417,8 +1473,18 @@ pub fn generate(seed: u32) -> Map {
         } else {
             T_MOUNT
         };
-        if m.t[i] == T_GRASS {
+        let grass = m.t[i] == T_GRASS;
+        let draws = if old_grass[i] {
             let r = rng.f();
+            (r, if mo < 0.35 { rng.f() } else { 1.0 })
+        } else if grass {
+            let r = trng.f();
+            (r, if mo < 0.35 { trng.f() } else { 1.0 })
+        } else {
+            (1.0, 1.0)
+        };
+        if grass {
+            let r = draws.0;
             if mo > 0.56 && r < 0.42 {
                 m.o[i] = O_TREE;
             } else if mo > 0.5 && r > 0.965 {
@@ -1431,7 +1497,7 @@ pub fn generate(seed: u32) -> Map {
                 m.o[i] = O_FLOWERS;
             }
         }
-        if m.t[i] == T_GRASS && mo < 0.35 && rng.f() < 0.05 {
+        if grass && mo < 0.35 && draws.1 < 0.05 {
             m.t[i] = T_DIRT;
         }
     }
@@ -1760,6 +1826,9 @@ pub fn generate(seed: u32) -> Map {
     // --- the elves: a valley in the mountains, a golden wood, a haven
     m.elven_lands(&mut elev, &mut rng, seed, ((x0 + x1) / 2, y1));
 
+    // --- the tropics south of the southern range, and their cities
+    m.tropics(&mut elev, &moist, seed);
+
     // --- spawn regions (monster, x, y, radius, max)
     m.assign_levels(&elev);
     m.spawns = vec![
@@ -1798,6 +1867,16 @@ pub fn generate(seed: u32) -> Map {
         ("troll", hills.0, hills.1, 10, 2),
         ("ettin", hills.0, hills.1, 10, 2),
         ("dragon", lair.0, lair.1, 2, 1),
+        // the tropics: tigers in the jungle, great spiders and slimes in
+        // the wet, rabbits in the clearings
+        ("tiger", 96, 262, 14, 3),
+        ("tiger", 186, 268, 14, 3),
+        ("tiger", 70, 296, 10, 2),
+        ("spider", 150, 248, 12, 3),
+        ("spider", 20, 280, 10, 2),
+        ("slime", 112, 302, 10, 3),
+        ("rabbit", 96, 224, 10, 4),
+        ("rabbit", 200, 300, 10, 4),
     ];
     // every door was left open while the world was made; shut them now
     for &i in &m.doors {
@@ -2720,6 +2799,46 @@ mod tests {
         (1..h - 1)
             .flat_map(|y| (1..w - 1).map(move |x| (x, y)))
             .find(|&(x, y)| open(x, y) && !seen[(y * w + x) as usize])
+    }
+
+    /// The tropics lie south of the southern range, and their two cities
+    /// can be walked to from the town, the Raja on his throne in his palace.
+    #[test]
+    fn the_tropics_and_their_cities() {
+        for seed in [1409u32, 7, 99] {
+            let m = generate(seed);
+            assert!(
+                !m.tropic(80, 84) && !m.tropic(80, 44),
+                "the north is not tropical"
+            );
+            assert!(m.tropic(96, 280) && m.tropic(20, 300), "the far south is");
+            assert_eq!(m.raj.len(), 2);
+            for (name, (x0, y0, w, h)) in [("Suryagarh", SURYA), ("Kanakpur", KANAK)] {
+                assert!(m.pois.iter().any(|p| p.0 == name));
+                // every haveli, temple and palace door opens onto ground
+                // that the town can reach
+                let inside: Vec<&Building> = m
+                    .buildings
+                    .iter()
+                    .filter(|b| b.x >= x0 && b.y >= y0 && b.x < x0 + w && b.y < y0 + h)
+                    .collect();
+                assert!(inside.len() >= 5, "{name} has its buildings");
+                for b in inside {
+                    let ok = (1..b.w - 1).any(|x| {
+                        let (dx, dy) = (b.x + x, b.y + b.h);
+                        m.obj(dx, dy - 1) == O_DOOR && m.reach[idx(dx, dy)]
+                    });
+                    assert!(
+                        ok,
+                        "seed {seed}: {name} building at {},{} cut off",
+                        b.x, b.y
+                    );
+                }
+            }
+            let (_, rx, ry) = *m.npcs.iter().find(|n| n.0 == V_RAJA).expect("raja");
+            assert_eq!(m.obj(rx, ry - 1), O_THRONE);
+            assert!(m.in_raj(rx, ry) && m.guarded(rx, ry));
+        }
     }
 
     /// Furniture never walls off part of a room, a shopkeeper or a stair.

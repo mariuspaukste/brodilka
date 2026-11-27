@@ -665,11 +665,14 @@ const radar = $('radar');
 const rctx = radar.getContext('2d');
 const mapCanvas = document.createElement('canvas');
 let miniVer = -1;
+// the land is taller than it is wide (the tropics lie to the south); an
+// older build without map_h was square
+function mapH() { return ex.map_h ? ex.map_h() : ex.map_w(); }
 function buildMinimap() {
-  const W = ex.map_w();
-  mapCanvas.width = W; mapCanvas.height = W;
-  const data = new Uint8ClampedArray(mem(), ex.mini_ptr(), W * W * 4).slice();
-  mapCanvas.getContext('2d').putImageData(new ImageData(data, W, W), 0, 0);
+  const W = ex.map_w(), H = mapH();
+  mapCanvas.width = W; mapCanvas.height = H;
+  const data = new Uint8ClampedArray(mem(), ex.mini_ptr(), W * H * 4).slice();
+  mapCanvas.getContext('2d').putImageData(new ImageData(data, W, H), 0, 0);
 }
 function drawRadar() {
   const R = radar.width, s = 2.6, px = ex.px(), py = ex.py();
@@ -711,13 +714,17 @@ function bmSize() {
   bmc.width = Math.round(window.innerWidth * d);
   bmc.height = Math.round(window.innerHeight * d);
 }
-function bmFit() { const W = ex.map_w(); return Math.min(bmc.width / (2 * W), bmc.height / W) * 0.94; }
+function bmFit() {
+  // the land drawn as a diamond is (W + H) wide and half that tall, in tiles
+  const S = ex.map_w() + mapH();
+  return Math.min(bmc.width / S, (2 * bmc.height) / S) * 0.94;
+}
 function bmClamp() {
   const fit = bmFit();
   bmS = Math.max(fit * 0.9, Math.min(fit * 14, bmS));
-  const W = ex.map_w();
+  const W = ex.map_w(), H = mapH();
   bmCx = Math.max(0, Math.min(W, bmCx));
-  bmCy = Math.max(0, Math.min(W, bmCy));
+  bmCy = Math.max(0, Math.min(H, bmCy));
 }
 // tile -> screen, and back
 function bmOrigin() {
@@ -833,8 +840,8 @@ function bmUp(ev) {
   if (bmPtrs.size < 2) bmPinch = null;
   if (ev.type === 'pointerup' && bmTap && !bmTap.moved && performance.now() - bmTap.t < 500) {
     const [x, y] = bmToTile(bmTap.xy[0], bmTap.xy[1]);
-    const W = ex.map_w();
-    if (x >= 0 && y >= 0 && x < W && y < W) {
+    const W = ex.map_w(), H = mapH();
+    if (x >= 0 && y >= 0 && x < W && y < H) {
       cmd(`goto:${Math.round(x)}:${Math.round(y)}`);
       closeBigMap();
     }

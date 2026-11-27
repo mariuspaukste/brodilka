@@ -130,7 +130,7 @@ corpse. Its buttons open the list of places (L) and the Chronicle (C).
 
 ## Mountains and the elves
 
-The land is 240 tiles across. A great range, rugged and high-footed, runs down
+The land is 240 tiles across and 320 from north to south. A great range, rugged and high-footed, runs down
 the east, and a lower one across the south; old tracks climb over both through
 passes. Three elven places lie beyond them, each guarded and untouched by the
 Shadow: a hidden valley in the eastern range, its pale stone halls under
@@ -139,6 +139,41 @@ the heart of a deep wood; and a haven on the eastern shore, where a white ship
 with a swan's prow lies at the quay. The elves are tall, slender and
 long-haired, and speak of stars, ships and the long years. Roads with guard
 posts run to each.
+
+## The tropics
+
+South of the southern range the land runs on into the tropics
+(`src/world/south.rs`), past where the old southern shore used to be: the
+land is now 240 tiles across and 320 from north to south, and the north
+comes out of a seed exactly as before. The line runs along the range's foot
+and bends south round the elves' wood. Below it the grass is a deep, wet
+jungle green with fallen blossom, the earth is red laterite, the beaches are
+wide and pale, and the trees are coconut palms, banyans hung with aerial
+roots, and stands of bamboo; the lower rock is jungle-clad hills. Tigers
+hunt the jungle, great spiders and slimes keep to the wet. There is no
+snow: winter is dry and hazy, and summer brings the monsoon, rain and
+thunderstorms most of the season.
+
+Both old tracks over the southern range come down to its two cities, built
+in the Indian style, and a road joins them:
+
+- **Suryagarh**, a fort city of red sandstone: curtain walls with rounded
+  merlons, bastions and three gates, the Raja's palace (a marble hall and a
+  great white dome over a sandstone hall, the Raja on his throne inside), a
+  temple, a stepped tank in the square, and the trades in havelis round it.
+- **Kanakpur**, a temple town on a bay: a great temple, ghats stepping down
+  into the sea, a tank, havelis and a bazaar along the cross street.
+
+Havelis are lime-washed under flat roof terraces behind pierced parapets,
+with domed kiosks (chhatris) at the corners, a stair hut, water pots and
+washing on the line; their windows are arched, latticed jharokhas under
+little hoods. A temple's shikhara climbs in curved courses with a rib up
+each face to a ribbed amalaka, a gilt pot and a saffron flag, and inside it
+the priest heals the sick and raises the dead. The streets are red
+flagstone and the rugs are cotton dhurries. Its people have their own names
+and talk: sipahi guards in red coats and saffron turbans with brass shields
+and talwars, men in turbans and white, women in saris with the end over the
+shoulder or the head, the Raja in gold, the priest in saffron.
 
 ## Light and weather
 

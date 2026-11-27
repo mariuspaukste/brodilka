@@ -87,8 +87,38 @@ impl Game {
     }
 
     fn weather_of(&self, slot: i64) -> Weather {
+        let (x, y) = self.ents[0].tile();
+        self.weather_at(slot, self.map.tropic(x, y))
+    }
+
+    /// The weather in one spell, north or in the tropics. The tropics never
+    /// see snow: their winter is dry and hazy, the summer brings the monsoon.
+    fn weather_at(&self, slot: i64, tropic: bool) -> Weather {
         let day = (slot as f32 * SPELL / DAY).floor() as i64;
         let h = mix(slot);
+        if tropic {
+            return match self.sim.season(day) {
+                "summer" => match h {
+                    h if h < 0.4 => Weather::Rain,
+                    h if h < 0.6 => Weather::Storm,
+                    _ => Weather::Clear,
+                },
+                "winter" => match h {
+                    h if h < 0.2 => Weather::Fog,
+                    _ => Weather::Clear,
+                },
+                "autumn" => match h {
+                    h if h < 0.25 => Weather::Rain,
+                    h if h < 0.32 => Weather::Storm,
+                    _ => Weather::Clear,
+                },
+                _ => match h {
+                    h if h < 0.08 => Weather::Storm,
+                    h if h < 0.14 => Weather::Rain,
+                    _ => Weather::Clear,
+                },
+            };
+        }
         match self.sim.season(day) {
             "winter" => match h {
                 h if h < 0.35 => Weather::Snow,

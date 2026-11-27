@@ -7,6 +7,7 @@
 //! at 2x and reduced, then given a dark silhouette outline.
 mod furniture;
 pub mod icons;
+mod tropic;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
@@ -256,6 +257,13 @@ pub struct Look {
     pub furs: u32,
     /// a market basket on the left arm
     pub basket: bool,
+    /// a wrapped turban (0 = none)
+    pub turban: u32,
+    /// a cloth drape from the left shoulder across to the right hip: a
+    /// sari's end, or a shawl (0 = none)
+    pub sash: u32,
+    /// a four-legged beast's stripes (a tiger's), 0 = none
+    pub stripes: u32,
 }
 
 impl Look {
@@ -292,6 +300,9 @@ impl Look {
             ears: false,
             furs: 0,
             basket: false,
+            turban: 0,
+            sash: 0,
+            stripes: 0,
         }
     }
     pub fn creature(body: Body, color: u32, scale: u16) -> Look {
@@ -874,6 +885,28 @@ fn build(look: &Look, q: &Pose) -> Vec<Prim> {
             );
         }
         let _ = dark_leather;
+        if look.sash != 0 && !look.metal_body {
+            // over the left shoulder, across the chest to the right hip,
+            // and down the back from the same shoulder
+            let tf = rotz([1.0, 0.0, 0.0], q.twist);
+            let top = add(add(shl, mul(tf, 0.02)), [0.0, 0.0, 0.05]);
+            let hip = add(add(pel, mul(la, 0.11 * bulk)), mul(tf, 0.12 * bulk));
+            let mid = add(
+                add(lerp3(top, hip, 0.5), mul(tf, 0.06 * bulk)),
+                [0.0, 0.0, 0.0],
+            );
+            p(top, mid, 0.05, 0.05, look.sash, Mat::Cloth);
+            p(mid, hip, 0.05, 0.05, look.sash, Mat::Cloth);
+            let back = add(add(pel, mul(la, -0.06 * bulk)), mul(tf, -0.12 * bulk));
+            p(
+                top,
+                back,
+                0.045,
+                0.045,
+                shade_col(look.sash, 0.85),
+                Mat::Cloth,
+            );
+        }
     }
     // arms (0 = right / weapon)
     let mut hands = [[0.0f32; 3]; 2];
@@ -1221,6 +1254,36 @@ fn build(look: &Look, q: &Pose) -> Vec<Prim> {
                 Mat::Matte,
             );
         }
+        if look.turban != 0 {
+            // the wrapped cloth: a full mass over the crown, a fold rising
+            // at the back, a band across the brow and a jewel at the front
+            let c = add(hc, add(mul(fwd, -0.01), [0.0, 0.0, 0.055]));
+            p(c, c, 0.122, 0.122, look.turban, Mat::Cloth);
+            p(
+                add(c, [0.0, 0.0, 0.03]),
+                add(add(c, mul(fwd, -0.05)), [0.0, 0.0, 0.08]),
+                0.1,
+                0.07,
+                shade_col(look.turban, 1.08),
+                Mat::Cloth,
+            );
+            p(
+                add(
+                    add(hc, mul(fwd, 0.07)),
+                    add(mul(la, -0.07), [0.0, 0.0, 0.05]),
+                ),
+                add(
+                    add(hc, mul(fwd, 0.07)),
+                    add(mul(la, 0.07), [0.0, 0.0, 0.07]),
+                ),
+                0.03,
+                0.03,
+                shade_col(look.turban, 0.8),
+                Mat::Cloth,
+            );
+            let j = add(add(hc, mul(fwd, 0.115)), [0.0, 0.0, 0.085]);
+            p(j, j, 0.02, 0.02, 0xd8a840ff, Mat::Metal);
+        }
         if look.hat != 0 {
             let base = add(hc, [0.0, 0.0, 0.07]);
             p(base, base, 0.06, 0.06, look.hat, Mat::Matte);
@@ -1401,6 +1464,28 @@ fn quad(look: &Look, a: Anim, f: usize, n: usize) -> Figure {
         hgt * crouch_k * 1.05 + bob + rear_up * 0.35 * len,
     ];
     prim(&mut v, hip, sho, rb, rf, col, Mat::Matte);
+    if look.stripes != 0 {
+        // bands over the back and down both flanks, a pale belly beneath
+        prim(
+            &mut v,
+            add(hip, [0.05, 0.0, -rb * 0.45]),
+            add(sho, [-0.05, 0.0, -rf * 0.45]),
+            rb * 0.62,
+            rf * 0.6,
+            0xe8dcc0ff,
+            Mat::Matte,
+        );
+        for k in 0..7 {
+            let t = 0.08 + k as f32 * 0.13;
+            let c = lerp3(hip, sho, t);
+            let r = rb + (rf - rb) * t;
+            let top = add(c, [0.02 * (k % 2) as f32, 0.0, r * 0.98]);
+            for side in [-1.0f32, 1.0] {
+                let low = add(c, [-0.03, side * r * 0.96, -r * 0.2]);
+                prim(&mut v, top, low, 0.032, 0.022, look.stripes, Mat::Matte);
+            }
+        }
+    }
     if kind == Body::Dragon {
         // pale belly
         prim(
@@ -2527,7 +2612,11 @@ pub const P_DESK: usize = 114;
 pub const P_ORRERY: usize = 115;
 pub const P_STOOL: usize = 116;
 pub const P_HERBS: usize = 117;
-pub const N_PROPS: usize = 118;
+// trees of the tropics (`bake/tropic.rs`)
+pub const P_PALM: usize = 118; // tall, leaning
+pub const P_BANYAN: usize = 120;
+pub const P_BAMBOO: usize = 121;
+pub const N_PROPS: usize = 122;
 
 /// flames licking up from `base`, varied by animation frame `f`
 fn flames(p: &mut Vec<Prim>, base: V3, size: f32, f: usize) {
@@ -2582,7 +2671,7 @@ fn prop(kind: usize) -> Figure {
     let mut b: Vec<BoxP> = vec![];
     let wood = 0x6a4628ff;
     let dark = 0x3e2816ff;
-    if furniture::build(kind, &mut p, &mut b) {
+    if furniture::build(kind, &mut p, &mut b) || tropic::build(kind, &mut p, &mut b) {
         return Figure {
             prims: p,
             boxes: b,
@@ -2634,13 +2723,7 @@ fn prop(kind: usize) -> Figure {
             );
             // arms
             for y in [-0.24f32, 0.24] {
-                bx(
-                    &mut b,
-                    [0.02, y, 0.66],
-                    [0.22, 0.04, 0.03],
-                    dark,
-                    Mat::Wood,
-                );
+                bx(&mut b, [0.02, y, 0.66], [0.22, 0.04, 0.03], dark, Mat::Wood);
                 bx(&mut b, [0.2, y, 0.58], [0.03, 0.035, 0.1], dark, Mat::Wood);
             }
             for y in [-0.22f32, 0.0, 0.22] {
@@ -3488,13 +3571,7 @@ fn prop(kind: usize) -> Figure {
         }
         P_CART => {
             // a hand cart two tiles long (along y): bed, sides, two wheels, shafts
-            bx(
-                &mut b,
-                [0.0, -0.2, 0.7],
-                [0.55, 0.9, 0.05],
-                wood,
-                Mat::Wood,
-            );
+            bx(&mut b, [0.0, -0.2, 0.7], [0.55, 0.9, 0.05], wood, Mat::Wood);
             for x in [-0.53f32, 0.53] {
                 bx(&mut b, [x, -0.2, 0.88], [0.03, 0.9, 0.15], dark, Mat::Wood);
             }
@@ -3732,13 +3809,7 @@ fn prop(kind: usize) -> Figure {
         k if k == P_DOOR || k == P_DOOR + 1 => {
             // a doorway in a wall running along y: lintel, one post, the leaf swung inward (-x)
             let side = if k == P_DOOR { -1.0f32 } else { 1.0 };
-            bx(
-                &mut b,
-                [0.0, 0.0, 1.17],
-                [0.2, 0.72, 0.07],
-                dark,
-                Mat::Wood,
-            );
+            bx(&mut b, [0.0, 0.0, 1.17], [0.2, 0.72, 0.07], dark, Mat::Wood);
             bx(
                 &mut b,
                 [0.0, side * 0.66, 0.55],

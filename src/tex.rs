@@ -17,6 +17,13 @@ pub const TEX_BRICK: u32 = 10;
 pub const TEX_WOODWALL: u32 = 11;
 pub const TEX_PLASTER: u32 = 12;
 pub const TEX_ASHLAR: u32 = 13;
+/// the tropics: lush jungle grass, red laterite earth, red sandstone flags
+pub const TEX_JUNGLE: u32 = 14;
+pub const TEX_LATERITE: u32 = 15;
+pub const TEX_REDFLAG: u32 = 16;
+/// the south's walls: red sandstone blocks, and lime-wash over plaster
+pub const TEX_SANDSTONE: u32 = 17;
+pub const TEX_LIMEWASH: u32 = 18;
 
 pub struct Texture {
     pub w: usize,
@@ -121,6 +128,83 @@ impl Img {
             rgba,
         }
     }
+}
+
+/// Jungle floor: a deep wet emerald and a bright one in broad patches,
+/// broad leaves catching the light, ferns, and fallen blossom.
+fn jungle() -> Texture {
+    let (w, h) = (128usize, 64usize);
+    let mut m = Img::new(w, h);
+    let (deep, bright) = (rgb(0x1f4a24), rgb(0x3e6a26));
+    for y in 0..h {
+        for x in 0..w {
+            let big = pnoise(x as f32, y as f32, 32.0, w, h, 41);
+            let fine = fbm(x as f32, y as f32, w, h, 42);
+            let t = (big * 1.4 - 0.2).clamp(0.0, 1.0);
+            let k = 0.74 + fine * 0.46;
+            m.px[y * w + x] = [
+                (deep[0] + (bright[0] - deep[0]) * t) * k,
+                (deep[1] + (bright[1] - deep[1]) * t) * k,
+                (deep[2] + (bright[2] - deep[2]) * t) * k,
+            ];
+        }
+    }
+    // broad leaves: a lit oval over a shadowed one
+    for i in 0..150 {
+        let (x, y) = (
+            (hash(i, 1, 43) * w as f32) as i32,
+            (hash(i, 2, 43) * h as f32) as i32,
+        );
+        let lean = if i % 2 == 0 { 1 } else { -1 };
+        for j in 0..3 {
+            m.mul(x + j * lean, y + 1, 0.62);
+            m.mul(x + j * lean, y, 1.3 + j as f32 * 0.05);
+        }
+        m.mul(x + 3 * lean, y - 1, 1.2);
+    }
+    // tall blades
+    for i in 0..300 {
+        let (x, y) = (
+            (hash(i, 3, 44) * w as f32) as i32,
+            (hash(i, 4, 44) * h as f32) as i32,
+        );
+        let len = 2 + (hash(i, 5, 44) * 4.0) as i32;
+        for j in 0..len {
+            m.mul(x, y - j, if j == len - 1 { 1.5 } else { 1.1 });
+        }
+    }
+    // fallen blossom: hibiscus red, frangipani white, marigold
+    for i in 0..18 {
+        let (x, y) = (
+            (hash(i, 9, 45) * w as f32) as i32,
+            (hash(i, 8, 45) * h as f32) as i32,
+        );
+        let c = [0xc02a2a, 0xe8e0c8, 0xe89a20][i as usize % 3];
+        m.set(x, y, rgb(c));
+        m.set(x + 1, y, rgb(c));
+        m.mul(x, y + 1, 0.55);
+    }
+    m.done()
+}
+
+/// Lime-wash over plaster: a warm cream, stained darker towards the foot,
+/// patches flaking to the ochre beneath.
+fn limewash() -> Texture {
+    let (w, h) = (64usize, 64usize);
+    let mut m = Img::new(w, h);
+    m.fill_noise(0xc8b48a, 0.88, 1.08, 47);
+    for y in 0..h as i32 {
+        for x in 0..w as i32 {
+            let blotch = fbm(x as f32, y as f32, w, h, 48);
+            if blotch > 0.68 {
+                m.mul(x, y, 0.82);
+            }
+            if hash(x, y, 49) < 0.02 {
+                m.mul(x, y, 0.9);
+            }
+        }
+    }
+    m.done()
 }
 
 fn grass() -> Texture {
@@ -245,18 +329,22 @@ fn sand() -> Texture {
 /// irregular flagstones from periodic Voronoi cells, each bevelled: the edges
 /// facing the upper-left light catch it, the far edges fall into shadow
 fn flag() -> Texture {
+    flag_of(0x4e4a44, 11)
+}
+
+fn flag_of(base: u32, s: u32) -> Texture {
     let (w, h) = (128usize, 64usize);
     let mut m = Img::new(w, h);
     let pts: Vec<(f32, f32, f32)> = (0..52)
         .map(|i| {
             (
-                hash(i, 1, 11) * w as f32,
-                hash(i, 2, 11) * h as f32,
-                0.78 + hash(i, 3, 11) * 0.4,
+                hash(i, 1, s) * w as f32,
+                hash(i, 2, s) * h as f32,
+                0.78 + hash(i, 3, s) * 0.4,
             )
         })
         .collect();
-    let b = rgb(0x4e4a44);
+    let b = rgb(base);
     for y in 0..h {
         for x in 0..w {
             let (mut d1, mut d2, mut best, mut v) = (1e9f32, 1e9f32, 0usize, (0.0f32, 0.0f32));
@@ -472,9 +560,13 @@ fn brick(base: u32, s: u32) -> Texture {
 
 /// Big dressed stone blocks in staggered courses, for the castle.
 fn ashlar() -> Texture {
+    ashlar_of(0x5e5c58)
+}
+
+fn ashlar_of(base: u32) -> Texture {
     let (w, h) = (64usize, 64usize);
     let mut m = Img::new(w, h);
-    let b = rgb(0x5e5c58);
+    let b = rgb(base);
     for y in 0..h as i32 {
         for x in 0..w as i32 {
             let row = y / 16;
@@ -530,6 +622,11 @@ pub fn textures() -> Vec<Texture> {
         woodwall(),
         brick(0x7e7462, 62),
         ashlar(),
+        jungle(),
+        dirt(0x7a3e24, 21),
+        flag_of(0x7a4a34, 23),
+        ashlar_of(0x9a5038),
+        limewash(),
     ]
 }
 
@@ -583,7 +680,7 @@ mod tests {
     #[test]
     fn textures_are_periodic_sized() {
         let t = textures();
-        assert_eq!(t.len(), 14);
+        assert_eq!(t.len(), TEX_LIMEWASH as usize + 1);
         for x in t.iter() {
             assert_eq!(x.rgba.len(), x.w * x.h * 4);
             assert_eq!(x.w % 64, 0);

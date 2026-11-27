@@ -223,6 +223,10 @@ pub extern "C" fn map_w() -> i32 {
     world::W
 }
 #[no_mangle]
+pub extern "C" fn map_h() -> i32 {
+    world::H
+}
+#[no_mangle]
 pub extern "C" fn px() -> f32 {
     g().ents[0].x
 }
@@ -284,7 +288,9 @@ pub extern "C" fn radar_dots() -> usize {
 #[no_mangle]
 pub extern "C" fn map_marks() -> usize {
     let g = g();
-    const MAJOR: [&str; 13] = [
+    const MAJOR: [&str; 15] = [
+        "Suryagarh",
+        "Kanakpur",
         "Elf valley",
         "Elf wood",
         "Elf haven",

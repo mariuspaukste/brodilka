@@ -1078,6 +1078,21 @@ static MONS_DEF: &[MonDef] = &[
         drops: &["gems", "gems", "gems", "platemail", "scroll", "scroll"],
         ..MB
     },
+    // the jungles of the south
+    MonDef {
+        id: "tiger",
+        name: "a tiger",
+        hp: 62,
+        dmg: (6, 15),
+        skill: 65,
+        speed: 2.0,
+        mv: 5.2,
+        fame: 120,
+        size: 0.95,
+        color: 0xd8781aff,
+        ar: 6,
+        ..MB
+    },
 ];
 
 pub fn mon_idx(id: &str) -> usize {
@@ -1107,6 +1122,8 @@ pub const V_VILLAGER: usize = 11;
 pub const V_ELF: usize = 12;
 /// the keepers of the market stalls in Duskhold: each sells its stall's wares
 pub const V_STALL: usize = 13;
+/// the Raja of Suryagarh, on the throne in the palace in the south
+pub const V_RAJA: usize = 14;
 
 /// What each kind of market stall sells, by its style.
 pub const STALL_WARES: [&[&str]; 6] = [
@@ -1481,7 +1498,125 @@ static VENDORS_DEF: &[VendorDef] = &[
             "All fresh, all honest, all cheap.",
         ],
     },
+    VendorDef {
+        title: "the Raja of Suryagarh",
+        names: &["Vikram Singh", "Rani Padmini", "Udai Singh"],
+        sells: &[],
+        buys: &[],
+        buys_ids: &[],
+        robe: 0xc8a040ff,
+        chatter: &[
+            "Be welcome in Suryagarh, traveller. Speak, and be brief.",
+            "The sun rose first on these walls, so the old songs say.",
+            "When the rains come, the jungle comes with them. Keep to the roads.",
+            "My guards keep the peace within the walls. Beyond them, the tiger rules.",
+            "The pass over the mountains is old. Few come down it any more.",
+            "Kanakpur's temple is greater than mine, its priests remind me daily.",
+        ],
+    },
 ];
+
+/// The southern cities' own people: their names by trade (none: the trade's
+/// usual names), titles where they differ, and what they talk about.
+pub fn south_folk(
+    v: usize,
+) -> (
+    &'static [&'static str],
+    &'static str,
+    &'static [&'static str],
+) {
+    match v {
+        V_SMITH => (
+            &["Ramesh", "Bhola", "Kamla", "Arjun"],
+            "the lohar",
+            &[
+                "Steel from the hills, tempered in the river. None finer.",
+                "Watered blades, traveller. They sing when they cut.",
+                "The heat? This forge is cooler than the noonday street.",
+            ],
+        ),
+        V_MAGE => (
+            &["Pandit Shastri", "Meera", "Govind"],
+            "the jyotishi",
+            &[
+                "The stars stand well for thee. Or ill. Buy a scroll and see.",
+                "Every word of power was a prayer once.",
+                "Mind the monsoon. Wet reagents fizzle.",
+            ],
+        ),
+        V_PROV => (
+            &["Lalit", "Sunita", "Mohan", "Asha"],
+            "the bania",
+            &[
+                "Rice, oil, rope, lanterns: all that a journey eats.",
+                "Fixed price, and a good one. Ask anyone.",
+                "Take water, friend. The jungle roads are long.",
+            ],
+        ),
+        V_HEALER => (
+            &["Acharya Dev", "Savitri", "Pujari Hari"],
+            "the priest",
+            &[
+                "Peace be on thee. The temple turns no one away.",
+                "Ring the bell as thou enterest, so the gods know thee.",
+                "Even the dead may return, if they find their way here.",
+            ],
+        ),
+        V_BANKER => (
+            &["Seth Jamnadas", "Rukmini", "Seth Kishan"],
+            "the sahukar",
+            &[
+                "Gold kept here is kept as in a king's vault.",
+                "My books balance to the last cowrie.",
+                "Thy box is safe with me, from Suryagarh to the sea.",
+            ],
+        ),
+        V_BARKEEP => (
+            &["Gopal", "Parvati", "Bhim"],
+            "the sarai-keeper",
+            &[
+                "Sit, sit! Tea, bread, a bed upstairs. The roads can wait.",
+                "The caravan men say the rains will be early this year.",
+                "Mind the monkeys on the roof. They steal the chapatis.",
+            ],
+        ),
+        V_LIBRARIAN => (
+            &["Pandit Vyas", "Gargi", "Kalidas"],
+            "the keeper of books",
+            &[
+                "Palm-leaf and birch-bark, copied a hundred times.",
+                "Bring me any scroll thou findest. Any at all.",
+                "Read slowly. The old poets hid their meaning in the metre.",
+            ],
+        ),
+        V_GUARD => (
+            &["Rao", "Bhairav", "Prithvi", "Madho", "Ajit", "Hamir"],
+            "the sipahi",
+            &[
+                "All quiet within the walls.",
+                "Keep to the road. Tigers hunt the jungle at dusk.",
+                "Move along, traveller.",
+                "The rains will turn these streets to rivers soon.",
+            ],
+        ),
+        V_FOLK => (
+            &[
+                "Ravi", "Lakshmi", "Kiran", "Devi", "Anand", "Uma", "Sanjay", "Gita", "Manoj",
+                "Radha",
+            ],
+            "",
+            &[
+                "Namaste!",
+                "Hot today. Hotter tomorrow.",
+                "Have you seen the tank by moonlight? Like silver.",
+                "The temple bells woke me again. A blessing, I suppose.",
+                "My cousin went north over the mountains. He says it is cold. Cold!",
+                "Mangoes! The mangoes are in!",
+            ],
+        ),
+        _ => (&[], "", &[]),
+    }
+}
 
 // ---------------------------------------------------------------- templates
 #[derive(Clone)]
@@ -1579,7 +1714,7 @@ pub const HAIR: [u32; 6] = [
 
 // ---------------------------------------------------------------- world packs
 /// Vendor ids as a world pack names them in `[vendor.<id>]`, by V_* index.
-pub const VENDOR_IDS: [&str; 14] = [
+pub const VENDOR_IDS: [&str; 15] = [
     "smith",
     "mage",
     "provisioner",
@@ -1594,6 +1729,7 @@ pub const VENDOR_IDS: [&str; 14] = [
     "villager",
     "elf",
     "stallholder",
+    "raja",
 ];
 
 /// A game table built once from the engine's data and the active world pack

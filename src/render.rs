@@ -7,6 +7,21 @@ use crate::tex::*;
 use crate::world::*;
 use std::collections::{HashMap, VecDeque};
 
+mod south;
+use south::southern;
+
+/// The texture of a wall in this style.
+fn wall_tex(style: u8) -> u32 {
+    match style {
+        2 => TEX_WOODWALL,
+        3 => TEX_PLASTER,
+        WALL_CASTLE | WALL_TOWER | WALL_ELVEN => TEX_ASHLAR,
+        WALL_FORT | WALL_BASTION | WALL_PALACE | WALL_TEMPLE => TEX_SANDSTONE,
+        WALL_HAVELI => TEX_LIMEWASH,
+        _ => TEX_BRICK,
+    }
+}
+
 /// A baked atlas the host has (or is about to get).
 pub struct SpriteInfo {
     pub id: u32,
@@ -321,6 +336,30 @@ pub fn with_a(c: u32, a: f32) -> u32 {
     (c & 0xffffff00) | ((a.clamp(0.0, 1.0) * 255.0) as u32)
 }
 
+impl Game {
+    /// The ground's texture on a tile: the tropics have their own.
+    fn ground_tex(&self, x: i32, y: i32, t: u8) -> u32 {
+        if self.map.tropic(x, y) {
+            match t {
+                T_GRASS => return TEX_JUNGLE,
+                T_DIRT => return TEX_LATERITE,
+                T_COBBLE if self.map.in_raj(x, y) => return TEX_REDFLAG,
+                _ => {}
+            }
+        }
+        tex_of(t)
+    }
+    /// which ground spills over which at borders: jungle over plain grass
+    fn prio_at(&self, x: i32, y: i32) -> i32 {
+        let t = self.map.tile(x, y);
+        if t == T_GRASS && self.map.tropic(x, y) {
+            5
+        } else {
+            prio(t)
+        }
+    }
+}
+
 fn tex_of(t: u8) -> u32 {
     match t {
         T_WATER => TEX_WATER,
@@ -595,6 +634,12 @@ impl Game {
             WALL_CASTLE | WALL_TOWER => (0x6a1a1aff, 0x2a1a30ff, 0xc8a040ff),
             WALL_ELVEN => (0x2a4a6aff, 0xc8d0d8ff, 0xe8e8f0ff),
             WALL_BURROW => (0x8a5a2aff, 0x3a5a2aff, 0xe8c060ff),
+            // the south's cotton dhurries: indigo, madder and saffron
+            WALL_HAVELI | WALL_PALACE | WALL_TEMPLE => [
+                (0x2a3a7aff, 0xa83a1aff, 0xe8b040ff),
+                (0xa83a1aff, 0x2a3a6aff, 0xe8d8b0ff),
+                (0xd87a1aff, 0x6a1a1aff, 0x2a3a7aff),
+            ][(hv * 3.0) as usize % 3],
             _ => [
                 (0x7a2a20ff, 0x2a2a3aff, 0xd8b060ff),
                 (0x2a4a3aff, 0x6a3020ff, 0xd8c890ff),
@@ -743,7 +788,7 @@ impl Game {
                 }
                 let (x, y) = ((s + d) / 2, (s - d) / 2);
                 let tl = self.map.tile(x, y);
-                let pr = prio(tl);
+                let pr = self.prio_at(x, y);
                 if !(1..10).contains(&pr) {
                     continue;
                 }
@@ -754,7 +799,7 @@ impl Game {
                 let lvl = self.map.level(x, y);
                 for dir in [(1, 0), (0, 1), (-1, 0), (0, -1)] {
                     let (nx, ny) = (x + dir.0, y + dir.1);
-                    if prio(self.map.tile(nx, ny)) < pr
+                    if self.prio_at(nx, ny) < pr
                         && self.map.level(nx, ny) == lvl
                         && !self.map.is_ramp(nx, ny)
                     {
@@ -1023,6 +1068,95 @@ impl Game {
                     }
                     _ => {}
                 }
+                // the southern cities' people: brown-skinned and black-haired,
+                // the men in turbans, kurtas and white dhotis, the women in
+                // saris with the end over the shoulder
+                if self.map.in_raj(e.home.0, e.home.1) || v == V_RAJA {
+                    const SKIN: [u32; 5] =
+                        [0x8a5a3aff, 0x9a6a44ff, 0x7a4a2eff, 0xa87a52ff, 0x6a4028ff];
+                    const BRIGHT: [u32; 8] = [
+                        0xd8801aff, 0xa81a2aff, 0xb02a7aff, 0x1a8a8aff, 0x2a7a3aff, 0x2a3a8aff,
+                        0xc8a030ff, 0xe8c0a0ff,
+                    ];
+                    const PALE: [u32; 5] =
+                        [0xe8e0d0ff, 0xd8d0b8ff, 0xc8d8e0ff, 0xe0c8c0ff, 0xd8c8a0ff];
+                    let pick = |k: u32, a: &[u32]| a[(r(k) % a.len() as u32) as usize];
+                    l.skin = pick(1, &SKIN);
+                    l.hair = 0x1a1410ff;
+                    l.hood = 0;
+                    l.hat = 0;
+                    l.helm = 0;
+                    l.furs = 0;
+                    l.metal_body = false;
+                    l.skirt = false;
+                    l.boots = shade(l.skin, 0.8);
+                    if v == V_GUARD {
+                        // the sipahi: a red coat, a saffron turban, talwar and a brass shield
+                        l.female = false;
+                        l.body = 0xa83a1aff;
+                        l.legs = 0xe0d8c8ff;
+                        l.turban = 0xe8901aff;
+                        l.sash = 0xe8d8a0ff;
+                        l.weapon = Weapon::Sword;
+                        l.shield = 0xc8a040ff;
+                        l.boots = 0x4a2a18ff;
+                    } else if v == V_RAJA {
+                        l.female = false;
+                        l.robe = true;
+                        l.body = 0xc8a040ff;
+                        l.legs = l.body;
+                        l.turban = 0xf0e8d8ff;
+                        l.sash = 0x9a1a2aff;
+                        l.weapon = Weapon::Sword;
+                        l.scale = 104;
+                    } else if v == V_HEALER {
+                        // the priest: saffron, a white thread, a bare head
+                        l.female = false;
+                        l.robe = true;
+                        l.body = 0xe08a2aff;
+                        l.legs = l.body;
+                        l.hair = 0x2a2420ff;
+                        l.long_hair = false;
+                        l.sash = 0xf0e8d8ff;
+                    } else if l.female {
+                        l.robe = true;
+                        l.body = pick(8, &BRIGHT);
+                        l.legs = l.body;
+                        l.sash = shade(pick(9, &BRIGHT), 1.0);
+                        l.long_hair = true;
+                        if r(10) % 3 == 0 {
+                            // the sari's end drawn over the head
+                            l.hood = l.sash;
+                        }
+                    } else {
+                        l.robe = false;
+                        l.body = pick(8, &PALE);
+                        l.legs = 0xe8e0d0ff;
+                        l.turban = pick(11, &BRIGHT);
+                        if r(12) % 2 == 0 {
+                            l.sash = pick(9, &BRIGHT);
+                        }
+                        if v == V_SMITH {
+                            l.body = l.skin;
+                            l.turban = 0x8a2a1aff;
+                            l.sash = 0;
+                        }
+                    }
+                    if v == V_MAGE {
+                        l.robe = true;
+                        l.body = 0x2a2a6aff;
+                        l.legs = l.body;
+                        l.turban = 0xe8e0d0ff;
+                        l.weapon = Weapon::Staff;
+                    }
+                    if l.turban != 0 {
+                        l.hair = 0;
+                        l.long_hair = false;
+                    }
+                    if l.hood != 0 {
+                        l.long_hair = false;
+                    }
+                }
                 // the elves: tall and slender, long-haired, in grey, green and
                 // silver; their wardens unhelmed, cloaked, sword at hand
                 if self.map.in_elf(e.home.0, e.home.1) && v != V_VILLAGER {
@@ -1133,6 +1267,11 @@ impl Game {
                     "rabbit" => return Some(Look::creature(bake::Body::Rabbit, 0x8a6a48ff, 140)),
                     "rat" => return Some(Look::creature(bake::Body::Rat, 0x5e4e42ff, 130)),
                     "wolf" => return Some(Look::creature(bake::Body::Wolf, 0x8a8a86ff, 100)),
+                    "tiger" => {
+                        let mut t = Look::creature(bake::Body::Wolf, d.color, 128);
+                        t.stripes = 0x1a1008ff;
+                        return Some(t);
+                    }
                     "mongbat" => return Some(Look::creature(bake::Body::Bat, 0x6a4e6aff, 100)),
                     "slime" => return Some(Look::creature(bake::Body::Slime, 0x5aa83aff, 100)),
                     "spider" => return Some(Look::creature(bake::Body::Spider, d.color, 135)),
@@ -1755,7 +1894,7 @@ impl Game {
         let base = self.map.level(x, y) as f32;
         if tl != T_MOUNT {
             let pts = self.diamond(sx, sy, &cn);
-            self.pat(c, tex_of(tl), base * lz);
+            self.pat(c, self.ground_tex(x, y, tl), base * lz);
             c.poly(&pts);
             if tl == T_BRIDGE {
                 let sy = sy - base * lz;
@@ -1809,7 +1948,7 @@ impl Game {
             if cn[1] <= n1[0] + 0.01 || cn[2] <= n1[3] + 0.01 {
                 self.pat(
                     c,
-                    tex_of(self.map.tile(x, y)),
+                    self.ground_tex(x, y, self.map.tile(x, y)),
                     self.map.level(x, y) as f32 * lz,
                 );
             } else {
@@ -1833,7 +1972,7 @@ impl Game {
             if cn[3] <= n2[0] + 0.01 || cn[2] <= n2[1] + 0.01 {
                 self.pat(
                     c,
-                    tex_of(self.map.tile(x, y)),
+                    self.ground_tex(x, y, self.map.tile(x, y)),
                     self.map.level(x, y) as f32 * lz,
                 );
             } else {
@@ -1886,7 +2025,7 @@ impl Game {
             let (u, v) = edge(k as f32 / n as f32, d);
             pts.push(pt(u, v));
         }
-        self.pat(c, tex_of(tl), lift);
+        self.pat(c, self.ground_tex(x, y, tl), lift);
         c.poly(&pts);
         if self.map.tile(x + dir.0, y + dir.1) == T_WATER {
             c.stroke(0x9aa8c060, 1.2 * self.pix.max(z));
@@ -2087,7 +2226,8 @@ impl Game {
         };
         let mh = 9.0 * z;
         let ink = self.pix.max(z);
-        let stone = 0x6a6660ff;
+        let fort = matches!(style, WALL_FORT | WALL_BASTION);
+        let stone = if fort { 0xa85a40ff } else { 0x6a6660ff };
         // back edges first (towards -y, -x), then the front ones
         let edges = [
             (x, y - 1, false, -0.36f32),
@@ -2128,6 +2268,11 @@ impl Game {
                 c.poly(&right);
                 c.fill(shade(stone, 1.0));
                 c.poly(&top);
+                if fort {
+                    // the south's merlons end in rounded caps
+                    let (tx, ty) = at(cu, cv, mh);
+                    c.ell(tx, ty - 1.5 * z, 4.0 * z, 3.0 * z);
+                }
             }
         }
         c.outline(INK, ink);
@@ -2326,7 +2471,7 @@ impl Game {
                 c.alpha(1.0);
                 c.outline(INK, self.pix.max(z));
                 lights.push((tx + fxo, ty - 11.0 * z, 110.0, 0xff9040ff));
-            } else if k < 5 && style != 4 {
+            } else if k < 5 && style != 4 && !southern(style) {
                 let v = bake::P_BANNER + ((x + y) as usize & 1);
                 c.sprite(
                     pid,
@@ -2371,6 +2516,21 @@ impl Game {
             let flip_v = sh & 4 != 0;
             let anim4 = ((t * 9.0) as usize + (x * 3 + y) as usize) % 4;
             let pick = match o {
+                O_TREE if self.map.tropic(x, y) => {
+                    // palms, mostly; a banyan or a stand of bamboo in the jungle
+                    let k = if style & 0x7f == 1 {
+                        bake::P_DEAD + (sh as usize % 2)
+                    } else if self.map.res[idx(x, y)] == 0 {
+                        bake::P_STUMP
+                    } else if self.map.tile(x, y) == T_SAND || sh % 5 < 3 {
+                        bake::P_PALM + (sh as usize / 5 % 2)
+                    } else if sh % 5 == 3 {
+                        bake::P_BANYAN
+                    } else {
+                        bake::P_BAMBOO
+                    };
+                    Some((k, flip_v))
+                }
                 O_TREE => {
                     let k = if style & 0x7f == 1 {
                         bake::P_DEAD + (sh as usize % 2)
@@ -2603,15 +2763,10 @@ impl Game {
             }
             O_WALL if style == WALL_BURROW => self.burrow_wall(c, x, y, sx, sy, z),
             O_WALL => {
-                let castle = style == WALL_CASTLE || style == WALL_TOWER;
+                let castle = matches!(style, WALL_CASTLE | WALL_TOWER | WALL_FORT | WALL_BASTION);
                 let storeys = self.wall_storeys(x, y);
                 let hgt = 38.0 * ZS * z * wall_h(style) * storeys as f32;
-                let tex = match style {
-                    2 => TEX_WOODWALL,
-                    3 => TEX_PLASTER,
-                    WALL_CASTLE | WALL_TOWER | WALL_ELVEN => TEX_ASHLAR,
-                    _ => TEX_BRICK,
-                };
+                let tex = wall_tex(style);
                 let left = [
                     (sx - hw, sy),
                     (sx, sy + hh),
@@ -2630,6 +2785,10 @@ impl Game {
                     (sx, sy + hh - hgt),
                     (sx - hw, sy - hgt),
                 ];
+                if style == WALL_HAVELI {
+                    // lime-wash runs on unbroken from tile to tile
+                    c.outline(0x12100c30, self.pix.max(z));
+                }
                 self.face_pat(c, tex, false);
                 c.poly(&left);
                 self.face_pat(c, tex, true);
@@ -2679,9 +2838,13 @@ impl Game {
                     }
                     let out = self.map.tile(x, y + 1) != T_FLOOR
                         && !matches!(self.map.obj(x, y + 1), O_WALL | O_DOOR);
-                    if (x + y) % 3 == 0 && out {
+                    if (x + y) % 3 == 0 && out && style != WALL_TEMPLE {
                         for k in 0..storeys {
-                            self.house_window(c, x, y, &p, k, style, z, lights);
+                            if southern(style) {
+                                self.jharokha(c, x, y, &p, k, style, z, lights);
+                            } else {
+                                self.house_window(c, x, y, &p, k, style, z, lights);
+                            }
                         }
                     }
                 }
@@ -3073,6 +3236,13 @@ impl Game {
         let reach = (wall_h(b.style) * b.storeys() as f32 * 5.0).round() as i32;
         let behind = px >= b.x - 2 && px <= b.x + bw + 2 && py >= b.y - reach && py < b.y;
         let side = py >= b.y - 2 && py <= b.y + bh + 1 && px >= b.x - reach && px < b.x;
+        // a temple's tower hides still more
+        let tall = if b.style == WALL_TEMPLE { 6 } else { 0 };
+        let behind =
+            behind || (px >= b.x - 2 && px <= b.x + bw + 2 && py >= b.y - reach - tall && py < b.y);
+        if self.south_roof(c, b, z, if behind || side { 0.3 } else { 1.0 }) {
+            return;
+        }
         let (x0, y0, x1, y1) = (
             b.x as f32 - 0.8,
             b.y as f32 - 0.8,
@@ -4298,6 +4468,10 @@ fn wall_h(style: u8) -> f32 {
         WALL_TOWER => 1.9,
         WALL_BURROW => 0.95,
         WALL_ELVEN => 1.15,
+        WALL_FORT => 1.6,
+        WALL_BASTION => 2.05,
+        WALL_PALACE => 1.35,
+        WALL_TEMPLE => 1.1,
         _ => 1.0,
     }
 }
@@ -4321,12 +4495,7 @@ impl Game {
     #[allow(clippy::too_many_arguments)]
     fn wall_box(&self, c: &mut Canvas, sx: f32, sy: f32, hgt: f32, style: u8, z: f32) {
         let (hw, hh) = (32.0 * z + 0.6, 16.0 * z + 0.6);
-        let tex = match style {
-            2 => TEX_WOODWALL,
-            3 => TEX_PLASTER,
-            WALL_CASTLE | WALL_TOWER => TEX_ASHLAR,
-            _ => TEX_BRICK,
-        };
+        let tex = wall_tex(style);
         let left = [
             (sx - hw, sy),
             (sx, sy + hh),

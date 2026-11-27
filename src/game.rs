@@ -758,6 +758,15 @@ impl Game {
                     g.rng.pick(vd.names),
                     crate::pack::t(STALL_TITLES[k])
                 )
+            } else if g.map.in_raj(x, y) && !south_folk(v).0.is_empty() {
+                // the southern cities' own people
+                let (names, title, _) = south_folk(v);
+                let n = g.rng.pick(names);
+                if title.is_empty() {
+                    n.to_string()
+                } else {
+                    format!("{n} {}", crate::pack::t(title))
+                }
             } else if vd.title.is_empty() {
                 g.rng.pick(vd.names).to_string()
             } else {
@@ -2019,12 +2028,20 @@ impl Game {
             let day = crate::sim::Sim::day(self.time);
             let pick = self.rng.next_u32();
             let rumour = match v {
-                V_GUARD | V_FOLK | V_BARKEEP | V_LORD if self.rng.chance(0.4) => {
+                V_GUARD | V_FOLK | V_BARKEEP | V_LORD | V_RAJA if self.rng.chance(0.4) => {
                     self.sim.rumour(day, pick).map(|s| s.to_string())
                 }
                 _ => None,
             };
-            let line = rumour.unwrap_or_else(|| self.rng.pick(VENDORS[v].chatter).to_string());
+            let (hx, hy) = self.ents[i].home;
+            let south = south_folk(v).2;
+            let line = rumour.unwrap_or_else(|| {
+                if self.map.in_raj(hx, hy) && !south.is_empty() {
+                    crate::pack::t(self.rng.pick(south))
+                } else {
+                    self.rng.pick(VENDORS[v].chatter).to_string()
+                }
+            });
             self.ents[i].talk(&line, 0xffffffff);
         }
         let (hx, hy) = self.ents[i].home;
@@ -2040,7 +2057,7 @@ impl Game {
         let r = match v {
             V_GUARD => 4,
             V_FOLK | V_VILLAGER | V_ELF => 6,
-            V_LORD => 0,
+            V_LORD | V_RAJA => 0,
             _ => 1,
         };
         let (tx, ty) = (hx + self.rng.range(-r, r), hy + self.rng.range(-r, r));
