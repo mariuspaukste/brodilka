@@ -171,6 +171,9 @@ pub struct Building {
     pub style: u8,
     /// the storeys above the ground floor, lowest first
     pub floors: Vec<Floor>,
+    /// a room built onto another building (by its index): one house with
+    /// it, entered through it, its roof lifting with the house's
+    pub part_of: Option<usize>,
 }
 
 impl Building {
@@ -454,6 +457,11 @@ impl Map {
         }
         self.buildings.iter().position(|b| b.contains(x, y))
     }
+    /// The house a building is part of: its own index, or the index of the
+    /// building it was built onto.
+    pub fn house_of(&self, b: usize) -> usize {
+        self.buildings[b].part_of.unwrap_or(b)
+    }
     /// The thin-walled building on a tile, if any.
     pub fn thin_at(&self, x: i32, y: i32) -> Option<&Building> {
         self.building_at(x, y)
@@ -468,6 +476,11 @@ impl Map {
         let (a, b) = (self.building_at(x, y), self.building_at(nx, ny));
         if a == b {
             return false;
+        }
+        if let (Some(i), Some(j)) = (a, b) {
+            if self.house_of(i) == self.house_of(j) {
+                return fl > 0 || (self.obj(x, y) != O_DOOR && self.obj(nx, ny) != O_DOOR);
+            }
         }
         let side = |bi: Option<usize>, tx: i32, ty: i32| match bi {
             Some(i) if self.buildings[i].thin() => fl > 0 || self.obj(tx, ty) != O_DOOR,
@@ -1038,6 +1051,7 @@ impl Map {
             vendor,
             style,
             floors: vec![],
+            part_of: None,
         });
         self.npcs.push((vendor, bx + 3, by + 2));
     }
@@ -1133,6 +1147,112 @@ impl Map {
                     }
                 }
             }
+        }
+    }
+
+    /// Build rooms onto the back of the building at (bx, by): a rectangle
+    /// `w`×`h` with its corner at (ax, ay), standing right behind it
+    /// (`ay + h == by`), so the house is an L, a T or a step rather than a
+    /// box, each part under its own roof. A door in the wall between leads
+    /// through (one small thing in the shop's back row is cleared away from
+    /// it if it must be). `split`, a column from the corner, divides the
+    /// annex into two rooms with a door between. `back` furnishes the back
+    /// wall from the left (O_NONE leaves a gap) and `side` the left wall from
+    /// the back; `thin_walls` sets them back against the walls later.
+    fn annex(
+        &mut self,
+        bx: i32,
+        by: i32,
+        (ax, ay, w, h): (i32, i32, i32, i32),
+        split: Option<i32>,
+        back: &[u8],
+        side: &[u8],
+    ) {
+        let Some(main) = self.buildings.iter().position(|b| b.x == bx && b.y == by) else {
+            return;
+        };
+        let (mw, style, vendor) = {
+            let b = &self.buildings[main];
+            (b.w, b.style, b.vendor)
+        };
+        debug_assert_eq!(ay + h, by, "an annex stands right behind its building");
+        for y in ay..ay + h {
+            for x in ax..ax + w {
+                if !inb(x, y) {
+                    continue;
+                }
+                let i = idx(x, y);
+                self.t[i] = T_FLOOR;
+                self.o[i] = O_NONE;
+                self.style[i] = style;
+                self.road[i] = false;
+                self.ramp[i] = false;
+            }
+        }
+        // the door through: where the shop's back row is clear, nearest the
+        // middle of the annex's first room
+        let room_end = split.map(|s| ax + s).unwrap_or(ax + w);
+        let mid = (ax + room_end - 1) / 2;
+        let mut cands: Vec<i32> = (ax.max(bx) + 1..room_end.min(bx + mw) - 1).collect();
+        cands.sort_by_key(|&x| (x - mid).abs());
+        let small = |o: u8| size(o).0 == 1 && !matches!(o, O_STAIRS | O_HEARTH | O_PART);
+        let Some(lx) = cands
+            .iter()
+            .copied()
+            .find(|&x| self.obj(x, by + 1) == O_NONE)
+            .or_else(|| cands.iter().copied().find(|&x| small(self.obj(x, by + 1))))
+        else {
+            return;
+        };
+        let i = idx(lx, by + 1);
+        self.o[i] = O_NONE;
+        self.style[i] = style;
+        self.set_door(lx, ay + h - 1);
+        // and between the two rooms of a split annex
+        let inner = split.map(|s| (ax + s - 1, ay + h / 2));
+        if let Some((dx, dy)) = inner {
+            self.set_door(dx, dy);
+        }
+        // furniture along the back and the left wall, clear of the doors
+        let clear = |x: i32, y: i32| {
+            (x == lx && y >= ay + h - 2)
+                || inner.is_some_and(|(dx, dy)| (x - dx).abs() <= 2 && y == dy)
+        };
+        for (k, &o) in back.iter().enumerate() {
+            let (x, y) = (ax + 1 + k as i32, ay + 1);
+            let wall = split.is_some_and(|s| x == ax + s || x == ax + s - 1);
+            if o != O_NONE && x < ax + w - 1 && !wall && !clear(x, y) {
+                self.o[idx(x, y)] = o;
+                self.style[idx(x, y)] = style | FACE_S;
+            }
+        }
+        for (k, &o) in side.iter().enumerate() {
+            let (x, y) = (ax + 1, ay + 2 + k as i32);
+            if o != O_NONE && y < ay + h - 1 && !clear(x, y) {
+                self.o[idx(x, y)] = o;
+            }
+        }
+        // anyone who stood where the rooms went up steps out of the way
+        for n in self.npcs.iter_mut() {
+            if n.1 >= ax && n.1 < ax + w && n.2 >= ay && n.2 < ay + h {
+                n.2 = ay - 1;
+            }
+        }
+        let rects = match split {
+            Some(s) => vec![(ax, s), (ax + s, w - s)],
+            None => vec![(ax, w)],
+        };
+        for (x, pw) in rects {
+            self.buildings.push(Building {
+                x,
+                y: ay,
+                w: pw,
+                h,
+                vendor,
+                style,
+                floors: vec![],
+                part_of: Some(main),
+            });
         }
     }
 
@@ -1273,6 +1393,7 @@ impl Map {
             vendor: lord,
             style,
             floors: vec![],
+            part_of: None,
         });
         self.npcs.push((lord, door - 1, by + 2));
     }
@@ -1933,6 +2054,41 @@ pub fn generate(seed: u32) -> Map {
     m.add_floors(x0 + 26, y0 + 2, &[WARD]);
     m.add_floors(x0 + 26, y0 + 30, &[GALLERY]);
     m.add_floors(x0 + 14, y0 + 2, &[STUDY, TOWER_TOP]);
+    // rooms built on behind: the banker's strongroom, a sickroom and a
+    // dispensary behind the healer's, the pub's kitchen, the library's
+    // archive; so the houses stand in Ls, Ts and steps
+    m.annex(
+        x0 + 2,
+        y0 + 2,
+        (x0 + 1, y0 - 2, 6, 4),
+        None,
+        &[O_CHEST, O_CHEST, O_SHELF, O_CHEST],
+        &[O_CANDLES],
+    );
+    m.annex(
+        x0 + 26,
+        y0 + 2,
+        (x0 + 28, y0 - 2, 8, 4),
+        Some(4),
+        &[O_BED, O_HERBS, O_NONE, O_NONE, O_JARS, O_SHELF],
+        &[],
+    );
+    m.annex(
+        x0 + 2,
+        y0 + 30,
+        (x0 + 4, y0 + 26, 6, 4),
+        None,
+        &[O_HEARTH, O_BARREL, O_JARS, O_SACKS],
+        &[O_TABLE],
+    );
+    m.annex(
+        x0 + 26,
+        y0 + 30,
+        (x0 + 25, y0 + 26, 7, 4),
+        None,
+        &[O_SHELF, O_SHELF, O_DESK, O_SHELF, O_SHELF],
+        &[O_CANDLES],
+    );
     m.set_o(x0 + 3, y0 + 23, O_FORGE);
     m.set_o(x0 + 6, y0 + 23, O_ANVIL);
     for (dx, dy) in [(17, 12), (18, 12), (17, 13), (18, 13)] {
@@ -2187,6 +2343,23 @@ fn city(m: &mut Map) {
     m.add_floors(x0 + 11, hy, &[INN_ROOMS]);
     m.guests.push((V_FOLK, x0 + 11 + 4, hy + 3, 1));
     m.add_floors(x0 + 31, hy, &[STUDY, TOWER_TOP]);
+    // behind the smithy a store, and behind the inn two bedrooms
+    m.annex(
+        x0 + 2,
+        hy,
+        (x0 + 2, hy - 4, 6, 4),
+        None,
+        &[O_CRATE, O_BARREL, O_SACKS, O_CRATE],
+        &[O_RACK],
+    );
+    m.annex(
+        x0 + 22,
+        hy,
+        (x0 + 22, hy - 4, 8, 4),
+        Some(4),
+        &[O_BED, O_WARDROBE, O_NONE, O_NONE, O_BED, O_DRESSER],
+        &[],
+    );
     // drinkers' benches out in the street, under the castle walls
     m.place(x0 + 13, y0 + 19, O_LONGTABLE, false);
     m.place(x0 + 14, y0 + 19, O_CHAIR, true);
@@ -2517,6 +2690,7 @@ impl Map {
             vendor,
             style: WALL_BURROW,
             floors: vec![],
+            part_of: None,
         });
         self.npcs.push((vendor, dx, by + 2));
     }
@@ -3013,29 +3187,58 @@ mod tests {
         }
     }
 
-    /// Furniture never walls off part of a room, a shopkeeper or a stair.
+    /// Furniture never walls off part of a room, a shopkeeper or a stair,
+    /// and every room built on behind a house is reached through it.
     #[test]
     fn furnished_rooms_stay_walkable() {
         for seed in [1409u32, 7, 99] {
             let m = generate(seed);
-            for b in &m.buildings {
+            let mut annexed = 0;
+            for (bi, b) in m.buildings.iter().enumerate() {
+                if b.part_of.is_some() {
+                    continue;
+                }
+                // the house: this building and the rooms built onto it
+                let parts: Vec<&Building> = std::iter::once(b)
+                    .chain(m.buildings.iter().filter(|o| o.part_of == Some(bi)))
+                    .collect();
+                annexed += parts.len() - 1;
+                let open =
+                    |x: i32, y: i32| parts.iter().any(|p| p.room(x, y)) && !blocks(m.obj(x, y));
                 let (bx, by) = (b.x, b.y);
-                let open = |x: i32, y: i32| !blocks(m.obj(bx + x, by + y));
                 // in from the door(s) in the front wall
-                let doors: Vec<(i32, i32)> = (1..b.w - 1)
+                let fy = if b.thin() { by + b.h - 1 } else { by + b.h - 2 };
+                let mut todo: Vec<(i32, i32)> = (1..b.w - 1)
                     .filter(|&x| m.obj(bx + x, by + b.h - 1) == O_DOOR)
-                    .map(|x| (x, b.h - 2))
+                    .map(|x| (bx + x, fy))
                     .filter(|&(x, y)| open(x, y))
                     .collect();
                 assert!(
-                    !doors.is_empty(),
+                    !todo.is_empty(),
                     "building at {bx},{by} has its door blocked"
                 );
-                if let Some((x, y)) = all_reached(b.w, b.h, b.thin() as i32, &open, &doors) {
-                    panic!(
-                        "building at {bx},{by} (vendor {}): tile {x},{y} walled off",
-                        b.vendor
-                    );
+                let mut seen: std::collections::HashSet<(i32, i32)> =
+                    todo.iter().copied().collect();
+                while let Some((x, y)) = todo.pop() {
+                    for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+                        let n = (x + dx, y + dy);
+                        if open(n.0, n.1) && !seen.contains(&n) && !m.wall_between(x, y, dx, dy, 0)
+                        {
+                            seen.insert(n);
+                            todo.push(n);
+                        }
+                    }
+                }
+                for p in &parts {
+                    for y in p.y..p.y + p.h {
+                        for x in p.x..p.x + p.w {
+                            assert!(
+                                !open(x, y) || seen.contains(&(x, y)),
+                                "seed {seed}: building at {bx},{by} (vendor {}): tile {x},{y} walled off",
+                                b.vendor
+                            );
+                        }
+                    }
                 }
                 for (k, f) in b.floors.iter().enumerate() {
                     let open = |x: i32, y: i32| !blocks(f.o[(y * b.w + x) as usize]);
@@ -3054,6 +3257,7 @@ mod tests {
                     }
                 }
             }
+            assert!(annexed >= 6, "seed {seed}: {annexed} rooms built on");
         }
     }
 }

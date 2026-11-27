@@ -308,6 +308,18 @@ windows on each, under a roof raised to match. A building's upper floors are
 `world::Floor`s (walls, furniture and stairs over its footprint); every
 entity stands on a storey (`Ent::fl`), and the floor is kept in the save.
 
+## Houses of more than one room
+
+Not every house is a box. Some have rooms built on behind (`Map::annex`),
+so they stand in an L, a T or a step, each part under its own hipped roof:
+the banker's strongroom, a sickroom and a dispensary behind the healer's,
+the pub's kitchen and the library's archive in the town, a store behind
+Duskhold's smithy and two bedrooms behind its inn, and in Suryagarh the
+smith's store and the jyotishi's chamber of charts. A door in the wall
+between leads through, a wall with a door in it splits the larger ones in
+two, and every room is furnished for what it is. The whole house's roof
+lifts as one when you walk in.
+
 ## World packs
 
 The engine plays its own world, but a **world pack** can rename and

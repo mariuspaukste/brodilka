@@ -253,6 +253,24 @@ impl Map {
         self.building(x0 + 34, y0 + 25, WALL_HAVELI, V_MAGE);
         self.add_floors(x0 + 11, y0 + 20, &[INN_ROOMS]);
         self.add_floors(x0 + 34, y0 + 25, &[STUDY]);
+        // rooms built on behind: the smith's store under the wall, the
+        // jyotishi's chamber of charts
+        self.annex(
+            x0 + 2,
+            y0 + 6,
+            (x0 + 3, y0 + 2, 5, 4),
+            None,
+            &[O_CRATE, O_SACKS, O_JARS],
+            &[O_BARREL],
+        );
+        self.annex(
+            x0 + 34,
+            y0 + 25,
+            (x0 + 35, y0 + 21, 6, 4),
+            None,
+            &[O_SHELF, O_ORRERY, O_NONE, O_SHELF],
+            &[O_CANDLES],
+        );
         // stalls and bundles along the square, palms in the yards
         for (dx, dy, o) in [
             (12, 16, O_JARS),

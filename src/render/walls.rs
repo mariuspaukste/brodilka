@@ -44,10 +44,19 @@ impl Game {
     ) {
         if back {
             if let Some(b) = self.map.thin_at(x, y) {
-                if y == b.y {
+                // where two parts of one house meet, the wall between them is
+                // the front wall of the part behind, drawn from this side
+                let joined = |nx: i32, ny: i32| match (
+                    self.map.building_at(x, y),
+                    self.map.building_at(nx, ny),
+                ) {
+                    (Some(i), Some(j)) => self.map.house_of(i) == self.map.house_of(j),
+                    _ => false,
+                };
+                if y == b.y && !joined(x, y - 1) {
                     self.thin_wall(c, x, y, Side::N, b.style, floor, false, z, t, lights);
                 }
-                if x == b.x {
+                if x == b.x && !joined(x - 1, y) {
                     self.thin_wall(c, x, y, Side::W, b.style, floor, false, z, t, lights);
                 }
             }

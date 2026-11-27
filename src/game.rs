@@ -3595,8 +3595,8 @@ mod tests {
                 .filter(|b| b.x > x0 && b.x < x1 && b.y > y0 && b.y < y1)
                 .map(|b| (b.x + 3, b.y + 2))
                 .collect();
-            // six houses and the keep
-            assert_eq!(shops.len(), 7);
+            // six houses and the keep, and three rooms built onto houses
+            assert_eq!(shops.len(), 10);
             for (x, y) in shops {
                 assert!(g.map.find_path_as(sx, sy, x, y, 1, PERSON).is_some());
             }

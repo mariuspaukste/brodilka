@@ -630,6 +630,10 @@ impl Game {
         if ix1 - ix0 < 2 || iy1 - iy0 < 2 || b.style == 4 {
             return;
         }
+        // no rug across a wall that splits the room
+        if (iy0..=iy1).any(|y| (ix0..=ix1).any(|x| self.map.obj(x, y) == O_WALL)) {
+            return;
+        }
         let hv = h2(b.x, b.y, 81);
         let (field, border, motif) = match b.style {
             WALL_CASTLE | WALL_TOWER => (0x6a1a1aff, 0x2a1a30ff, 0xc8a040ff),
@@ -2279,7 +2283,7 @@ impl Game {
         self.map
             .buildings
             .iter()
-            .find(|b| b.x + 4 == x && b.y + 6 == y)
+            .find(|b| b.part_of.is_none() && b.x + 4 == x && b.y + 6 == y)
             .map(|b| match (b.vendor, b.style) {
                 (V_SMITH, _) => "SMITH",
                 (V_MAGE, _) => "MAGE",
@@ -3390,6 +3394,17 @@ impl Game {
         let (bw, bh) = (b.w - 1, b.h - 1);
         if px >= b.x && px <= b.x + bw && py >= b.y && py <= b.y + bh {
             return;
+        }
+        // a house built of several parts opens up all together
+        let bs = &self.map.buildings;
+        let house = |i: usize| bs[i].part_of.unwrap_or(i);
+        if let (Some(me), Some(at)) = (
+            bs.iter().position(|o| std::ptr::eq(o, b)),
+            self.map.building_at(px, py),
+        ) {
+            if bs[at].room(px, py) && house(me) == house(at) {
+                return;
+            }
         }
         if b.style == WALL_BURROW {
             return self.mound(c, b, z);
