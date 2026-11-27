@@ -325,6 +325,70 @@ pub fn inb(x: i32, y: i32) -> bool {
     x >= 0 && y >= 0 && x < W && y < H
 }
 
+// ---------------------------------------------------------------- the hex cells
+// Under the square tiles lies a grid of hex cells, one tile's area each,
+// flat-topped and laid square to the screen. The terraces are shaped from
+// them: every tile takes the level of its cell, and the ground is drawn
+// along the cells' edges where levels change (see `render::terrace`), so a
+// ledge runs as an unbroken line however it lies, not in square steps.
+
+/// circumradius of a hex cell, in tiles (its area is one tile)
+pub const HEX_R: f32 = 0.620_403_6;
+const S2: f32 = std::f32::consts::FRAC_1_SQRT_2;
+const SQ3: f32 = 1.732_050_8;
+
+/// The centre of hex cell (q, r), in tiles.
+pub fn hex_centre(q: i32, r: i32) -> (f32, f32) {
+    let u = HEX_R * 1.5 * q as f32;
+    let v = HEX_R * SQ3 * (r as f32 + q as f32 * 0.5);
+    (S2 * (u + v), S2 * (v - u))
+}
+/// Corner `k` (0..6, round from the right) of hex cell (q, r), in tiles.
+/// Edge `k` runs from corner k to corner k + 1 and faces `HEX_NB[k]`.
+pub fn hex_corner(q: i32, r: i32, k: usize) -> (f32, f32) {
+    let (cx, cy) = hex_centre(q, r);
+    let a = std::f32::consts::PI / 3.0 * k as f32;
+    let (du, dv) = (HEX_R * a.cos(), HEX_R * a.sin());
+    (cx + S2 * (du + dv), cy + S2 * (dv - du))
+}
+/// the neighbour of a cell across each of its edges
+pub const HEX_NB: [(i32, i32); 6] = [(1, 0), (0, 1), (-1, 1), (-1, 0), (0, -1), (1, -1)];
+/// The hex cell a point (in tiles) lies in.
+pub fn hex_of(x: f32, y: f32) -> (i32, i32) {
+    let (u, v) = (S2 * (x - y), S2 * (x + y));
+    let qf = u / (1.5 * HEX_R);
+    let rf = v / (SQ3 * HEX_R) - qf * 0.5;
+    let (cx, cz) = (qf, rf);
+    let cy = -cx - cz;
+    let (mut rx, ry, mut rz) = (cx.round(), cy.round(), cz.round());
+    let (dx, dy, dz) = ((rx - cx).abs(), (ry - cy).abs(), (rz - cz).abs());
+    if dx > dy && dx > dz {
+        rx = -ry - rz;
+    } else if dy <= dz {
+        rz = -rx - ry;
+    }
+    (rx as i32, rz as i32)
+}
+/// The tile whose level a hex cell's ground is drawn at: the one whose
+/// centre lies in it (nearest its centre), else the one under its centre.
+pub fn hex_tile(q: i32, r: i32) -> (i32, i32) {
+    let (cx, cy) = hex_centre(q, r);
+    let (tx, ty) = (cx.round() as i32, cy.round() as i32);
+    let mut best = ((tx, ty), f32::MAX, false);
+    for dy in -1..=1 {
+        for dx in -1..=1 {
+            let (x, y) = (tx + dx, ty + dy);
+            if hex_of(x as f32, y as f32) == (q, r) {
+                let d = (x as f32 - cx).powi(2) + (y as f32 - cy).powi(2);
+                if d < best.1 {
+                    best = ((x, y), d, true);
+                }
+            }
+        }
+    }
+    best.0
+}
+
 fn hash(x: i32, y: i32, seed: u32) -> f32 {
     let mut h = (x as u32).wrapping_mul(374_761_393)
         ^ (y as u32).wrapping_mul(668_265_263)
@@ -1434,6 +1498,22 @@ impl Map {
                     }
                     v.sort_unstable();
                     self.lv[i] = v[v.len() / 2];
+                }
+            }
+        }
+        // every tile of a hex cell takes the level of the cell's own tile,
+        // so the ledges follow the cells' edges
+        let prev = self.lv.clone();
+        for y in 0..H {
+            for x in 0..W {
+                let i = idx(x, y);
+                if !land(self.t[i]) || self.t[i] == T_SAND || self.t[i] == T_BRIDGE {
+                    continue;
+                }
+                let (q, r) = hex_of(x as f32, y as f32);
+                let (hx, hy) = hex_tile(q, r);
+                if inb(hx, hy) {
+                    self.lv[i] = prev[idx(hx, hy)];
                 }
             }
         }

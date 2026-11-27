@@ -8,6 +8,7 @@ use crate::world::*;
 use std::collections::{HashMap, VecDeque};
 
 mod south;
+mod terrace;
 mod walls;
 use south::southern;
 
@@ -747,8 +748,9 @@ impl Game {
         let z = self.zoom;
         let t = self.clock;
         let scr = |x: i32, y: i32| self.to_screen(x as f32, y as f32);
-        // ---- flat ground
+        // ---- flat ground; terraces are gathered and drawn on hex cells
         let mut erasing = false;
+        let mut terraced = vec![];
         for s in s0..=s1 {
             for d in d0..=d1 {
                 if (s + d) & 1 != 0 {
@@ -776,6 +778,14 @@ impl Game {
                     c.erase(false);
                     erasing = false;
                 }
+                if self.terraced(x, y) {
+                    // its own ground under the cells, for any sliver they miss
+                    let lv = self.map.level(x, y) as f32;
+                    self.pat(c, self.ground_tex(x, y, tl), lv * LH * z);
+                    c.poly(&self.diamond(sx, sy, &[lv; 4]));
+                    terraced.push((x, y));
+                    continue;
+                }
                 let sh = if inb(x, y) {
                     self.map.shade[idx(x, y)]
                 } else {
@@ -787,6 +797,7 @@ impl Game {
         if erasing {
             c.erase(false);
         }
+        self.terraces(c, &terraced, holes);
         // ---- ragged terrain borders
         for s in s0..=s1 {
             for d in d0..=d1 {
@@ -809,6 +820,8 @@ impl Game {
                     if self.prio_at(nx, ny) < pr
                         && self.map.level(nx, ny) == lvl
                         && !self.map.is_ramp(nx, ny)
+                        && !self.terraced(x, y)
+                        && !self.terraced(nx, ny)
                     {
                         self.fringe(c, x, y, sx, sy, tl, dir, z);
                     }
@@ -849,6 +862,10 @@ impl Game {
                     let (nx, ny) = (x + dx, y + dy);
                     let t = self.map.tile(nx, ny);
                     if t == T_WATER || t == T_BRIDGE || !inb(nx, ny) {
+                        continue;
+                    }
+                    // a terraced bank has its foam on its hex edges
+                    if self.terraced(nx, ny) {
                         continue;
                     }
                     // a bank at the water's level spills its ragged edge over
