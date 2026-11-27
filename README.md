@@ -222,7 +222,13 @@ blades of grass, clover and the odd flower; tracks have pebbles, ruts and dry
 grass at their edges; water swells and catches the sky, with a line of foam
 where it meets the bank; rock is cracked and spotted with lichen. Woods mix
 oaks, pines and white-barked birches, and the oaks turn amber in autumn and
-stand bare in winter. Hedges are banks of leafy clumps.
+stand bare in winter. Trees are baked from clumps of small leaves, each leaf
+lit as part of its clump (`src/bake/trees.rs`), so a crown reads as a few
+solid masses: yellow-green where the light falls on their upper left, cool
+and deep beneath, with glints and gaps between the leaves. Oaks stand on
+flared roots and fork into limbs under their clumps; pines rise in tiers of
+drooping boughs to a spire; birches carry light crowns with hanging ends;
+dead trees fork crookedly twice over. Hedges are banks of leafy clumps.
 
 Houses have thin walls, as Ultima Online's do: a wall stands on the outer
 edge of the house's footprint rather than filling a whole tile, so the rooms

@@ -7,6 +7,7 @@
 //! at 2x and reduced, then given a dark silhouette outline.
 mod furniture;
 pub mod icons;
+mod trees;
 mod tropic;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -631,6 +632,10 @@ enum Mat {
     Membrane,
     /// foliage: lit like cloth, broken up into clumps of light and dark leaves
     Leaf,
+    /// a tree's leaves, each lit as part of the clump it belongs to (see
+    /// `Prim::vol`): warm and bright where the light falls on the mass, cool
+    /// and deep in its shade, with glints and gaps between the leaves
+    Foliage,
     /// clothing: deeper shadows than plain matte, with faint fold streaks
     Cloth,
     /// sawn timber: grain running along each board's long side, the seams
@@ -649,6 +654,9 @@ struct Prim {
     rb: f32,
     color: u32,
     mat: Mat,
+    /// the mass this shape belongs to (centre, radius): its surface is lit
+    /// mostly as that mass's, so a clump of leaves reads as one form
+    vol: Option<(V3, f32)>,
 }
 
 /// lateral unit vector pointing to the figure's right, after torso twist
@@ -685,6 +693,7 @@ fn build(look: &Look, q: &Pose) -> Vec<Prim> {
             rb,
             color,
             mat,
+            vol: None,
         })
     };
     let skin_mat = if look.skeleton { Mat::Bone } else { Mat::Matte };
@@ -1400,6 +1409,7 @@ fn prim(v: &mut Vec<Prim>, a: V3, b: V3, ra: f32, rb: f32, color: u32, mat: Mat)
         rb,
         color,
         mat,
+        vol: None,
     });
 }
 fn shade_col(c: u32, k: f32) -> u32 {
@@ -2708,7 +2718,10 @@ fn prop(kind: usize) -> Figure {
     let mut b: Vec<BoxP> = vec![];
     let wood = 0x6a4628ff;
     let dark = 0x3e2816ff;
-    if furniture::build(kind, &mut p, &mut b) || tropic::build(kind, &mut p, &mut b) {
+    if furniture::build(kind, &mut p, &mut b)
+        || tropic::build(kind, &mut p, &mut b)
+        || trees::build(kind, &mut p, &mut b)
+    {
         return Figure {
             prims: p,
             boxes: b,
@@ -2772,303 +2785,6 @@ fn prop(kind: usize) -> Figure {
                     0.02,
                     gold,
                     Mat::Metal,
-                );
-            }
-        }
-        k if (P_OAK..P_OAK + 3).contains(&k) => {
-            let v = k - P_OAK;
-            let trunk = 0x4a3220ff;
-            prim(
-                &mut p,
-                [0.0, 0.0, 0.0],
-                [0.05, 0.0, 1.5],
-                0.16,
-                0.1,
-                trunk,
-                Mat::Matte,
-            );
-            prim(
-                &mut p,
-                [0.05, 0.0, 1.1],
-                [0.5, 0.25, 1.75],
-                0.07,
-                0.04,
-                trunk,
-                Mat::Matte,
-            );
-            prim(
-                &mut p,
-                [0.0, 0.0, 1.2],
-                [-0.4, -0.3, 1.8],
-                0.07,
-                0.04,
-                trunk,
-                Mat::Matte,
-            );
-            // a ragged canopy of many small leaf clumps in a few lobes
-            let rad = 0.8 + v as f32 * 0.12;
-            let lobes = 4 + v;
-            let greens = [
-                0x24381affu32,
-                0x2c4620ff,
-                0x35521fff,
-                0x1e3016ff,
-                0x3e5a24ff,
-            ];
-            for l in 0..lobes {
-                let la = hsh(l, v * 11 + 20) * std::f32::consts::TAU;
-                let lr = rad * (0.35 + hsh(l, v * 11 + 21) * 0.45);
-                let lc = [
-                    la.cos() * lr,
-                    la.sin() * lr,
-                    1.85 + hsh(l, v * 11 + 22) * 0.6,
-                ];
-                let lsize = 0.45 + hsh(l, v * 11 + 23) * 0.25;
-                for i in 0..26 {
-                    let k = l * 31 + i;
-                    let (a, e, r) = (
-                        hsh(k, v * 7 + 1) * std::f32::consts::TAU,
-                        hsh(k, v * 7 + 2) * 2.0 - 1.0,
-                        hsh(k, v * 7 + 3).sqrt() * lsize,
-                    );
-                    let ce = (1.0 - e * e).sqrt();
-                    let c = [
-                        lc[0] + a.cos() * ce * r,
-                        lc[1] + a.sin() * ce * r,
-                        lc[2] + e * r * 0.75,
-                    ];
-                    let g = greens[(hsh(k, v + 9) * 5.0) as usize % 5];
-                    let sz = 0.13 + hsh(k, 5) * 0.1;
-                    prim(&mut p, c, c, sz, sz, g, Mat::Leaf);
-                }
-            }
-            // a few bare twigs poking out
-            for i in 0..3 {
-                let a = hsh(i, v + 40) * std::f32::consts::TAU;
-                prim(
-                    &mut p,
-                    [a.cos() * 0.3, a.sin() * 0.3, 2.0],
-                    [
-                        a.cos() * (rad + 0.25),
-                        a.sin() * (rad + 0.25),
-                        2.3 + hsh(i, 41) * 0.4,
-                    ],
-                    0.025,
-                    0.01,
-                    trunk,
-                    Mat::Matte,
-                );
-            }
-        }
-        k if (P_PINE..P_PINE + 2).contains(&k) => {
-            let v = k - P_PINE;
-            prim(
-                &mut p,
-                [0.0, 0.0, 0.0],
-                [0.0, 0.0, 2.6],
-                0.12,
-                0.05,
-                0x3e2a1aff,
-                Mat::Matte,
-            );
-            for tier in 0..5 {
-                let tf = tier as f32;
-                let z = 0.6 + tf * 0.45;
-                let rad = 0.95 - tf * 0.18 + v as f32 * 0.08;
-                let cnt = 9 - tier;
-                for j in 0..cnt {
-                    let a = j as f32 / cnt as f32 * std::f32::consts::TAU + tf * 0.4;
-                    let c = [a.cos() * rad * 0.7, a.sin() * rad * 0.7, z];
-                    prim(
-                        &mut p,
-                        c,
-                        [c[0] * 0.3, c[1] * 0.3, z + 0.35],
-                        0.2,
-                        0.12,
-                        if (j + tier) % 2 == 0 {
-                            0x1e3418ff
-                        } else {
-                            0x243c1cff
-                        },
-                        Mat::Leaf,
-                    );
-                }
-            }
-            prim(
-                &mut p,
-                [0.0, 0.0, 2.6],
-                [0.0, 0.0, 2.95],
-                0.12,
-                0.02,
-                0x243c1cff,
-                Mat::Leaf,
-            );
-        }
-        k if (P_BIRCH..P_BIRCH + 2).contains(&k) => {
-            // a slender white trunk, a second stem, and a light, airy crown
-            let v = k - P_BIRCH;
-            let bark = 0xd8d4c8ff;
-            prim(
-                &mut p,
-                [0.0, 0.0, 0.0],
-                [0.06, 0.02, 2.2],
-                0.09,
-                0.05,
-                bark,
-                Mat::Matte,
-            );
-            if v == 1 {
-                prim(
-                    &mut p,
-                    [0.05, 0.0, 0.2],
-                    [-0.25, 0.15, 1.9],
-                    0.06,
-                    0.035,
-                    bark,
-                    Mat::Matte,
-                );
-            }
-            // the black bands on the bark
-            for i in 0..7 {
-                let z = 0.2 + i as f32 * 0.28 + hsh(i, 90 + v) * 0.1;
-                prim(
-                    &mut p,
-                    [0.0 + z * 0.027, 0.01, z],
-                    [0.0 + z * 0.027, 0.01, z + 0.05],
-                    0.095 - z * 0.015,
-                    0.09 - z * 0.015,
-                    0x2a2620ff,
-                    Mat::Matte,
-                );
-            }
-            let greens = [0x5a7a2aff, 0x6a8a32ff, 0x7a9a3aff, 0x4a6a24ff, 0x8aa848ff];
-            for i in 0..90 {
-                let (a, e, r) = (
-                    hsh(i, 91 + v) * std::f32::consts::TAU,
-                    hsh(i, 92 + v) * 2.0 - 1.0,
-                    hsh(i, 93 + v).sqrt() * 0.62,
-                );
-                let ce = (1.0 - e * e).sqrt();
-                let c = [
-                    a.cos() * ce * r * 0.85,
-                    a.sin() * ce * r * 0.85,
-                    2.1 + e * r * 1.1,
-                ];
-                let sz = 0.08 + hsh(i, 94) * 0.06;
-                prim(&mut p, c, c, sz, sz, greens[i % 5], Mat::Leaf);
-            }
-        }
-        k if (P_AUTUMN..P_AUTUMN + 2).contains(&k) => {
-            // an oak turned for the autumn, a few leaves already down
-            let v = k - P_AUTUMN;
-            let trunk = 0x4a3220ff;
-            prim(
-                &mut p,
-                [0.0, 0.0, 0.0],
-                [0.05, 0.0, 1.5],
-                0.16,
-                0.1,
-                trunk,
-                Mat::Matte,
-            );
-            prim(
-                &mut p,
-                [0.05, 0.0, 1.1],
-                [0.5, 0.25, 1.75],
-                0.07,
-                0.04,
-                trunk,
-                Mat::Matte,
-            );
-            prim(
-                &mut p,
-                [0.0, 0.0, 1.2],
-                [-0.4, -0.3, 1.8],
-                0.07,
-                0.04,
-                trunk,
-                Mat::Matte,
-            );
-            let fall = [
-                0x8a3a14ffu32,
-                0xa85a1aff,
-                0xc08a28ff,
-                0x7a2a10ff,
-                0xb87020ff,
-            ];
-            let rad = 0.85 + v as f32 * 0.1;
-            for l in 0..5 {
-                let la = hsh(l, v * 13 + 50) * std::f32::consts::TAU;
-                let lr = rad * (0.35 + hsh(l, v * 13 + 51) * 0.45);
-                let lc = [
-                    la.cos() * lr,
-                    la.sin() * lr,
-                    1.9 + hsh(l, v * 13 + 52) * 0.55,
-                ];
-                for i in 0..22 {
-                    let k2 = l * 29 + i;
-                    let (a, e, r) = (
-                        hsh(k2, v * 5 + 61) * std::f32::consts::TAU,
-                        hsh(k2, v * 5 + 62) * 2.0 - 1.0,
-                        hsh(k2, v * 5 + 63).sqrt() * 0.5,
-                    );
-                    let ce = (1.0 - e * e).sqrt();
-                    let c = [
-                        lc[0] + a.cos() * ce * r,
-                        lc[1] + a.sin() * ce * r,
-                        lc[2] + e * r * 0.75,
-                    ];
-                    let sz = 0.12 + hsh(k2, 64) * 0.1;
-                    prim(
-                        &mut p,
-                        c,
-                        c,
-                        sz,
-                        sz,
-                        fall[(hsh(k2, v + 65) * 5.0) as usize % 5],
-                        Mat::Leaf,
-                    );
-                }
-            }
-            for i in 0..12 {
-                let (x, y) = (hsh(i, 70 + v) * 1.6 - 0.8, hsh(i, 71 + v) * 1.6 - 0.8);
-                prim(
-                    &mut p,
-                    [x, y, 0.01],
-                    [x + 0.05, y, 0.01],
-                    0.04,
-                    0.04,
-                    fall[i % 5],
-                    Mat::Leaf,
-                );
-            }
-        }
-        k if (P_DEAD..P_DEAD + 2).contains(&k) => {
-            let v = k - P_DEAD;
-            let c = 0x4a3a2aff;
-            prim(
-                &mut p,
-                [0.0, 0.0, 0.0],
-                [0.08, 0.0, 1.6],
-                0.14,
-                0.06,
-                c,
-                Mat::Matte,
-            );
-            for i in 0..5 + v {
-                let a = hsh(i, 40 + v) * std::f32::consts::TAU;
-                let z = 0.8 + hsh(i, 41) * 0.8;
-                let l = 0.4 + hsh(i, 42) * 0.4;
-                let e = [a.cos() * l, a.sin() * l, z + 0.3 + hsh(i, 43) * 0.3];
-                prim(&mut p, [0.04, 0.0, z], e, 0.05, 0.015, c, Mat::Matte);
-                prim(
-                    &mut p,
-                    e,
-                    add(e, [a.cos() * 0.2, a.sin() * 0.2 + 0.1, 0.18]),
-                    0.015,
-                    0.008,
-                    c,
-                    Mat::Matte,
                 );
             }
         }
@@ -4859,8 +4575,20 @@ impl Raster {
             tex: vec![[0.0; 4]; w * h],
         }
     }
-    /// c = (pixel x, pixel y, depth in px), r = radius in px
-    fn sphere(&mut self, cx: f32, cy: f32, cz: f32, r: f32, color: u32, mat: u8) {
+    /// c = (pixel x, pixel y, depth in px), r = radius in px; a sphere lit as
+    /// part of a mass `vol` (centre in pixels and depth, radius in pixels)
+    /// has its normals lean towards the mass's own
+    #[allow(clippy::too_many_arguments)]
+    fn sphere_in(
+        &mut self,
+        cx: f32,
+        cy: f32,
+        cz: f32,
+        r: f32,
+        color: u32,
+        mat: u8,
+        vol: Option<(V3, f32)>,
+    ) {
         if r < 0.3 {
             return;
         }
@@ -4881,7 +4609,20 @@ impl Raster {
                 let i = y * self.w + x;
                 if z > self.depth[i] {
                     self.depth[i] = z;
-                    self.nrm[i] = [dx, -dy, dz];
+                    self.nrm[i] = match vol {
+                        Some((c, rv)) => {
+                            let (px, py) = (x as f32 + 0.5, y as f32 + 0.5);
+                            let m = [(px - c[0]) / rv, -(py - c[1]) / rv, (z - c[2]) / rv];
+                            let n = [
+                                dx * 0.2 + m[0] * 0.8,
+                                -dy * 0.2 + m[1] * 0.8,
+                                dz * 0.2 + m[2] * 0.8,
+                            ];
+                            let l = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt().max(1e-4);
+                            [n[0] / l, n[1] / l, n[2] / l]
+                        }
+                        None => [dx, -dy, dz],
+                    };
                     self.col[i] = color;
                     self.mat[i] = mat;
                     self.tex[i] = [0.0; 4];
@@ -5003,6 +4744,7 @@ fn shade_px(color: u32, n: [f32; 3], mat: u8) -> [f32; 3] {
         3 => (0.4 + 0.62 * diff, spec_dot.powi(10) * 0.2),
         4 => (0.42 + 0.66 * diff, spec_dot.powi(12) * 0.3),
         6 => (0.22 + 0.95 * diff, 0.0),
+        10 => (0.14 + 1.12 * diff, 0.0),
         7 => (0.3 + 0.88 * diff, spec_dot.powi(6) * 0.04),
         _ => (0.4 + 0.72 * diff, spec_dot.powi(8) * 0.06),
     };
@@ -5014,7 +4756,9 @@ fn shade_px(color: u32, n: [f32; 3], mat: u8) -> [f32; 3] {
     } else {
         n[2].max(0.0) * (1.0 - diff) * 0.1
     };
-    let warm = (w - 0.45) * 0.14;
+    // leaves shift hue with the light: yellow-green where it falls, blue in
+    // the shade, as a painter would
+    let warm = (w - 0.45) * if mat == 10 { 0.34 } else { 0.14 };
     [
         base[0] * (k + rim + sky) * (1.0 + warm) + spec * 255.0,
         base[1] * (k + rim + sky) + spec * 250.0,
@@ -5068,6 +4812,7 @@ fn mat_code(m: Mat) -> u8 {
         Mat::Cloth => 7,
         Mat::Wood => 8,
         Mat::Stone => 9,
+        Mat::Foliage => 10,
     }
 }
 
@@ -5208,6 +4953,19 @@ fn render_frame(
         let step = (pr.ra.min(pr.rb).max(0.012)) * 0.32;
         let n = ((len / step).ceil() as usize).clamp(1, 200);
         let mat = mat_code(pr.mat);
+        // the mass it belongs to, in pixels
+        let vol = pr.vol.map(|(c, r)| {
+            let q = tf(c);
+            let (x, y, z) = (q[0] * m2t, q[1] * m2t, (q[2] + ground) * m2t);
+            let wx = x * th.cos() - y * th.sin();
+            let wy = x * th.sin() + y * th.cos();
+            let (u, v, w) = (
+                (wx - wy) * r2,
+                -CAM_G * (wx + wy) * r2 + CAM_Z * z,
+                CAM_Z * (wx + wy) * r2 + CAM_G * z,
+            );
+            ([ax + u * kk, ay - v * kk, w * kk], r * m2t * kk)
+        });
         for i in 0..=n {
             let t = i as f32 / n as f32;
             let pl = [
@@ -5225,7 +4983,15 @@ fn render_frame(
             let u = (wx - wy) * r2;
             let v = -CAM_G * (wx + wy) * r2 + CAM_Z * wz;
             let w = CAM_Z * (wx + wy) * r2 + CAM_G * wz;
-            ras.sphere(ax + u * kk, ay - v * kk, w * kk, rr * kk, pr.color, mat);
+            ras.sphere_in(
+                ax + u * kk,
+                ay - v * kk,
+                w * kk,
+                rr * kk,
+                pr.color,
+                mat,
+                vol,
+            );
         }
     }
     for (bi, bx) in boxes.iter().enumerate() {
@@ -5252,6 +5018,7 @@ fn render_frame(
     let mut depth = vec![f32::NEG_INFINITY; fw * fh];
     let mut rgb = vec![[0.0f32; 3]; fw * fh];
     let mut cid = vec![0u32; fw * fh];
+    let mut leafy = vec![false; fw * fh];
     for y in 0..fh {
         for x in 0..fw {
             let mut acc = [0.0f32; 3];
@@ -5281,6 +5048,26 @@ fn render_frame(
                                 + hsh2(lx, ly, 7) * 0.5
                                 + hsh2(x as u32, ry as u32 / 2, 9) * 0.16;
                             c = [c[0] * f, c[1] * f, c[2] * f];
+                        } else if ras.mat[i] == 10 {
+                            // leaves in little clusters: glints where the mass is
+                            // lit, deep gaps where it is in shade
+                            let (lx, ly) = ((x / 2) as u32, (ry / 4) as u32);
+                            let mut h = lx.wrapping_mul(0x8da6_b343)
+                                ^ ly.wrapping_mul(0xd816_3841)
+                                ^ 0x5eed;
+                            h ^= h >> 13;
+                            h = h.wrapping_mul(0x5bd1_e995);
+                            let r = ((h >> 8) & 0xffff) as f32 / 65535.0;
+                            let n = ras.nrm[i];
+                            let lit = (-0.52 * n[0] + 0.6 * n[1] + 0.61 * n[2]).max(0.0);
+                            let f = if lit > 0.62 && r > 0.78 {
+                                1.28
+                            } else if lit < 0.3 && r < 0.3 {
+                                0.58
+                            } else {
+                                0.86 + r * 0.24
+                            };
+                            c = [c[0] * f, c[1] * f, c[2] * f];
                         } else if ras.mat[i] == 7 {
                             // folds: short vertical streaks of light and shade
                             let mut h = (x as u32).wrapping_mul(0x8da6_b343)
@@ -5299,6 +5086,7 @@ fn render_frame(
                         if ras.depth[i] > dz {
                             dz = ras.depth[i];
                             cid[y * fw + x] = ras.col[i];
+                            leafy[y * fw + x] = ras.mat[i] == 10;
                         }
                     }
                 }
@@ -5336,7 +5124,10 @@ fn render_frame(
                     if nx >= 0 && ny >= 0 && (nx as usize) < fw && (ny as usize) < fh {
                         let j = ny as usize * fw + nx as usize;
                         let gap = depth[j] - depth[i];
-                        if inked && alpha[j] && ((gap > thr && cid[j] != cid[i]) || gap > thr * 4.0)
+                        let near = if leafy[i] && leafy[j] { thr * 3.0 } else { thr };
+                        if inked
+                            && alpha[j]
+                            && ((gap > near && cid[j] != cid[i]) || gap > thr * 4.0)
                         {
                             k = 0.5;
                         }
