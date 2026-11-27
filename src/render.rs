@@ -7,6 +7,7 @@ use crate::tex::*;
 use crate::world::*;
 use std::collections::{HashMap, VecDeque};
 
+mod hexview;
 mod south;
 mod walls;
 use south::southern;

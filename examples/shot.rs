@@ -99,6 +99,15 @@ fn main() {
         for _ in 0..4 {
             g.render();
         }
+        // a name ending _h0 or _h1: the same view on hex tiles
+        if let Some(k) = name
+            .strip_suffix("_h0")
+            .map(|_| 0)
+            .or(name.strip_suffix("_h1").map(|_| 1))
+        {
+            g.render_hex(k);
+            g.render_hex(k);
+        }
         while let Some((id, a)) = g.sprites.pending.pop_front() {
             fs::write(format!("{dir}/atlas{id}.rgba"), &a.rgba).unwrap();
             let mut list = fs::read_to_string(format!("{dir}/atlases.txt")).unwrap_or_default();
