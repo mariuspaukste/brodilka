@@ -615,6 +615,10 @@ impl Pl {
     }
 }
 
+/// How far above the feet the camera centres on the player, in pixels at
+/// zoom 1: about the middle of a standing figure.
+const CAM_BODY: f32 = 16.0;
+
 pub struct Game {
     pub rng: Rng,
     pub map: Map,
@@ -815,10 +819,25 @@ impl Game {
             g.ents[i].anim.vdir = g.ents[i].dir8;
         }
         g.build_minimap();
-        let (px, py) = (g.ents[0].x, g.ents[0].y);
-        g.camx = (px - py) * 32.0;
-        g.camy = (px + py) * 16.0;
+        g.snap_camera();
         g
+    }
+
+    /// Where the camera looks to have the player in the middle of the
+    /// screen: their body, not their feet, and as high as they stand (on a
+    /// terrace, upstairs).
+    pub fn cam_target(&self) -> (f32, f32) {
+        let p = &self.ents[0];
+        let up = p.anim.vz * crate::render::LH + CAM_BODY;
+        ((p.x - p.y) * 32.0, (p.x + p.y) * 16.0 - up)
+    }
+
+    /// Put the camera on the player at once (after a jump in position).
+    pub fn snap_camera(&mut self) {
+        let (tx, ty) = self.ents[0].tile();
+        let ground = self.map.surface(tx, ty) + self.ents[0].fl as f32 * crate::render::STOREY;
+        self.ents[0].anim.vz = ground;
+        (self.camx, self.camy) = self.cam_target();
     }
 
     pub fn nid(&mut self) -> u32 {
@@ -1213,9 +1232,7 @@ impl Game {
             }
         }
         // camera follows player
-        let (px, py) = (self.ents[0].x, self.ents[0].y);
-        let tx = (px - py) * 32.0;
-        let ty = (px + py) * 16.0;
+        let (tx, ty) = self.cam_target();
         let k = (dt * 10.0).min(1.0);
         self.camx += (tx - self.camx) * k;
         self.camy += (ty - self.camy) * k;
@@ -4276,6 +4293,33 @@ region = "dark"
         // too far away, a tap does nothing to it
         g.ents[0].x = (dx + 8) as f32;
         assert!(!g.tap_door(dx, dy));
+    }
+
+    #[test]
+    fn the_camera_keeps_the_player_in_the_middle_on_high_ground() {
+        let mut g = Game::new(7);
+        g.create("Cam", false, 0, "warrior", [0, 0, 0]);
+        g.w = 400.0;
+        g.h = 600.0;
+        // somewhere on the highest terrace the town can reach
+        let (x, y) = (0..H)
+            .flat_map(|y| (0..W).map(move |x| (x, y)))
+            .filter(|&(x, y)| {
+                g.map.passable(x, y) && g.map.reach[idx(x, y)] && !g.map.is_ramp(x, y)
+            })
+            .max_by_key(|&(x, y)| g.map.level(x, y))
+            .unwrap();
+        assert!(g.map.level(x, y) >= 2);
+        g.ents[0].x = x as f32;
+        g.ents[0].y = y as f32;
+        g.ents[0].path.clear();
+        for _ in 0..90 {
+            g.update(1.0 / 30.0);
+        }
+        let (sx, sy) = g.scr_h(g.ents[0].x, g.ents[0].y, g.ents[0].anim.vz);
+        let mid = sy - CAM_BODY * g.zoom;
+        assert!((sx - g.w / 2.0).abs() < 2.0, "{sx}");
+        assert!((mid - g.h / 2.0).abs() < 2.0, "{mid} vs {}", g.h / 2.0);
     }
 
     #[test]

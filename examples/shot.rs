@@ -91,9 +91,8 @@ fn main() {
             p.y = y as f32;
             p.fl = fl;
             p.path.clear();
-            g.camx = (p.x - p.y) * 32.0;
-            g.camy = (p.x + p.y) * 16.0;
         }
+        g.snap_camera();
         g.sprites.budget = 100000;
         g.sprites.bake_ms = f64::INFINITY;
         for _ in 0..4 {

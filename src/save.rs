@@ -280,9 +280,7 @@ impl Game {
             }
         }
         self.ents.retain(|e| !e.dead || e.k == EK::Player);
-        let (x, y) = (self.ents[0].x, self.ents[0].y);
-        self.camx = (x - y) * 32.0;
-        self.camy = (x + y) * 16.0;
+        self.snap_camera();
         self.created = true;
         let name = self.pl.name.clone();
         self.msg(&format!("Welcome back, {}.", name), C_GOLD);

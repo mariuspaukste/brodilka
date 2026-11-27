@@ -32,8 +32,7 @@ fn tp(g: &mut Game, x: i32, y: i32) {
     p.x = x as f32;
     p.y = y as f32;
     p.path.clear();
-    g.camx = (p.x - p.y) * 32.0;
-    g.camy = (p.x + p.y) * 16.0;
+    g.snap_camera();
 }
 fn main() {
     let dir = std::env::args().nth(1).unwrap_or("/tmp/dump".into());
