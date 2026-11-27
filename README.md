@@ -224,7 +224,11 @@ where it meets the bank; rock is cracked and spotted with lichen. Woods mix
 oaks, pines and white-barked birches, and the oaks turn amber in autumn and
 stand bare in winter. Hedges are banks of leafy clumps.
 
-Plastered houses are half-timbered; windows have frames, mullions, painted
+Houses have thin walls, as Ultima Online's do: a wall stands on the outer
+edge of the house's footprint rather than filling a whole tile, so the rooms
+run right up to it, furniture stands against it, and the doors swing in
+from a doorway cut through it (the castle's keep, the fort and the burrows
+keep their thick walls). Plastered houses are half-timbered; windows have frames, mullions, painted
 shutters and, on the ground floor, boxes of flowers, and they glow warm after
 dark. Roofs are laid tile by tile, a few darker, some green with moss, under
 an eave that shades the wall below. Halls and houses have a woven rug on the

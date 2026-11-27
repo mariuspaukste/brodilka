@@ -8,6 +8,7 @@ use crate::world::*;
 use std::collections::{HashMap, VecDeque};
 
 mod south;
+mod walls;
 use south::southern;
 
 /// The texture of a wall in this style.
@@ -846,6 +847,16 @@ impl Game {
                     if t == T_WATER || t == T_BRIDGE || !inb(nx, ny) {
                         continue;
                     }
+                    // a bank at the water's level spills its ragged edge over
+                    // the water, with its own foam (see `fringe`)
+                    if self.map.level(nx, ny) == self.map.level(x, y)
+                        && !self.map.is_ramp(nx, ny)
+                        && !self.map.is_ramp(x, y)
+                        && (1..10).contains(&self.prio_at(nx, ny))
+                        && self.prio_at(nx, ny) > self.prio_at(x, y)
+                    {
+                        continue;
+                    }
                     // where the bank stands higher, its edge hides the water's:
                     // the foam goes on whichever edge is seen
                     let lc = self.map.corners(nx, ny);
@@ -1652,12 +1663,16 @@ impl Game {
                         c.alpha(1.0);
                     }
                 }
+                // the front walls of a house just behind this tile
+                self.thin_walls_at(c, x, y, near_front, false, 0, z, t, &mut lights);
                 if let Some((b, f)) = upstairs {
-                    if self.map.buildings[b].interior(x, y) {
+                    if self.map.buildings[b].room(x, y) {
                         self.upper_tile(c, x, y, f, z, t, &mut lights);
+                        self.thin_walls_at(c, x, y, false, true, f, z, t, &mut lights);
                         continue;
                     }
                 }
+                self.thin_walls_at(c, x, y, false, true, 0, z, t, &mut lights);
                 let o = self.map.o[i];
                 if o == O_NONE {
                     self.clutter(c, x, y, sx, sy, tl, z);
@@ -1942,7 +1957,6 @@ impl Game {
         let hw = 32.0 * z + 0.7;
         let hh = 16.0 * z + 0.7;
         let lz = LH * z;
-        let ink = self.pix.max(z);
         let n1 = self.map.corners(x + 1, y);
         if cn[1] > n1[0] + 0.01 || cn[2] > n1[3] + 0.01 {
             let face = [
@@ -1964,8 +1978,7 @@ impl Game {
             c.poly(&face);
             c.fill(0x00000030);
             c.poly(&face);
-            c.stroke(INK, ink);
-            c.line(face[0].0, face[0].1, face[1].0, face[1].1);
+            self.ledge_lip(c, x, y, &face, 1, z);
         }
         let n2 = self.map.corners(x, y + 1);
         if cn[3] > n2[0] + 0.01 || cn[2] > n2[1] + 0.01 {
@@ -1988,9 +2001,59 @@ impl Game {
             c.poly(&face);
             c.fill(0x00000070);
             c.poly(&face);
-            c.stroke(INK, ink);
-            c.line(face[0].0, face[0].1, face[1].0, face[1].1);
+            self.ledge_lip(c, x, y, &face, 2, z);
         }
+    }
+
+    /// The top of a ledge's face: the ground above curling over its edge in
+    /// a ragged lip, a lit rim, and the foot of the face in shadow, so a
+    /// step of rock reads as the edge of a terrace.
+    fn ledge_lip(&self, c: &mut Canvas, x: i32, y: i32, face: &[(f32, f32); 4], k: i32, z: f32) {
+        let ink = self.pix.max(z);
+        let tl = self.map.tile(x, y);
+        let drop = |i: usize| (face[3 - i].1 - face[i].1).max(0.0);
+        // the foot, darker where it meets the ground below
+        let foot = |f: f32| {
+            [
+                (face[3].0, face[3].1 - drop(0) * f),
+                (face[2].0, face[2].1 - drop(1) * f),
+                face[2],
+                face[3],
+            ]
+        };
+        c.fill(0x0000002c);
+        c.poly(&foot(0.45));
+        c.fill(0x00000030);
+        c.poly(&foot(0.2));
+        if tl != T_MOUNT && tl != T_WATER && drop(0) > 4.0 * z && drop(1) > 4.0 * z {
+            let n = 8;
+            let mut pts = Vec::with_capacity(2 * n + 2);
+            let lerp = |a: (f32, f32), b: (f32, f32), t: f32| {
+                (a.0 + (b.0 - a.0) * t, a.1 + (b.1 - a.1) * t)
+            };
+            for i in 0..=n {
+                pts.push(lerp(face[0], face[1], i as f32 / n as f32));
+            }
+            for i in (0..=n).rev() {
+                let t = i as f32 / n as f32;
+                let (px, py) = lerp(face[0], face[1], t);
+                let d = (1.2 + h2(x * 2 + k, y * 2 - k, i as i32) * 3.2) * z;
+                pts.push((px, py + d.min(drop(0).min(drop(1)) * 0.5)));
+            }
+            self.pat(
+                c,
+                self.ground_tex(x, y, tl),
+                self.map.level(x, y) as f32 * LH * z,
+            );
+            c.poly(&pts);
+            c.fill(0x00000030);
+            c.poly(&pts);
+            // the rim catches the light
+            c.stroke(0xd8d0a03a, ink);
+            c.line(face[0].0, face[0].1 + ink, face[1].0, face[1].1 + ink);
+        }
+        c.stroke(INK, ink);
+        c.line(face[0].0, face[0].1, face[1].0, face[1].1);
     }
 
     /// Ragged border of a tile's texture spilling into a lower-priority neighbour,
@@ -2017,27 +2080,52 @@ impl Game {
             _ => (s, -d),
         };
         let (kx, ky) = (x * 2 + dir.0, y * 2 + dir.1);
-        let n = 7;
+        // a smooth, wandering line rather than a row of spikes: random
+        // depths at a few knots, eased between them
+        let n = 12;
+        let knots = 4;
+        let depth = |k: usize| -> f32 {
+            if k == 0 || k == n {
+                return 0.0;
+            }
+            let f = k as f32 / n as f32 * knots as f32;
+            let (i, u) = (f.floor() as i32, f.fract());
+            let u = u * u * (3.0 - 2.0 * u);
+            let a = 0.08 + h2(kx, ky, i) * 0.26;
+            let b = 0.08 + h2(kx, ky, i + 1) * 0.26;
+            // taper to nothing at the corners, so neighbouring edges meet
+            let taper = (k.min(n - k) as f32 / 2.0).min(1.0);
+            (a + (b - a) * u) * taper + (h2(kx, ky, k as i32 + 40) - 0.5) * 0.05 * taper
+        };
         let mut pts = Vec::with_capacity(2 * n + 2);
         for k in 0..=n {
             let (u, v) = edge(k as f32 / n as f32, -0.02);
             pts.push(pt(u, v));
         }
         for k in (0..=n).rev() {
-            let d = if k == 0 || k == n {
-                0.0
-            } else {
-                0.06 + h2(kx, ky, k as i32) * 0.3
-            };
-            let (u, v) = edge(k as f32 / n as f32, d);
+            let (u, v) = edge(k as f32 / n as f32, depth(k));
             pts.push(pt(u, v));
         }
         self.pat(c, self.ground_tex(x, y, tl), lift);
         c.poly(&pts);
         if self.map.tile(x + dir.0, y + dir.1) == T_WATER {
-            c.stroke(0x9aa8c060, 1.2 * self.pix.max(z));
+            // foam along the shore's own ragged line, and a fainter line a
+            // little way out on the water
+            let ink = self.pix.max(z);
+            c.stroke(0xc8d4d880, 1.4 * ink);
             let foam: Vec<(f32, f32)> = pts[n + 1..].to_vec();
             c.poly_s(&foam);
+            let out: Vec<(f32, f32)> = (0..=n)
+                .rev()
+                .filter(|&k| k > 0 && k < n)
+                .map(|k| {
+                    let w = (h2(kx, ky, k as i32 + 80) - 0.5) * 0.03;
+                    let (u, v) = edge(k as f32 / n as f32, depth(k) + 0.1 + w);
+                    pt(u, v)
+                })
+                .collect();
+            c.stroke(0xb8c8d038, ink);
+            c.poly_s(&out);
         }
     }
 
@@ -2290,6 +2378,23 @@ impl Game {
     /// storey of both faces.
     #[allow(clippy::too_many_arguments)]
     fn timbers(&self, c: &mut Canvas, x: i32, y: i32, sx: f32, sy: f32, storeys: u8, z: f32) {
+        self.timbers_on(c, x, y, sx, sy, storeys, z, 3, 0.0);
+    }
+    /// Timbers on the faces in `mask` (1: the left face, 2: the right),
+    /// from `from` storeys up.
+    #[allow(clippy::too_many_arguments)]
+    fn timbers_on(
+        &self,
+        c: &mut Canvas,
+        x: i32,
+        y: i32,
+        sx: f32,
+        sy: f32,
+        storeys: u8,
+        z: f32,
+        mask: u8,
+        from: f32,
+    ) {
         let (hw, hh) = (32.0 * z, 16.0 * z);
         let st = STOREY_PX * z;
         let w = 2.2 * self.pix.max(z);
@@ -2302,7 +2407,13 @@ impl Game {
         ];
         for k in 0..storeys {
             let up = k as f32 * st;
+            if (k as f32) < from - 0.01 {
+                continue;
+            }
             for (a, b, side) in faces {
+                if mask & (1 << side) == 0 {
+                    continue;
+                }
                 let (a, b) = ((a.0, a.1 - up), (b.0, b.1 - up));
                 let top = st - 1.5 * z;
                 // the rail at the foot and the one at the top
@@ -2433,6 +2544,24 @@ impl Game {
         t: f32,
         lights: &mut Vec<(f32, f32, f32, u32)>,
     ) {
+        self.wall_deco_on(c, x, y, sx, sy, style, z, t, lights, 3);
+    }
+    /// Torches and banners on the outward faces in `mask` (1: the right
+    /// face, toward x+1; 2: the left, toward y+1).
+    #[allow(clippy::too_many_arguments)]
+    fn wall_deco_on(
+        &self,
+        c: &mut Canvas,
+        x: i32,
+        y: i32,
+        sx: f32,
+        sy: f32,
+        style: u8,
+        z: f32,
+        t: f32,
+        lights: &mut Vec<(f32, f32, f32, u32)>,
+        mask: u8,
+    ) {
         let Some(pid) = self.sprites.props else {
             return;
         };
@@ -2443,6 +2572,9 @@ impl Game {
         let hh = 16.0 * z;
         // right face looks toward x+1, left face toward y+1 (drawn mirrored)
         for (nx, ny, flip, fx) in [(x + 1, y, false, 0.5f32), (x, y + 1, true, -0.5)] {
+            if mask & if flip { 2 } else { 1 } == 0 {
+                continue;
+            }
             let nt = self.map.tile(nx, ny);
             let no = self.map.obj(nx, ny);
             if nt == T_FLOOR || no == O_WALL || no == O_DOOR || no == O_SIGN {
@@ -2511,6 +2643,13 @@ impl Game {
         t: f32,
         lights: &mut Vec<(f32, f32, f32, u32)>,
     ) {
+        // a house's door is drawn in its thin wall, and swung in when open
+        if o == O_DOOR && self.map.thin_at(x, y).is_some() {
+            if !self.map.door_shut(x, y) {
+                self.open_door(c, x, y, z);
+            }
+            return;
+        }
         let hw = 32.0 * z + 0.6;
         let hh = 16.0 * z + 0.6;
         let p = P {
@@ -4587,7 +4726,7 @@ impl Game {
         _lights: &mut Vec<(f32, f32, f32, u32)>,
     ) {
         let st = self.wall_storeys(x, y);
-        if st <= 1 {
+        if st <= 1 || self.map.thin_at(x, y).is_some() {
             return;
         }
         let Some(b) = self.map.building_at(x, y) else {
@@ -4603,7 +4742,7 @@ impl Game {
     fn open_door(&self, c: &mut Canvas, x: i32, y: i32, z: f32) {
         let lz = LH * z;
         let base = self.map.level(x, y) as f32 * lz;
-        let hinge = if self.map.obj(x - 1, y) == O_WALL {
+        let hinge = if self.map.obj(x - 1, y) != O_DOOR {
             x as f32 - 0.45
         } else {
             x as f32 + 0.45

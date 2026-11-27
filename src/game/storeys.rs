@@ -155,7 +155,7 @@ impl Game {
                         .surface(self.map.buildings[b].x + 1, self.map.buildings[b].y + 1);
                 let (wx, wy) = self.to_world(sx, sy + lift * crate::render::LH * self.zoom);
                 let (tx, ty) = (wx.round() as i32, wy.round() as i32);
-                if self.map.buildings[b].interior(tx, ty) {
+                if self.map.buildings[b].room(tx, ty) {
                     return (wx, wy);
                 }
             }

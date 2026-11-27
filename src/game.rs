@@ -4279,6 +4279,52 @@ region = "dark"
     }
 
     #[test]
+    fn house_walls_are_thin_and_still_hold() {
+        let g = Game::new(7);
+        let b = g
+            .map
+            .buildings
+            .iter()
+            .find(|b| b.vendor == V_SMITH)
+            .unwrap();
+        assert!(b.thin());
+        let (x0, y0, x1, y1) = (b.x, b.y, b.x + b.w - 1, b.y + b.h - 1);
+        // the outer ring of the house is floor to walk on
+        assert!(g.map.passable_as(x0, y0 + 2, PERSON));
+        assert!((x0 + 1..x1).any(|x| g.map.passable_as(x, y0, PERSON)));
+        assert!(g.map.can_step_as(x0 + 1, y0 + 2, -1, 0, PERSON));
+        // but no one walks through the walls round it, straight or slantwise
+        for (x, y, dx, dy) in [
+            (x0, y0 + 2, -1, 0),
+            (x0 + 3, y0, 0, -1),
+            (x1, y0 + 2, 1, 0),
+            (x0 + 1, y1, 0, 1),
+            (x0, y0, -1, -1),
+            (x0, y0 + 2, -1, 1),
+            (x1, y1, 1, 1),
+        ] {
+            assert!(
+                !g.map.can_step_as(x, y, dx, dy, PERSON),
+                "{x},{y} by {dx},{dy}"
+            );
+            assert!(!g.map.can_step_as(x + dx, y + dy, -dx, -dy, PERSON));
+        }
+        // in only by the door
+        let d = (x0 + 1..x1).find(|&x| g.map.obj(x, y1) == O_DOOR).unwrap();
+        assert!(g.map.can_step_as(d, y1 + 1, 0, -1, PERSON));
+        assert!(
+            !g.map.can_step_as(d, y1 + 1, 0, -1, BEAST),
+            "a shut door holds"
+        );
+        // what stood a step in from the back wall now stands against it
+        assert!((x0 + 1..x1).any(|x| blocks(g.map.obj(x, y0))));
+        // the castle's keep keeps its thick walls
+        let keep = g.map.buildings.iter().find(|b| b.vendor == V_LORD).unwrap();
+        assert!(!keep.thin());
+        assert_eq!(g.map.obj(keep.x, keep.y + 2), O_WALL);
+    }
+
+    #[test]
     fn stairs_take_the_player_up_the_mages_tower_and_down() {
         let mut g = Game::new(7);
         g.create("Up", false, 0, "warrior", [0, 0, 0]);
@@ -4310,7 +4356,7 @@ region = "dark"
             assert!(!g.ent_visible(k));
         }
         assert!(
-            !g.map.passable_as(bx, by + 2, g.walker(0)),
+            !g.map.can_step_as(bx, by + 2, -1, 0, g.walker(0)),
             "no walking through the wall"
         );
         assert!(

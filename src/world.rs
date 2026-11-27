@@ -185,6 +185,28 @@ impl Building {
     pub fn interior(&self, x: i32, y: i32) -> bool {
         x > self.x && y > self.y && x < self.x + self.w - 1 && y < self.y + self.h - 1
     }
+    /// Whether its walls are thin, standing on the edges of its outer ring
+    /// of tiles rather than filling them (a house); the castle's keep, the
+    /// fort's halls and the burrows keep their thick walls.
+    pub fn thin(&self) -> bool {
+        thin_style(self.style)
+    }
+    /// The floor its walls enclose: everything but thick walls.
+    pub fn room(&self, x: i32, y: i32) -> bool {
+        if self.thin() {
+            self.contains(x, y)
+        } else {
+            self.interior(x, y)
+        }
+    }
+}
+
+/// Wall styles drawn as thin walls on the tile edges (see `Building::thin`).
+pub fn thin_style(style: u8) -> bool {
+    !matches!(
+        style & 0x7f,
+        WALL_CASTLE | WALL_TOWER | WALL_BURROW | WALL_FORT | WALL_BASTION
+    )
 }
 
 /// An upper storey: its objects (walls round the edge, furniture, stairs)
@@ -282,6 +304,8 @@ pub struct Map {
     /// Karak Dhum, the dwarf hold in the eastern range, with its gate
     /// forecourt and mines: x0, y0, x1, y1 (guarded ground)
     pub hold: (i32, i32, i32, i32),
+    /// the building on each tile, plus one (0: none); see `Map::thin_walls`
+    pub bld: Vec<u16>,
     // pathfinding scratch
     pf_g: Vec<f32>,
     pf_par: Vec<i32>,
@@ -333,6 +357,12 @@ fn fbm(x: f32, y: f32, seed: u32) -> f32 {
         f *= 2.0;
     }
     sum / norm
+}
+
+/// Furniture that may be set back against a wall: one tile big, and not a
+/// stair, a door or part of something longer.
+fn movable(o: u8) -> bool {
+    !matches!(o, O_NONE | O_STAIRS | O_DOOR | O_WALL | O_PART) && size(o).0 == 1
 }
 
 pub fn blocks(o: u8) -> bool {
@@ -415,7 +445,50 @@ impl Map {
         t != T_WATER && t != T_MOUNT && !blocks(o)
     }
     pub fn building_at(&self, x: i32, y: i32) -> Option<usize> {
+        if !self.bld.is_empty() {
+            return if inb(x, y) {
+                (self.bld[idx(x, y)] as usize).checked_sub(1)
+            } else {
+                None
+            };
+        }
         self.buildings.iter().position(|b| b.contains(x, y))
+    }
+    /// The thin-walled building on a tile, if any.
+    pub fn thin_at(&self, x: i32, y: i32) -> Option<&Building> {
+        self.building_at(x, y)
+            .map(|b| &self.buildings[b])
+            .filter(|b| b.thin())
+    }
+    /// Is there a thin wall between a tile and its neighbour (dx, dy) along
+    /// x or y, on this storey? A house's walls run round the outside of its
+    /// footprint, broken on the ground floor only by its doors.
+    pub fn wall_between(&self, x: i32, y: i32, dx: i32, dy: i32, fl: u8) -> bool {
+        let (nx, ny) = (x + dx, y + dy);
+        let (a, b) = (self.building_at(x, y), self.building_at(nx, ny));
+        if a == b {
+            return false;
+        }
+        let side = |bi: Option<usize>, tx: i32, ty: i32| match bi {
+            Some(i) if self.buildings[i].thin() => fl > 0 || self.obj(tx, ty) != O_DOOR,
+            _ => false,
+        };
+        side(a, x, y) || side(b, nx, ny)
+    }
+    /// Can a step from (x, y) by (dx, dy) (one tile, any of 8 ways) be taken
+    /// without going through a thin wall? Diagonally, neither way round the
+    /// corner may meet one.
+    pub fn edges_clear(&self, x: i32, y: i32, dx: i32, dy: i32, fl: u8) -> bool {
+        if self.bld.is_empty() {
+            return true;
+        }
+        if dx == 0 || dy == 0 {
+            return !self.wall_between(x, y, dx, dy, fl);
+        }
+        !self.wall_between(x, y, dx, 0, fl)
+            && !self.wall_between(x + dx, y, 0, dy, fl)
+            && !self.wall_between(x, y, 0, dy, fl)
+            && !self.wall_between(x, y + dy, dx, 0, fl)
     }
     fn local(&self, b: usize, x: i32, y: i32) -> usize {
         let b = &self.buildings[b];
@@ -517,7 +590,7 @@ impl Map {
     /// corners, and through a doorway only straight
     pub fn can_step_as(&self, x: i32, y: i32, dx: i32, dy: i32, w: Walker) -> bool {
         let p = |x: i32, y: i32| self.passable_as(x, y, w);
-        if !p(x + dx, y + dy) {
+        if !p(x + dx, y + dy) || !self.edges_clear(x, y, dx, dy, w.fl) {
             return false;
         }
         if w.fl > 0 {
@@ -980,6 +1053,89 @@ impl Map {
         }
     }
 
+    /// Index the buildings by tile, and thin the walls of the houses: the
+    /// wall tiles round a house become floor, its walls standing on their
+    /// outer edges instead (`wall_between`), and what stood a step in from
+    /// the back and left walls is set back against them.
+    pub fn thin_walls(&mut self) {
+        self.bld = vec![0; N];
+        for (k, b) in self.buildings.iter().enumerate() {
+            for y in b.y..b.y + b.h {
+                for x in b.x..b.x + b.w {
+                    if inb(x, y) {
+                        self.bld[idx(x, y)] = k as u16 + 1;
+                    }
+                }
+            }
+        }
+        for k in 0..self.buildings.len() {
+            if !self.buildings[k].thin() {
+                continue;
+            }
+            let (bx, by, w, h) = {
+                let b = &self.buildings[k];
+                (b.x, b.y, b.w, b.h)
+            };
+            let ring = |x: i32, y: i32| x == 0 || y == 0 || x == w - 1 || y == h - 1;
+            for y in 0..h {
+                for x in 0..w {
+                    let i = idx(bx + x, by + y);
+                    if ring(x, y) && self.o[i] == O_WALL {
+                        self.o[i] = O_NONE;
+                    }
+                }
+            }
+            // ground floor: back row first, then the left side
+            let mut moves = vec![];
+            for x in 1..w - 1 {
+                moves.push(((bx + x, by + 1), (bx + x, by)));
+            }
+            for y in 1..h - 1 {
+                moves.push(((bx + 1, by + y), (bx, by + y)));
+            }
+            for ((fx, fy), (tx, ty)) in moves {
+                let (fi, ti) = (idx(fx, fy), idx(tx, ty));
+                if movable(self.o[fi]) && self.o[ti] == O_NONE {
+                    self.o[ti] = self.o[fi];
+                    self.style[ti] = self.style[fi];
+                    self.o[fi] = O_NONE;
+                    // whoever stood at it (the lord at his throne) steps back with it
+                    let front = (fx * 2 - tx, fy * 2 - ty);
+                    for n in self.npcs.iter_mut() {
+                        if (n.1, n.2) == front {
+                            (n.1, n.2) = (fx, fy);
+                        }
+                    }
+                }
+            }
+            for f in self.buildings[k].floors.iter_mut() {
+                for y in 0..h {
+                    for x in 0..w {
+                        let i = (y * w + x) as usize;
+                        if ring(x, y) && f.o[i] == O_WALL {
+                            f.o[i] = O_NONE;
+                        }
+                    }
+                }
+                let mut moves = vec![];
+                for x in 1..w - 1 {
+                    moves.push(((x, 1), (x, 0)));
+                }
+                for y in 1..h - 1 {
+                    moves.push(((1, y), (0, y)));
+                }
+                for ((fx, fy), (tx, ty)) in moves {
+                    let (fi, ti) = ((fy * w + fx) as usize, (ty * w + tx) as usize);
+                    if movable(f.o[fi]) && f.o[ti] == O_NONE {
+                        f.o[ti] = f.o[fi];
+                        f.style[ti] = f.style[fi];
+                        f.o[fi] = O_NONE;
+                    }
+                }
+            }
+        }
+    }
+
     /// Raise the shop at (bx, by) by `n` storeys with stairs up from the back
     /// corner, and furnish each; `rooms` gives each storey's furniture as
     /// (x, y, facing south) in tiles from the building's corner.
@@ -1393,6 +1549,7 @@ pub fn generate(seed: u32) -> Map {
         roads: vec![],
         gloom: vec![0; N],
         withered: vec![false; N],
+        bld: vec![],
         door: vec![0.0; N],
         doors: vec![],
         guests: vec![],
@@ -1841,6 +1998,7 @@ pub fn generate(seed: u32) -> Map {
     // --- Karak Dhum, the dwarf hold in the eastern range
     m.dwarf_hold(&mut elev, seed);
 
+    m.thin_walls();
     // --- spawn regions (monster, x, y, radius, max)
     m.assign_levels(&elev);
     m.spawns = vec![
@@ -2784,10 +2942,12 @@ impl Map {
 mod tests {
     use super::*;
 
-    /// Every open tile of a storey is reached from `from` (4-way steps).
+    /// Every open tile of a storey is reached from `from` (4-way steps); with
+    /// `ring` 1, the outer ring of tiles too (a thin-walled house's).
     fn all_reached(
         w: i32,
         h: i32,
+        ring: i32,
         open: &dyn Fn(i32, i32) -> bool,
         from: &[(i32, i32)],
     ) -> Option<(i32, i32)> {
@@ -2799,7 +2959,7 @@ mod tests {
         while let Some((x, y)) = todo.pop() {
             for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
                 let (nx, ny) = (x + dx, y + dy);
-                if nx > 0 && ny > 0 && nx < w - 1 && ny < h - 1 {
+                if nx >= 1 - ring && ny >= 1 - ring && nx < w - 1 + ring && ny < h - 1 + ring {
                     let i = (ny * w + nx) as usize;
                     if !seen[i] && open(nx, ny) {
                         seen[i] = true;
@@ -2808,8 +2968,8 @@ mod tests {
                 }
             }
         }
-        (1..h - 1)
-            .flat_map(|y| (1..w - 1).map(move |x| (x, y)))
+        (1 - ring..h - 1 + ring)
+            .flat_map(|y| (1 - ring..w - 1 + ring).map(move |x| (x, y)))
             .find(|&(x, y)| open(x, y) && !seen[(y * w + x) as usize])
     }
 
@@ -2871,7 +3031,7 @@ mod tests {
                     !doors.is_empty(),
                     "building at {bx},{by} has its door blocked"
                 );
-                if let Some((x, y)) = all_reached(b.w, b.h, &open, &doors) {
+                if let Some((x, y)) = all_reached(b.w, b.h, b.thin() as i32, &open, &doors) {
                     panic!(
                         "building at {bx},{by} (vendor {}): tile {x},{y} walled off",
                         b.vendor
@@ -2884,7 +3044,9 @@ mod tests {
                         .filter(|&(x, y)| f.o[(y * b.w + x) as usize] == O_STAIRS)
                         .collect();
                     assert!(!stairs.is_empty());
-                    if let Some((x, y)) = all_reached(b.w, b.h, &open, &stairs[..1]) {
+                    if let Some((x, y)) =
+                        all_reached(b.w, b.h, b.thin() as i32, &open, &stairs[..1])
+                    {
                         panic!(
                             "building at {bx},{by} storey {}: tile {x},{y} walled off",
                             k + 1
