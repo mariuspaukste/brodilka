@@ -372,6 +372,26 @@ impl Map {
                 }
             }
         }
+        // sunken R'lyeh: out in the open water of the bay, in sight of the
+        // ghats
+        let open = |m: &Map, x: i32, y: i32| {
+            (-3..=3).all(|dy| {
+                (-3..=3).all(|dx| inb(x + dx, y + dy) && m.t[idx(x + dx, y + dy)] == T_WATER)
+            })
+        };
+        let want = (cx, ye + 10);
+        let mut best: Option<((i32, i32), i32)> = None;
+        for y in ye + 4..H {
+            for x in x0 - 14..=xe + 14 {
+                if open(self, x, y) {
+                    let d = (x - want.0).pow(2) + (y - want.1).pow(2);
+                    if best.map_or(true, |b| d < b.1) {
+                        best = Some(((x, y), d));
+                    }
+                }
+            }
+        }
+        self.rlyeh = best.map(|b| b.0);
         // the main street from the north, the shore street along the ghats
         let mx = x0 + w / 2;
         self.street((mx - 1, y0), (mx - 1, ye), 2);

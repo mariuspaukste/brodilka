@@ -1312,6 +1312,22 @@ impl Game {
                         return Some(t);
                     }
                     "pigeon" | "dog" | "cat" | "cow" | "pig" => return street_look(d.id, e.look),
+                    "cthulhu" => return Some(Look::creature(bake::Body::Cthulhu, d.color, 220)),
+                    "deepone" => {
+                        // the deep ones: hunched, scaled and grey-green, with
+                        // gill-fins for ears, pale bulging eyes and a spear
+                        l.skin = 0x5e7e6cff;
+                        l.body = 0x4a6a5aff;
+                        l.legs = 0x4a6a5aff;
+                        l.boots = 0x3e5a4cff;
+                        l.eyes = 0xd8e8a0ff;
+                        l.ears = true;
+                        l.hunch = 28;
+                        l.bulk = 12;
+                        l.weapon = Weapon::Halberd;
+                        l.skirt = true;
+                        l.furs = 0x3a4a30ff;
+                    }
                     "mongbat" => return Some(Look::creature(bake::Body::Bat, 0x6a4e6aff, 100)),
                     "slime" => return Some(Look::creature(bake::Body::Slime, 0x5aa83aff, 100)),
                     "spider" => return Some(Look::creature(bake::Body::Spider, d.color, 135)),
@@ -2773,6 +2789,7 @@ impl Game {
                 O_ORRERY => Some((bake::P_ORRERY, false)),
                 O_STOOL => Some((bake::P_STOOL, flip_v)),
                 O_HERBS => Some((bake::P_HERBS, style & FACE_S != 0)),
+                O_RUIN => Some((bake::P_RUIN + (style as usize % 3), flip_v)),
                 O_DOOR if self.map.door_shut(x, y) && !self.odd_door(x, y) => Some((
                     bake::P_DOOR + (self.map.obj(x - 1, y) != O_WALL) as usize,
                     true,

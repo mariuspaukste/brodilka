@@ -88,7 +88,7 @@ impl Game {
     fn site_name(&self, k: usize) -> String {
         self.sim.sites[k].name.clone()
     }
-    fn news(&mut self, s: String, col: u32) {
+    pub(super) fn news(&mut self, s: String, col: u32) {
         let day = Sim::day(self.time);
         for n in self.sim.news(day, s) {
             self.msg(&n, col);

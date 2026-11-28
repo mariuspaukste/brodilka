@@ -96,6 +96,8 @@ pub const O_ORRERY: u8 = 51;
 pub const O_STOOL: u8 = 52;
 /// a rack of herbs hung to dry
 pub const O_HERBS: u8 = 53;
+/// a cyclopean ruin of sunken R'lyeh, risen from the sea (style: which)
+pub const O_RUIN: u8 = 54;
 /// seconds a door stays open before it swings shut
 pub const DOOR_OPEN: f32 = 5.0;
 
@@ -143,6 +145,7 @@ pub fn size(o: u8) -> (i32, f32) {
         O_BIGTREE => (1, 7.0),
         O_WHEEL => (1, 2.0),
         O_SHIP => (1, 3.0),
+        O_RUIN => (1, 3.2),
         O_WARDROBE => (1, 2.0),
         O_DRESSER => (1, 1.95),
         O_RACK => (1, 1.9),
@@ -309,6 +312,8 @@ pub struct Map {
     pub hold: (i32, i32, i32, i32),
     /// the building on each tile, plus one (0: none); see `Map::thin_walls`
     pub bld: Vec<u16>,
+    /// where sunken R'lyeh lies, in the bay below Kanakpur (`game/deep.rs`)
+    pub rlyeh: Option<(i32, i32)>,
     // pathfinding scratch
     pf_g: Vec<f32>,
     pf_par: Vec<i32>,
@@ -1765,6 +1770,7 @@ pub fn generate(seed: u32) -> Map {
         tropic_line: vec![],
         raj: vec![],
         hold: (0, 0, 0, 0),
+        rlyeh: None,
         pf_g: vec![0.0; N],
         pf_par: vec![-1; N],
         pf_stamp: vec![0; N],

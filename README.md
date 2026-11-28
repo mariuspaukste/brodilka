@@ -39,6 +39,9 @@ canvas and renders the windows ("gumps") from JSON; all game logic is in Rust.
   meadows, and the stablemaster's own graze in his paddock.
 - **Street life**: pigeons that flock up when you come near, dogs and cats
   in the towns, and cows and pigs in the streets of the southern cities.
+- **The awakening**: every so many days R'lyeh rises from the bay below
+  Kanakpur and Cthulhu wakes, until it sinks again or someone drives him
+  back into the deep.
 - **Death** turns you into a ghost and leaves your belongings on your corpse;
   find a healer or an ankh shrine, then run back for your things.
 - **Karak Dhum**, a dwarf hold hewn into the eastern range: a gate through
@@ -229,6 +232,30 @@ dewlap and horns, pigs with a snout disc and a corkscrew tail, dogs with
 pricked or hanging ears and a curled tail, cats sitting with their tail
 round their feet, and pigeons that peck, walk and fly. Every kind comes in a
 few coats.
+
+## The awakening of Cthulhu
+
+Sunken R'lyeh lies in the bay below Kanakpur (`src/game/deep.rs`), and
+every so many days the stars come right. Half a day before, the sleepers of
+Kanakpur cry out in their dreams of a drowned city of green stone, and the
+rumour spreads. Then **R'lyeh rises**: cyclopean blocks of dark green stone
+set at wrong angles stand in the foam of the bay, with a great carved door
+among them, and **Cthulhu** wakes and wades out among them, risen to the waist
+from the sea. He has an octopus head with a beard of feelers and burning
+eyes, rudimentary wings and clawed hands, and two great tentacles rise from
+the water beside him. A storm breaks over the tropics, the folk of the
+southern cities cry *Iä! Iä!*, and **deep ones**, hunched, scaled and
+gill-eared, with spears, come ashore on the beaches round the bay.
+
+He keeps to the sea but comes as close to the shore as the water lets him.
+He strikes from three tiles off with claw and tentacle and casts from
+further. Every so often his dreams flood the mind of anyone who looks on him,
+halving their mana. You can fight him from the shore: in war mode you walk to
+the water's edge nearest him. After a day R'lyeh sinks again, the deep ones
+go back into the sea with it, and he sleeps. If you strike him down he is
+driven into the deep at once and the sea casts up the treasures of R'lyeh
+at your feet. But that is not dead which can eternal lie: he wakes again,
+later. The timers are kept in the save.
 
 ## Light and weather
 

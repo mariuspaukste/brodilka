@@ -1098,6 +1098,42 @@ static MONS_DEF: &[MonDef] = &[
         ar: 6,
         ..MB
     },
+    // the things of the deep, risen with R'lyeh (`game/deep.rs`)
+    MonDef {
+        id: "cthulhu",
+        name: "Cthulhu",
+        hp: 2400,
+        dmg: (22, 40),
+        skill: 110,
+        speed: 2.8,
+        mv: 2.0,
+        fame: 6000,
+        karma: -6000,
+        size: 2.6,
+        color: 0x3e5a3aff,
+        ar: 55,
+        regen: 5,
+        caster: &[2, 6, 7],
+        magery: 1100,
+        ..MB
+    },
+    MonDef {
+        id: "deepone",
+        name: "a deep one",
+        hp: 70,
+        dmg: (6, 13),
+        skill: 65,
+        speed: 2.3,
+        mv: 3.2,
+        gold: (20, 70),
+        fame: 90,
+        karma: -90,
+        size: 1.0,
+        color: 0x5e7e6cff,
+        ar: 10,
+        drops: &["fish", "gems"],
+        ..MB
+    },
     // the beasts of the streets: pigeons, dogs and cats in the towns and
     // cities, and cows and pigs in the cities of the south as well
     MonDef {

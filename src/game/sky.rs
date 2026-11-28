@@ -88,6 +88,10 @@ impl Game {
 
     fn weather_of(&self, slot: i64) -> Weather {
         let (x, y) = self.ents[0].tile();
+        // a storm breaks over the tropics while R'lyeh stands
+        if self.sim.awake > 0.0 && self.map.tropic(x, y) {
+            return Weather::Storm;
+        }
         self.weather_at(slot, self.map.tropic(x, y))
     }
 

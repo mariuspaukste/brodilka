@@ -1,5 +1,5 @@
-//! Dev tool: bake the beasts of the streets and write their atlases as raw
-//! RGBA for inspection.
+//! Dev tool: bake the beasts of the streets (and Cthulhu) and write their
+//! atlases as raw RGBA for inspection.
 //! cargo run --release --example beasts_sheet -- OUTDIR  (prints "name w h fw fh" per atlas)
 fn main() {
     let dir = std::env::args().nth(1).unwrap_or("/tmp/beasts".into());
@@ -13,4 +13,8 @@ fn main() {
             println!("{name} {} {} {} {}", a.w, a.h, a.fw, a.fh);
         }
     }
+    let look = brodilka::bake::Look::creature(brodilka::bake::Body::Cthulhu, 0x3e5a3aff, 220);
+    let a = brodilka::bake::bake(&look);
+    std::fs::write(format!("{dir}/cthulhu.rgba"), &a.rgba).unwrap();
+    println!("cthulhu {} {} {} {}", a.w, a.h, a.fw, a.fh);
 }

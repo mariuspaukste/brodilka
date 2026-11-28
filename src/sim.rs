@@ -129,6 +129,12 @@ pub struct Sim {
     pub trade: f32,
     /// seconds until the next caravan sets out
     pub caravan_t: f32,
+    /// the sleeper in the deep (`game/deep.rs`): seconds until the stars are
+    /// right and R'lyeh rises, seconds left while it stands (0: sunk), and
+    /// whether the dreams that come before have been told of
+    pub deep_t: f32,
+    pub awake: f32,
+    pub omen: bool,
 }
 
 /// Strength bands a site moves through; a notice marks each crossing.
@@ -249,6 +255,9 @@ impl Sim {
             day_seen: 0,
             trade: 50.0,
             caravan_t: DAY * 0.25,
+            deep_t: DAY * 2.0,
+            awake: 0.0,
+            omen: false,
         }
     }
 
@@ -526,6 +535,10 @@ impl Sim {
             ),
             ("sim_day", self.day_seen.to_string()),
             (
+                "sim_deep",
+                format!("{}:{}:{}", f(self.deep_t), f(self.awake), self.omen as u8),
+            ),
+            (
                 "sim_trade",
                 format!(
                     "{}:{}:{}",
@@ -582,6 +595,16 @@ impl Sim {
                 self.events.drain(..n.saturating_sub(KEEP));
             }
             "sim_day" => self.day_seen = v.parse().unwrap_or(0),
+            "sim_deep" => {
+                let mut it = v.split(':');
+                self.deep_t = it.next().and_then(|x| x.parse().ok()).unwrap_or(DAY * 2.0);
+                self.awake = it
+                    .next()
+                    .and_then(|x| x.parse().ok())
+                    .unwrap_or(0.0f32)
+                    .max(0.0);
+                self.omen = it.next() == Some("1");
+            }
             "sim_trade" => {
                 let mut it = v.split(':');
                 self.trade = it

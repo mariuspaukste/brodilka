@@ -6,6 +6,7 @@ use crate::world::*;
 use std::collections::VecDeque;
 
 pub mod critters;
+pub mod deep;
 pub mod market;
 pub mod shadow;
 pub mod sky;
@@ -1538,7 +1539,9 @@ impl Game {
             self.hud_ver += 1;
             return;
         }
-        if d <= 1.5 {
+        // a giant in the sea is struck from the shore
+        let giant = matches!(self.ents[ti].k, EK::Mon(m) if MONS[m].id == "cthulhu");
+        if d <= if giant { deep::REACH } else { 1.5 } {
             let sdx = (tx - ty) - (self.ents[0].x - self.ents[0].y);
             if sdx.abs() > 0.05 {
                 self.ents[0].anim.face = sdx.signum();
@@ -1565,7 +1568,12 @@ impl Game {
                     .first()
                     .copied()
                     .unwrap_or(self.ents[0].tile());
-                let (gx, gy) = (tx.round() as i32, ty.round() as i32);
+                let (mut gx, mut gy) = (tx.round() as i32, ty.round() as i32);
+                if giant {
+                    if let Some(s) = self.shore_by(gx, gy) {
+                        (gx, gy) = s;
+                    }
+                }
                 let w = self.walker(0);
                 if let Some(mut path) = self.map.find_path_as(sx, sy, gx, gy, 1, w) {
                     if let Some(&f) = self.ents[0].path.first() {
@@ -1649,7 +1657,7 @@ impl Game {
     fn knockable(&self, i: usize) -> bool {
         !matches!(
             self.ents[i].mon().map(|m| m.id),
-            Some("dragon") | Some("slime") | Some("mongbat") | Some("spider")
+            Some("dragon") | Some("slime") | Some("mongbat") | Some("spider") | Some("cthulhu")
         )
     }
 
@@ -1868,8 +1876,9 @@ impl Game {
         };
         let d = &MONS[mi];
         self.ents[i].dead = true;
-        // the beasts of the streets belong to no site of the wild
-        if !d.domestic {
+        // the beasts of the streets and the things of the deep belong to no
+        // site of the wild
+        if !d.domestic && !matches!(d.id, "cthulhu" | "deepone") {
             for n in self.sim.slain(d.id, d.fame, self.time) {
                 self.msg(&n, C_LORE);
             }
@@ -1956,6 +1965,9 @@ impl Game {
         }
         if self.ents[0].combat.target == self.ents[i].id {
             self.ents[0].combat.target = 0;
+        }
+        if d.id == "cthulhu" {
+            self.cthulhu_slain(by_player);
         }
         self.hud_ver += 1;
     }
@@ -2061,6 +2073,7 @@ impl Game {
             self.msg(&n, C_LORE);
         }
         self.travel_tick(dt);
+        self.deep_tick(dt);
         self.shadow_tick(dt);
         self.sky_tick(dt);
         let day = crate::sim::Sim::day(self.time);
@@ -2102,7 +2115,9 @@ impl Game {
             let south = south_folk(v).2;
             let dwarf = dwarf_folk(v).2;
             let line = rumour.unwrap_or_else(|| {
-                if self.map.in_hold(hx, hy) && !dwarf.is_empty() {
+                if self.sim.awake > 0.0 && self.map.in_raj(hx, hy) && self.rng.chance(0.6) {
+                    crate::pack::t(self.rng.pick(&deep::CRIES))
+                } else if self.map.in_hold(hx, hy) && !dwarf.is_empty() {
                     crate::pack::t(self.rng.pick(dwarf))
                 } else if self.map.in_raj(hx, hy) && !south.is_empty() {
                     crate::pack::t(self.rng.pick(south))
@@ -2185,6 +2200,10 @@ impl Game {
         let d = &MONS[mi];
         if d.domestic {
             self.critter_tick(i, mi, dt);
+            return;
+        }
+        if d.id == "cthulhu" {
+            self.cthulhu_tick(i, mi, dt);
             return;
         }
         self.move_ent(i, d.mv, dt);

@@ -5,6 +5,7 @@
 //! Rendering is "sphere splatting": every limb is a chain of overlapping
 //! spheres rasterised with a depth buffer, lit from the upper left, rendered
 //! at 2x and reduced, then given a dark silhouette outline.
+mod deep;
 mod furniture;
 pub mod icons;
 mod trees;
@@ -110,6 +111,16 @@ const BIRD_ANIMS: &[(Anim, usize)] = &[
     (Die, 4),
 ];
 
+/// Cthulhu: he wades, strikes, calls on the deep, and sinks when he dies
+const CTHULHU_ANIMS: &[(Anim, usize)] = &[
+    (Idle, 2),
+    (Walk, 4),
+    (Attack, 5),
+    (Cast, 4),
+    (Hit, 2),
+    (Die, 5),
+];
+
 /// a horse: grazing stands in for looking about, and it gallops
 const HORSE_ANIMS: &[(Anim, usize)] = &[
     (Idle, 2),
@@ -137,6 +148,7 @@ pub fn anims(look: &Look) -> &'static [(Anim, usize)] {
         Body::Horse => return HORSE_ANIMS,
         Body::Dog | Body::Cat | Body::Cow | Body::Pig => return STREET_ANIMS,
         Body::Bird => return BIRD_ANIMS,
+        Body::Cthulhu => return CTHULHU_ANIMS,
         _ => {}
     }
     if look.body_type != Body::Human {
@@ -230,6 +242,8 @@ pub enum Body {
     Pig,
     /// a pigeon
     Bird,
+    /// Cthulhu, waist-deep in the sea
+    Cthulhu,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -372,6 +386,7 @@ impl Look {
             Body::Bat => (1.2, 1.0),
             Body::Spider => (1.35, 1.0),
             Body::Cow => (1.5, 1.4),
+            Body::Cthulhu => (1.3, 0.85),
             Body::Pig => (1.1, 1.2),
             Body::Dog => (1.0, 1.15),
             // small beasts drawn large: their frames needn't be
@@ -1447,6 +1462,7 @@ fn figure_for(look: &Look, a: Anim, f: usize, n: usize) -> Figure {
                 Body::Bat => bat(look, a, f, n),
                 Body::Spider => spider(look, a, f, n),
                 Body::Bird => bird(look, a, f, n),
+                Body::Cthulhu => deep::cthulhu(a, f, n),
                 _ => quad(look, a, f, n),
             }
         }
@@ -3262,7 +3278,9 @@ pub const P_HERBS: usize = 117;
 pub const P_PALM: usize = 118; // tall, leaning
 pub const P_BANYAN: usize = 120;
 pub const P_BAMBOO: usize = 121;
-pub const N_PROPS: usize = 122;
+/// the ruins of R'lyeh, risen from the sea (`bake/deep.rs`)
+pub const P_RUIN: usize = 122; // monolith, door, jumble
+pub const N_PROPS: usize = 125;
 
 /// flames licking up from `base`, varied by animation frame `f`
 fn flames(p: &mut Vec<Prim>, base: V3, size: f32, f: usize) {
@@ -3320,6 +3338,7 @@ fn prop(kind: usize) -> Figure {
     if furniture::build(kind, &mut p, &mut b)
         || tropic::build(kind, &mut p, &mut b)
         || trees::build(kind, &mut p, &mut b)
+        || deep::build(kind, &mut p, &mut b)
     {
         return Figure {
             prims: p,
@@ -5376,6 +5395,9 @@ const CAM_Z: f32 = 0.8;
 
 thread_local! {
     static NO_INK: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// the figure stands in water: z = 0 is the surface, it is not grounded,
+    /// and nothing below the surface is drawn
+    static WATERLINE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 /// A posed figure ready to render: its shapes plus whole-body rotations.
@@ -5523,7 +5545,8 @@ fn render_frame(
     if !lowest.is_finite() {
         lowest = 0.0;
     }
-    let ground = -lowest + fig.lift;
+    let water = WATERLINE.with(|c| c.get());
+    let ground = if water { fig.lift } else { -lowest + fig.lift };
     let th = dir.1.atan2(dir.0);
     let r2 = std::f32::consts::FRAC_1_SQRT_2;
     let kk = K * SS as f32;
@@ -5572,7 +5595,15 @@ fn render_frame(
                 a[1] + (b[1] - a[1]) * t,
                 a[2] + (b[2] - a[2]) * t + ground,
             ];
-            let rr = (pr.ra + (pr.rb - pr.ra) * t) * m2t;
+            let mut rr = (pr.ra + (pr.rb - pr.ra) * t) * m2t;
+            if water {
+                // under the surface nothing shows; at it, the shape is cut flat
+                let zl = pl[2] - ground;
+                if zl < 0.0 {
+                    continue;
+                }
+                rr = rr.min(zl * m2t);
+            }
             // local -> tile space (y = right-hand side), then the iso camera
             let x = pl[0] * m2t;
             let y = pl[1] * m2t;
@@ -5797,6 +5828,7 @@ pub fn bake_frame(look: &Look, atlas: &mut Atlas, idx: usize) {
     }
     let fig = figure_for(look, anim.0, anim.1, anim.2);
     let (fw, fh, w) = (atlas.fw, atlas.fh, atlas.w);
+    WATERLINE.with(|c| c.set(look.body_type == Body::Cthulhu));
     render_frame(
         look.s(),
         look.anchor(),
@@ -5809,6 +5841,7 @@ pub fn bake_frame(look: &Look, atlas: &mut Atlas, idx: usize) {
         fw,
         fh,
     );
+    WATERLINE.with(|c| c.set(false));
 }
 
 /// Bake every animation frame in the 5 rendered directions into one atlas.
