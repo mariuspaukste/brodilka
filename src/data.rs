@@ -1279,6 +1279,22 @@ static MONS_DEF: &[MonDef] = &[
         domestic: true,
         ..MB
     },
+    // the giant pandas of the bamboo groves (`game/panda.rs`): gentle,
+    // and a shame to kill
+    MonDef {
+        id: "panda",
+        name: "a giant panda",
+        hp: 70,
+        dmg: (4, 10),
+        skill: 40,
+        speed: 2.2,
+        mv: 2.2,
+        passive: true,
+        size: 1.15,
+        color: 0xe8e4dcff,
+        karma: 60,
+        ..MB
+    },
     // the things of the Ethereal Void (`world/void.rs`)
     MonDef {
         id: "starbat",
@@ -1341,6 +1357,12 @@ pub fn of_the_deep(id: &str) -> bool {
         id,
         "cthulhu" | "deepone" | "deeppriest" | "crab" | "saltfolk"
     )
+}
+
+/// Gentle beasts of the wild that belong to no site of it: slaying them
+/// weakens nothing, and costs karma.
+pub fn gentle_wild(id: &str) -> bool {
+    matches!(id, "panda")
 }
 
 /// The things of the Ethereal Void, which belong to no site of the wild.

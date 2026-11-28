@@ -9,6 +9,7 @@ pub mod critters;
 pub mod deep;
 pub mod lines;
 pub mod market;
+pub mod panda;
 pub mod saltgrave;
 pub mod shadow;
 pub mod sky;
@@ -252,6 +253,8 @@ pub struct Ent {
     pub busy_t: f32,
     /// what a monkey has snatched from the player and is off to eat
     pub stolen: Option<Item>,
+    /// a tile a beast is making for: a panda's next stand of bamboo
+    pub goal: Option<(i32, i32)>,
 }
 
 impl Ent {
@@ -287,6 +290,7 @@ impl Ent {
             chase: 0,
             busy_t: 0.0,
             stolen: None,
+            goal: None,
         }
     }
     /// 0 wild (or not a horse), 1 the player's own, 2 the stablemaster's
@@ -912,7 +916,7 @@ impl Game {
         let s = &self.spawners[si];
         if MONS[s.mon].domestic {
             s.max
-        } else if of_the_void(MONS[s.mon].id) {
+        } else if of_the_void(MONS[s.mon].id) || gentle_wild(MONS[s.mon].id) {
             s.max
         } else if of_the_deep(MONS[s.mon].id) {
             // drowned Saltgrave teems while R'lyeh stands
@@ -1925,7 +1929,7 @@ impl Game {
         self.ents[i].dead = true;
         // the beasts of the streets and the things of the deep and of the
         // Void belong to no site of the wild
-        if !d.domestic && !of_the_deep(d.id) && !of_the_void(d.id) {
+        if !d.domestic && !of_the_deep(d.id) && !of_the_void(d.id) && !gentle_wild(d.id) {
             for n in self.sim.slain(d.id, d.fame, self.time) {
                 self.msg(&n, C_LORE);
             }
@@ -2298,6 +2302,10 @@ impl Game {
         let home_d = self.ents[i].dist(hx as f32, hy as f32);
         let pid = self.ents[0].id;
 
+        if d.id == "panda" {
+            self.panda_tick(i, pd, dt);
+            return;
+        }
         if d.passive {
             self.ents[i].running = self.ents[i].combat.provoked;
             if self.ents[i].combat.provoked && pd < 10.0 && !ghost {

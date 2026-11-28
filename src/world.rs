@@ -117,6 +117,9 @@ pub const O_CRYSTAL: u8 = 56;
 /// a little table in a pub with a board of Lines laid out on it: nine by
 /// nine, coloured balls (`game/lines.rs`)
 pub const O_GAMEBOARD: u8 = 57;
+/// a stand of bamboo in a grove of the tropic hills; the pandas eat it
+/// down (its `res`) and it grows again (`game/panda.rs`)
+pub const O_BAMBOO: u8 = 58;
 /// O_RUIN styles: R'lyeh's monolith, door and jumble (0–2), the idol in
 /// drowned Saltgrave, a wrecked boat
 pub const RUIN_IDOL: u8 = 3;
@@ -176,6 +179,7 @@ pub fn size(o: u8) -> (i32, f32) {
         O_MOONGATE => (1, 3.0),
         O_CRYSTAL => (1, 1.2),
         O_GAMEBOARD => (1, 0.9),
+        O_BAMBOO => (1, 3.4),
         O_WARDROBE => (1, 2.0),
         O_DRESSER => (1, 1.95),
         O_RACK => (1, 1.9),
@@ -349,6 +353,8 @@ pub struct Map {
     pub gates: Vec<(i32, i32)>,
     /// the isles of the Ethereal Void, the Isle of the Gate first
     pub isles: Vec<Isle>,
+    /// the middles of the bamboo groves in the tropic hills (`world/bamboo.rs`)
+    pub groves: Vec<(i32, i32)>,
     // pathfinding scratch
     pf_g: Vec<f32>,
     pf_par: Vec<i32>,
@@ -475,7 +481,15 @@ fn movable(o: u8) -> bool {
 pub fn blocks(o: u8) -> bool {
     !matches!(
         o,
-        O_NONE | O_DOOR | O_BUSH | O_FLOWERS | O_BONES | O_SKULLS | O_STAIRS | O_MOONGATE
+        O_NONE
+            | O_DOOR
+            | O_BUSH
+            | O_FLOWERS
+            | O_BONES
+            | O_SKULLS
+            | O_STAIRS
+            | O_MOONGATE
+            | O_BAMBOO
     )
 }
 
@@ -1767,6 +1781,7 @@ const TOWER_TOP: &[(i32, i32, bool, u8)] = &[
     (1, 4, false, O_ORRERY),
 ];
 
+mod bamboo;
 mod drowned;
 mod dwarves;
 mod south;
@@ -1814,6 +1829,7 @@ pub fn generate(seed: u32) -> Map {
         rlyeh: None,
         gates: vec![],
         isles: vec![],
+        groves: vec![],
         pf_g: vec![0.0; N],
         pf_par: vec![-1; N],
         pf_stamp: vec![0; N],
@@ -2357,6 +2373,8 @@ pub fn generate(seed: u32) -> Map {
     for &i in &m.doors {
         m.door[i] = 0.0;
     }
+    // bamboo in the tropic hills, with its pandas
+    m.bamboo_groves(seed);
     // and last, below it all, the Ethereal Void
     m.make_void(seed);
     m
@@ -2686,6 +2704,7 @@ pub fn mini_color(m: &Map, i: usize) -> [u8; 4] {
         (_, O_CART) | (_, O_PART) => 0x5a4028ff,
         (_, O_STALL) => 0xb05a30ff,
         (_, O_TREE) => 0x2e5a22ff,
+        (_, O_BAMBOO) => 0x6a8a2aff,
         (T_WATER, _) => 0x2a5582ff,
         (T_SAND, _) => 0xcdb882ff,
         (T_GRASS, _) => 0x5b8a38ff,

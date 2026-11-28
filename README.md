@@ -190,6 +190,18 @@ hunt the jungle, great spiders and slimes keep to the wet. There is no
 snow: winter is dry and hazy, and summer brings the monsoon, rain and
 thunderstorms most of the season.
 
+High in the tropic hills, the three places with the most open grass hold
+**bamboo groves** (`src/world/bamboo.rs`): thick stands of bamboo that crowd
+out the trees, walked through like tall grass. **Giant pandas** live in
+them (`src/game/panda.rs`, their figure in `src/bake/panda.rs`), two to a
+grove: white bears with black legs, shoulders, ears and eye patches. A panda
+shambles about, then makes for a stand that still has leaves, sits back on
+its rump and eats, a stalk held to its mouth in both paws, now and then
+munching aloud. Every meal eats a stand further down, and one eaten to the
+ground is a few stumps for four minutes until it grows again. Pandas are
+gentle: struck, they lope away, and killing one costs karma and weakens no
+place of the wild.
+
 Both old tracks over the southern range come down to its two cities, built
 in the Indian style, and a road joins them:
 

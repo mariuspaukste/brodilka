@@ -1320,6 +1320,7 @@ impl Game {
                     "pigeon" | "dog" | "cat" | "cow" | "pig" | "monkey" => {
                         return street_look(d.id, e.look)
                     }
+                    "panda" => return Some(panda_look()),
                     "cthulhu" => return Some(Look::creature(bake::Body::Cthulhu, d.color, 220)),
                     "crab" => return Some(Look::creature(bake::Body::Crab, d.color, 140)),
                     "deeppriest" => {
@@ -1582,6 +1583,9 @@ impl Game {
                 // a monkey with something to eat does nothing else
                 "monkey" if e.stolen.is_some() => Some((1.0, 1.0, 0.9)),
                 "monkey" => Some((0.09, 0.45, 0.9)),
+                // a panda at its meal does nothing else
+                "panda" if e.busy_t > 0.0 => Some((1.0, 1.0, 0.7)),
+                "panda" => Some((0.04, 0.15, 0.6)),
                 _ => None,
             };
             if let Some((rate, frac, speed)) = spell {
@@ -2806,6 +2810,9 @@ impl Game {
                     };
                     Some((k, flip_v))
                 }
+                // a grove's bamboo, the same clumps as the jungle's; eaten
+                // down, its stumps are drawn below
+                O_BAMBOO if self.map.res[idx(x, y)] > 0 => Some((bake::P_BAMBOO, flip_v)),
                 O_TREE => {
                     let k = if style & 0x7f == 1 {
                         bake::P_DEAD + (sh as usize % 2)
@@ -2973,6 +2980,7 @@ impl Game {
             O_MOONGATE => self.moongate(c, x, y, sx, sy, z, t, lights),
             O_CRYSTAL => self.crystal(c, x, y, sx, sy, style, z, t, lights),
             O_GAMEBOARD => self.gameboard(c, x, y, sx, sy, z),
+            O_BAMBOO => self.bamboo(c, x, y, sx, sy, sh, z, t),
             O_TREE => {
                 let depleted = self.map.res[idx(x, y)] == 0;
                 c.fill(0x00000040);
@@ -3962,7 +3970,7 @@ impl Game {
                     }
                     "crab" => self.slime(c, e, sx, sy, z * s, col, t),
                     "mongbat" | "starbat" => self.mongbat(c, e, sx, sy, z * s, col, t),
-                    "stalker" => self.quad(c, e, sx, sy, z * s, col, "wolf", wk, t),
+                    "stalker" | "panda" => self.quad(c, e, sx, sy, z * s, col, "wolf", wk, t),
                     "slime" | "spider" => self.slime(c, e, sx, sy, z * s, col, t),
                     "dragon" => self.dragon(c, e, sx, sy, z * s, col, wk, t),
                     "skeleton" => self.humanoid(
@@ -5979,6 +5987,69 @@ impl Game {
         c.outline(INK, ink);
     }
 
+    /// A stand of bamboo eaten down by the pandas: a few short stumps until
+    /// it grows again (standing, it is the baked jungle clump; this draws it
+    /// whole only until the props are baked): tall jointed green canes,
+    /// swaying a little, with leaves at their tops.
+    #[allow(clippy::too_many_arguments)]
+    fn bamboo(&self, c: &mut Canvas, x: i32, y: i32, sx: f32, sy: f32, sh: u8, z: f32, t: f32) {
+        let ink = self.pix.max(z);
+        let eaten = self.map.res[idx(x, y)] == 0;
+        let n = 4 + (sh % 3) as i32;
+        c.outline(0, 0.0);
+        c.fill(0x00000030);
+        c.ell(sx, sy, 14.0 * z, 6.0 * z);
+        for i in 0..n {
+            let a = h2(x * 5 + i, y * 3, 51);
+            let b = h2(x + i, y * 7 - i, 53);
+            let (bx, by) = (sx + (a - 0.5) * 22.0 * z, sy + (b - 0.5) * 9.0 * z);
+            let (h, w) = if eaten {
+                ((5.0 + a * 6.0) * z, 2.2 * z)
+            } else {
+                ((44.0 + b * 34.0) * z, (2.0 + a * 0.8) * z)
+            };
+            let sway = if eaten {
+                0.0
+            } else {
+                (t * 0.9 + a * 6.0).sin() * 2.5 * z * (h / (60.0 * z))
+            };
+            let (tx, ty) = (bx + sway + (a - 0.5) * 6.0 * z, by - h);
+            let green = mix(0x4e7a22ff, 0x7a9a30ff, b);
+            c.stroke(INK, w + 2.0 * ink);
+            c.line(bx, by, tx, ty);
+            c.stroke(green, w);
+            c.line(bx, by, tx, ty);
+            // the joints
+            c.stroke(shade(green, 0.6), w + 0.6 * z);
+            let joints = (h / (11.0 * z)) as i32;
+            for k in 1..=joints {
+                let f = k as f32 * 11.0 * z / h;
+                let (jx, jy) = (bx + (tx - bx) * f, by + (ty - by) * f);
+                c.line(jx - 0.1 * z, jy, jx + 0.1 * z, jy);
+            }
+            if eaten {
+                continue;
+            }
+            // leaves: slim blades from the top joints
+            for k in 0..4 {
+                let f = 1.0 - k as f32 * 0.13;
+                let (lx, ly) = (bx + (tx - bx) * f, by + (ty - by) * f);
+                let dir = if (i + k) % 2 == 0 { 1.0 } else { -1.0 };
+                let len = (7.0 + h2(i, k, 57) * 6.0) * z;
+                c.outline(INK, ink);
+                c.fill(mix(0x5a7a24ff, 0x8aa83aff, h2(k, i, 59)));
+                c.poly(&[
+                    (lx, ly),
+                    (lx + dir * len * 0.5, ly - 1.8 * z),
+                    (lx + dir * len, ly + 2.0 * z),
+                    (lx + dir * len * 0.5, ly + 1.0 * z),
+                ]);
+                c.outline(0, 0.0);
+            }
+        }
+        c.outline(INK, ink);
+    }
+
     /// A little pub table with a board of Lines on it: nine by nine grey
     /// cells, and a few coloured balls in play.
     #[allow(clippy::too_many_arguments)]
@@ -6313,6 +6384,13 @@ fn dwarf_look(l: &mut Look, v: usize, r: &dyn Fn(u32) -> u32, mine: bool) {
             }
         }
     }
+}
+
+/// A giant panda: white, its legs, shoulders, ears and eye patches black.
+pub fn panda_look() -> Look {
+    let mut l = Look::creature(bake::Body::Panda, 0xe8e4dcff, 100);
+    l.body = 0x1e1c1cff;
+    l
 }
 
 /// The beasts of the streets, each in one of a few coats picked by `seed`
