@@ -489,7 +489,7 @@ impl Game {
                 let mut w = WinJ::new("help", "How to play");
                 for (i, t) in [
                     ("👆", "Tap the ground to walk there. Hold and drag to steer, like the mouse in the old days."),
-                    ("⚔️", "Tap a creature to attack it. War mode keeps swinging; skills rise with use."),
+                    ("⚔️", "Go to war, then tap a creature to attack it; at peace a tap only names it. Skills rise with use."),
                     ("🧑", "Tap townsfolk to trade, bank or be healed. Tap thyself for thy paperdoll."),
                     ("🍺", "The pub sells ale and bread; the library sells spellbooks and scrolls, and buys the scrolls thou findest."),
                     ("🌲", "With a hatchet tap trees; with a pickaxe tap mountains; with a pole tap water."),

@@ -120,9 +120,10 @@ animations.
 
 ## Controls
 
-Tap the ground to walk, hold and drag to steer. Tap a creature to attack,
-tap people to trade, tap yourself for the paperdoll. Trees, mountains and
-water are gathered by tapping them with the right tool.
+Tap the ground to walk, hold and drag to steer. Tap a creature to see its
+name; in war mode (the ⚔ button, or Tab) a tap attacks it. Tap people to
+trade, tap yourself for the paperdoll. Trees, mountains and water are
+gathered by tapping them with the right tool.
 Tap your horse to mount, yourself to dismount.
 Keyboard: WASD/arrows, Tab war mode, Space (hold) block, F kick, E mount/dismount, B bandage, P pack, K skills, M map,
 1–9 cast, Esc close.

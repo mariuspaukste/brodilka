@@ -1085,7 +1085,7 @@ impl Game {
         self.win = Win::None;
         self.msg("Welcome to the realm, traveller.", C_GOLD);
         self.msg(
-            "Tap the ground to walk, hold to steer. Tap creatures to attack.",
+            "Tap the ground to walk, hold to steer. Go to war, then tap creatures to attack.",
             C_SYS,
         );
         self.msg("Skills improve as thou usest them.", C_SYS);
@@ -3476,6 +3476,16 @@ impl Game {
                 {
                     self.salt_snub(i);
                 }
+                // at peace a tap only names it, as a single click does in
+                // Ultima Online: to fight, go to war first
+                EK::Mon(m) if !self.pl.war => {
+                    let nm = self.ents[i].name.clone();
+                    self.ents[i].talk(&nm, 0xd8d0c0ff);
+                    let d = &MONS[m];
+                    if !self.pl.ghost && !d.passive && !d.domestic {
+                        self.msg("Thou art at peace. Go to war to attack.", C_SYS);
+                    }
+                }
                 EK::Mon(_) => {
                     if self.pl.ghost {
                         self.msg("Thou art dead and cannot fight.", C_WARN);
@@ -3878,6 +3888,36 @@ mod tests {
         }
         assert!(g.ents[0].hp > 10 || g.journal.iter().any(|j| j.1.contains("fizzles")));
         let _ = id;
+    }
+
+    /// at peace a tap on a creature only names it; at war it attacks
+    #[test]
+    fn tapping_a_creature_attacks_only_at_war() {
+        let mut g = Game::new(11);
+        g.create("Tapper", false, 0, "warrior", [0, 0, 0]);
+        g.win = Win::None;
+        let (sx, sy) = g.map.start;
+        let oi = mon_idx("orc");
+        let id = g.nid();
+        let mut e = Ent::new(id, EK::Mon(oi), "an orc".into(), sx + 2, sy, 500);
+        e.home = (sx + 2, sy);
+        g.ents.push(e);
+        let tap = |g: &mut Game| {
+            let i = g.find(id).unwrap();
+            let (x, y) = g.scr_h(g.ents[i].x, g.ents[i].y, g.ents[i].anim.vz);
+            g.tap(x, y - 16.0 * g.zoom);
+        };
+        assert!(!g.pl.war);
+        tap(&mut g);
+        assert!(!g.pl.war, "a tap at peace went to war");
+        assert_ne!(g.ents[0].combat.target, id);
+        assert!(!g.pl.chase);
+        assert!(g.journal.iter().any(|j| j.1.contains("Go to war")));
+        g.toggle_war();
+        tap(&mut g);
+        assert!(g.pl.war);
+        assert_eq!(g.ents[0].combat.target, id);
+        assert!(g.pl.chase);
     }
 
     #[test]
