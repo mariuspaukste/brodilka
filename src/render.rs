@@ -1311,6 +1311,7 @@ impl Game {
                         t.stripes = 0x1a1008ff;
                         return Some(t);
                     }
+                    "pigeon" | "dog" | "cat" | "cow" | "pig" => return street_look(d.id, e.look),
                     "mongbat" => return Some(Look::creature(bake::Body::Bat, 0x6a4e6aff, 100)),
                     "slime" => return Some(Look::creature(bake::Body::Slime, 0x5aa83aff, 100)),
                     "spider" => return Some(Look::creature(bake::Body::Spider, d.color, 135)),
@@ -1472,6 +1473,10 @@ impl Game {
         if e.anim.hurt > 0.45 {
             return (Anim::Hit, if e.anim.hurt > 0.75 { 0.0 } else { 0.6 });
         }
+        // a bird on the wing
+        if e.anim.air > 0.0 {
+            return (Anim::Run, cyc(3.2));
+        }
         let fighting = match e.k {
             EK::Player => self.pl.war,
             EK::Mon(_) => e.combat.target != 0,
@@ -1498,6 +1503,26 @@ impl Game {
         if fighting {
             return (Anim::Stance, cyc(0.75));
         }
+        // the beasts of the streets spend long spells grazing, rooting,
+        // sniffing, pecking or (a cat) sitting: (how often, how long, how fast)
+        if let EK::Mon(m) = e.k {
+            let spell = match MONS[m].id {
+                "pigeon" => Some((0.2, 0.45, 1.5)),
+                "cat" => Some((0.035, 0.6, 0.4)),
+                "cow" => Some((0.04, 0.6, 0.6)),
+                "pig" => Some((0.08, 0.5, 1.0)),
+                "dog" => Some((0.07, 0.3, 1.2)),
+                _ => None,
+            };
+            if let Some((rate, frac, speed)) = spell {
+                let w = (self.clock * rate + e.id as f32 * 0.61).fract();
+                return if w < frac {
+                    (Anim::Look, cyc(speed))
+                } else {
+                    (Anim::Idle, cyc(0.6))
+                };
+            }
+        }
         // now and then a figure glances left and right
         let w = (self.clock * 0.14 + e.id as f32 * 0.61).fract();
         if w < 0.16 {
@@ -1520,7 +1545,9 @@ impl Game {
         let lift = if ghost {
             4.0 * z + (self.clock * 2.0).sin() * 2.0 * z
         } else {
-            0.0
+            // a flying bird, eased up and down
+            let a = e.anim.air;
+            a * a * (3.0 - 2.0 * a) * crate::game::critters::FLIGHT * LH * z
         };
         c.sprite(
             info.id,
@@ -3841,6 +3868,11 @@ impl Game {
                     "rabbit" | "rat" | "wolf" | "horse" => {
                         self.quad(c, e, sx, sy, z * s, col, d.id, wk, t)
                     }
+                    // until their figures are baked
+                    "tiger" | "dog" | "cow" | "pig" => {
+                        self.quad(c, e, sx, sy, z * s, col, "wolf", wk, t)
+                    }
+                    "cat" | "pigeon" => self.quad(c, e, sx, sy, z * s, col, "rabbit", wk, t),
                     "mongbat" => self.mongbat(c, e, sx, sy, z * s, col, t),
                     "slime" | "spider" => self.slime(c, e, sx, sy, z * s, col, t),
                     "dragon" => self.dragon(c, e, sx, sy, z * s, col, wk, t),
@@ -5941,4 +5973,78 @@ fn dwarf_look(l: &mut Look, v: usize, r: &dyn Fn(u32) -> u32, mine: bool) {
             }
         }
     }
+}
+
+/// The beasts of the streets, each in one of a few coats picked by `seed`.
+pub fn street_look(id: &str, seed: u32) -> Option<Look> {
+    use bake::Body;
+    let k = seed as usize;
+    let l = match id {
+        "pigeon" => {
+            // body, wings, neck: blue-bar grey, purple-necked, white, brown
+            const COATS: [(u32, u32, u32); 4] = [
+                (0x86889aff, 0xa2a4b0ff, 0x4e7a6eff),
+                (0x7e8092ff, 0x9a9caaff, 0x6e5a86ff),
+                (0xe2e0daff, 0xeceae4ff, 0xd0d4c8ff),
+                (0x7a5e50ff, 0x957666ff, 0x5a6a5aff),
+            ];
+            let (b, w, n) = COATS[k % 4];
+            let mut l = Look::creature(Body::Bird, b, 150);
+            l.body = w;
+            l.legs = n;
+            l
+        }
+        "dog" => {
+            // coat, markings, pricked ears: the tan pariah, black and tan,
+            // brown and white, grey
+            const COATS: [(u32, u32, bool); 4] = [
+                (0xb4844eff, 0xe6d8bcff, true),
+                (0x2e2a28ff, 0xb88a58ff, true),
+                (0x6a4a30ff, 0xe0d8c8ff, false),
+                (0x8e8880ff, 0, false),
+            ];
+            let (c, p, ears) = COATS[k % 4];
+            let mut l = Look::creature(Body::Dog, c, 100);
+            l.patch = p;
+            l.ears = ears;
+            l
+        }
+        "cat" => {
+            // ginger tabby, grey tabby, black, cream
+            const COATS: [(u32, u32); 4] = [
+                (0xc4783aff, 0x8a4a1cff),
+                (0x8a8884ff, 0x3e3c3aff),
+                (0x1e1c1cff, 0),
+                (0xe0d4bcff, 0),
+            ];
+            let (c, st) = COATS[k % 4];
+            let mut l = Look::creature(Body::Cat, c, 115);
+            l.stripes = st;
+            l
+        }
+        "cow" => {
+            // white, grey and red zebu; one with its horns painted
+            const COATS: [(u32, u32); 4] = [
+                (0xe2ddd2ff, 0),
+                (0xa8a298ff, 0),
+                (0x8e5430ff, 0),
+                (0xe2ddd2ff, 0xa83020ff),
+            ];
+            let (c, h) = COATS[k % 4];
+            let mut l = Look::creature(Body::Cow, c, 100);
+            l.horns = h;
+            l
+        }
+        "pig" => {
+            // pink, black, pink with black spots
+            const COATS: [(u32, u32); 3] =
+                [(0xd8a090ff, 0), (0x34302eff, 0), (0xd8a090ff, 0x34302eff)];
+            let (c, p) = COATS[k % 3];
+            let mut l = Look::creature(Body::Pig, c, 100);
+            l.patch = p;
+            l
+        }
+        _ => return None,
+    };
+    Some(l)
 }

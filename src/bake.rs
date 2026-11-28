@@ -90,6 +90,26 @@ const BEAST_ANIMS: &[(Anim, usize)] = &[
     (Die, 5),
 ];
 
+/// the beasts of the streets: `Look` is their loop of grazing, rooting,
+/// sniffing the ground or (a cat) sitting, and they run when they flee
+const STREET_ANIMS: &[(Anim, usize)] = &[
+    (Idle, 2),
+    (Look, 4),
+    (Walk, 8),
+    (Run, 6),
+    (Hit, 2),
+    (Die, 5),
+];
+/// a pigeon: `Look` is pecking at the ground, `Run` is flying
+const BIRD_ANIMS: &[(Anim, usize)] = &[
+    (Idle, 2),
+    (Look, 4),
+    (Walk, 6),
+    (Run, 6),
+    (Hit, 2),
+    (Die, 4),
+];
+
 /// a horse: grazing stands in for looking about, and it gallops
 const HORSE_ANIMS: &[(Anim, usize)] = &[
     (Idle, 2),
@@ -113,8 +133,11 @@ const RIDER_ANIMS: &[(Anim, usize)] = &[
 ];
 
 pub fn anims(look: &Look) -> &'static [(Anim, usize)] {
-    if look.body_type == Body::Horse {
-        return HORSE_ANIMS;
+    match look.body_type {
+        Body::Horse => return HORSE_ANIMS,
+        Body::Dog | Body::Cat | Body::Cow | Body::Pig => return STREET_ANIMS,
+        Body::Bird => return BIRD_ANIMS,
+        _ => {}
     }
     if look.body_type != Body::Human {
         return BEAST_ANIMS;
@@ -200,6 +223,13 @@ pub enum Body {
     Dragon,
     Horse,
     Spider,
+    // the beasts of the streets
+    Dog,
+    Cat,
+    Cow,
+    Pig,
+    /// a pigeon
+    Bird,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -268,6 +298,11 @@ pub struct Look {
     /// a full beard from the chin down over the chest, with a moustache
     /// (0 = none)
     pub beard: u32,
+    /// a beast's markings: a dog's pale chest, muzzle and paws, a pig's
+    /// spots (0 = none)
+    pub patch: u32,
+    /// a cow's horns, bone or painted (0 = bone)
+    pub horns: u32,
 }
 
 impl Look {
@@ -308,6 +343,8 @@ impl Look {
             sash: 0,
             stripes: 0,
             beard: 0,
+            patch: 0,
+            horns: 0,
         }
     }
     pub fn creature(body: Body, color: u32, scale: u16) -> Look {
@@ -334,6 +371,12 @@ impl Look {
             Body::Dragon => (1.55, 1.3),
             Body::Bat => (1.2, 1.0),
             Body::Spider => (1.35, 1.0),
+            Body::Cow => (1.5, 1.4),
+            Body::Pig => (1.1, 1.2),
+            Body::Dog => (1.0, 1.15),
+            // small beasts drawn large: their frames needn't be
+            Body::Bird => (0.6, 0.55),
+            Body::Cat => (0.8, 0.7),
             _ if self.equine() => (1.8, 1.4),
             _ => (1.0, 1.0),
         }
@@ -349,7 +392,15 @@ impl Look {
     pub fn anchor(&self) -> (f32, f32) {
         let (fw, fh) = self.frame_size();
         // a horse facing the viewer reaches below its centre with head and forelegs
-        let foot = if self.equine() { 20.0 } else { 8.0 };
+        let foot = if self.equine() {
+            20.0
+        } else if self.body_type == Body::Cow {
+            24.0
+        } else if matches!(self.body_type, Body::Dog | Body::Pig) {
+            16.0
+        } else {
+            8.0
+        };
         (fw as f32 / 2.0, fh as f32 - foot * self.s())
     }
 }
@@ -1395,6 +1446,7 @@ fn figure_for(look: &Look, a: Anim, f: usize, n: usize) -> Figure {
                 Body::Slime => slime(look, a, f, n),
                 Body::Bat => bat(look, a, f, n),
                 Body::Spider => spider(look, a, f, n),
+                Body::Bird => bird(look, a, f, n),
                 _ => quad(look, a, f, n),
             }
         }
@@ -1426,7 +1478,7 @@ fn creature_phase(a: Anim, f: usize, n: usize) -> (f32, f32, f32, f32, f32) {
         0.0
     };
     match a {
-        Anim::Walk => (f as f32 / n as f32 * tau, 0.0, 0.0, 0.0, 0.0),
+        Anim::Walk | Anim::Run => (f as f32 / n as f32 * tau, 0.0, 0.0, 0.0, 0.0),
         Anim::Stance => (0.0, 0.0, 0.0, 0.0, 1.0),
         Anim::Attack => (0.0, (p * std::f32::consts::PI).sin(), 0.0, 0.0, 0.6),
         Anim::Cast => (0.0, 0.0, 0.0, 0.0, -ease(p)),
@@ -1484,52 +1536,83 @@ fn wing(v: &mut Vec<Prim>, root: V3, side: f32, span: f32, flap: f32, color: u32
 }
 
 fn quad(look: &Look, a: Anim, f: usize, n: usize) -> Figure {
+    let tau = std::f32::consts::TAU;
     let mut v = vec![];
     let col = look.skin;
     let dark = shade_col(col, 0.7);
     let (ph, lunge, recoil, die, crouch) = creature_phase(a, f, n);
     let kind = look.body_type;
+    let gait = matches!(a, Anim::Walk | Anim::Run);
+    let run = a == Anim::Run;
+    // the beasts of the streets loop `Look`: a cat sits, the others put their
+    // heads down to graze, root or sniff the ground
+    let lp = f as f32 / n.max(1) as f32;
+    let sit = a == Anim::Look && kind == Body::Cat;
+    let graze = a == Anim::Look && matches!(kind, Body::Dog | Body::Cow | Body::Pig);
+    let hoof = 0x2a2420ff;
     // body length, shoulder height, body radii, leg radius, neck length, head radius
     let (len, hgt, rb, rf, lr, neck, hr) = match kind {
         Body::Rabbit => (0.22, 0.12, 0.1, 0.08, 0.025, 0.06, 0.07),
         Body::Rat => (0.3, 0.1, 0.08, 0.07, 0.022, 0.05, 0.06),
         Body::Dragon => (1.3, 0.75, 0.38, 0.33, 0.09, 0.75, 0.2),
+        Body::Dog => (0.44, 0.42, 0.1, 0.11, 0.036, 0.2, 0.09),
+        Body::Cat => (0.34, 0.2, 0.075, 0.07, 0.022, 0.07, 0.068),
+        Body::Cow => (0.95, 0.92, 0.26, 0.28, 0.05, 0.36, 0.15),
+        Body::Pig => (0.7, 0.36, 0.21, 0.19, 0.042, 0.07, 0.13),
         _ => (0.62, 0.42, 0.15, 0.16, 0.045, 0.18, 0.11),
     };
     let crouch_k = 1.0 - 0.12 * crouch.max(0.0);
-    let bob = if a == Anim::Walk {
-        0.04 * hgt * (2.0 * ph).cos()
+    let bob = if gait {
+        (if run { 0.08 } else { 0.04 }) * hgt * (2.0 * ph).cos()
     } else {
         0.0
     };
     let dx = lunge * 0.3 * len - recoil * 0.15 * len;
-    let hip = [-len / 2.0 + dx, 0.0, hgt * crouch_k + bob];
+    let mut hip = [-len / 2.0 + dx, 0.0, hgt * crouch_k + bob];
     let rear_up = (-crouch).max(0.0);
-    let sho = [
+    let mut sho = [
         len / 2.0 + dx,
         0.0,
         hgt * crouch_k * 1.05 + bob + rear_up * 0.35 * len,
     ];
+    if sit {
+        // haunches on the ground, forelegs straight, the body raised
+        hip = [-len * 0.3, 0.0, rb * 1.05];
+        sho = [len * 0.3, 0.0, hgt * 1.25];
+    }
+    if graze && kind == Body::Pig {
+        // rooting: the forequarters drop
+        sho[2] -= 0.04;
+    }
     prim(&mut v, hip, sho, rb, rf, col, Mat::Matte);
     if look.stripes != 0 {
         // bands over the back and down both flanks, a pale belly beneath
+        let k = rb / 0.15;
         prim(
             &mut v,
-            add(hip, [0.05, 0.0, -rb * 0.45]),
-            add(sho, [-0.05, 0.0, -rf * 0.45]),
+            add(hip, [0.05 * k, 0.0, -rb * 0.45]),
+            add(sho, [-0.05 * k, 0.0, -rf * 0.45]),
             rb * 0.62,
             rf * 0.6,
             0xe8dcc0ff,
             Mat::Matte,
         );
-        for k in 0..7 {
-            let t = 0.08 + k as f32 * 0.13;
+        for s in 0..7 {
+            let t = 0.08 + s as f32 * 0.13;
             let c = lerp3(hip, sho, t);
             let r = rb + (rf - rb) * t;
-            let top = add(c, [0.02 * (k % 2) as f32, 0.0, r * 0.98]);
+            let top = add(c, [0.02 * k * (s % 2) as f32, 0.0, r * 0.98]);
             for side in [-1.0f32, 1.0] {
-                let low = add(c, [-0.03, side * r * 0.96, -r * 0.2]);
-                prim(&mut v, top, low, 0.032, 0.022, look.stripes, Mat::Matte);
+                let low = add(c, [-0.03 * k, side * r * 0.96, -r * 0.2]);
+                prim(
+                    &mut v,
+                    top,
+                    low,
+                    0.032 * k,
+                    0.022 * k,
+                    look.stripes,
+                    Mat::Matte,
+                );
             }
         }
     }
@@ -1545,8 +1628,48 @@ fn quad(look: &Look, a: Anim, f: usize, n: usize) -> Figure {
             Mat::Matte,
         );
     }
+    match kind {
+        // the zebu's hump over the shoulders
+        Body::Cow => {
+            let h = add(sho, [-0.05, 0.0, rf * 0.95]);
+            prim(
+                &mut v,
+                h,
+                add(h, [-0.1, 0.0, -0.05]),
+                0.15,
+                0.1,
+                col,
+                Mat::Matte,
+            );
+        }
+        // a pale chest
+        Body::Dog if look.patch != 0 => {
+            let c = add(sho, [rf * 0.45, 0.0, -rf * 0.3]);
+            prim(&mut v, c, c, rf * 0.68, rf * 0.68, look.patch, Mat::Matte);
+        }
+        // spots over the flanks and rump
+        Body::Pig if look.patch != 0 => {
+            for (t, side, up) in [
+                (0.15, 1.0f32, 0.3),
+                (0.55, -1.0, 0.45),
+                (0.8, 1.0, 0.1),
+                (0.4, 1.0, 0.75),
+            ] {
+                let c = lerp3(hip, sho, t);
+                let r = rb + (rf - rb) * t;
+                let p = add(c, [0.0, side * r * 0.72 * (1.0 - up * 0.5), r * 0.72 * up]);
+                prim(&mut v, p, p, r * 0.42, r * 0.42, look.patch, Mat::Matte);
+            }
+        }
+        _ => {}
+    }
     // legs: diagonal pairs (rabbits hop with both hind legs)
     let width = rb * 0.75;
+    let paw = match kind {
+        Body::Cow | Body::Pig => hoof,
+        Body::Dog if look.patch != 0 => look.patch,
+        _ => dark,
+    };
     for (front, side, off) in [
         (true, 1.0f32, 0.0f32),
         (true, -1.0, 1.0),
@@ -1554,6 +1677,15 @@ fn quad(look: &Look, a: Anim, f: usize, n: usize) -> Figure {
         (false, -1.0, 0.0),
     ] {
         let base = if front { sho } else { hip };
+        if sit && !front {
+            // a sitting cat's hind legs folded beside it, feet forward
+            let top = add(hip, [0.0, side * width, 0.0]);
+            let knee = [hip[0] + 0.07, side * width * 1.15, lr * 1.6];
+            let foot = [hip[0] + 0.1, side * width * 0.8, lr * 0.8];
+            prim(&mut v, top, knee, lr * 2.4, lr * 1.5, col, Mat::Matte);
+            prim(&mut v, knee, foot, lr * 1.1, lr * 0.9, paw, Mat::Matte);
+            continue;
+        }
         let o = if kind == Body::Rabbit {
             if front {
                 0.0
@@ -1564,13 +1696,13 @@ fn quad(look: &Look, a: Anim, f: usize, n: usize) -> Figure {
             off
         };
         let phase = ph + o * std::f32::consts::PI;
-        let swing = if a == Anim::Walk {
-            0.5 * phase.sin()
+        let swing = if gait {
+            (if run { 0.8 } else { 0.5 }) * phase.sin()
         } else {
             0.0
         };
-        let bend = if a == Anim::Walk {
-            0.6 * phase.cos().max(0.0)
+        let bend = if gait {
+            (if run { 0.9 } else { 0.6 }) * phase.cos().max(0.0)
         } else {
             0.25 + 0.4 * crouch.max(0.0)
         };
@@ -1581,20 +1713,25 @@ fn quad(look: &Look, a: Anim, f: usize, n: usize) -> Figure {
         let knee = add(top, mul(d1, l1));
         let b2 = if front { swing - bend } else { swing + bend };
         let foot = add(knee, mul([b2.sin(), 0.0, -b2.cos()], l2));
+        let shin = if kind == Body::Dog && look.patch != 0 {
+            col
+        } else {
+            dark
+        };
         prim(&mut v, top, knee, lr * 1.3, lr, col, Mat::Matte);
-        prim(&mut v, knee, foot, lr, lr * 0.85, dark, Mat::Matte);
+        prim(&mut v, knee, foot, lr, lr * 0.85, shin, Mat::Matte);
         prim(
             &mut v,
             foot,
             add(foot, [lr * 1.6, 0.0, 0.0]),
             lr * 0.9,
             lr * 0.7,
-            dark,
+            paw,
             Mat::Matte,
         );
     }
     // neck and head
-    let np = match a {
+    let mut np = match a {
         Anim::Stance => 0.15,
         Anim::Attack => 0.5 - 0.6 * lunge,
         Anim::Cast => 0.9,
@@ -1602,34 +1739,139 @@ fn quad(look: &Look, a: Anim, f: usize, n: usize) -> Figure {
         Anim::Die => 0.2 - 0.6 * die,
         _ => 0.55 + 0.05 * (ph * 0.5).sin(),
     };
+    // the head's pitch: 0 level, negative nose down
+    let mut pitch = 0.0f32;
+    match kind {
+        Body::Cow if a != Anim::Die => np = 0.55 + 0.04 * (ph * 0.5).sin(),
+        Body::Pig if a != Anim::Die => np = 0.15,
+        Body::Dog if matches!(a, Anim::Idle | Anim::Walk) => np = 0.85 + 0.05 * (ph * 0.5).sin(),
+        _ => {}
+    }
+    if run && kind != Body::Dragon {
+        // stretched out at a run
+        np = 0.3;
+    }
+    if graze {
+        let chew = (lp * tau).sin();
+        (np, pitch) = match kind {
+            Body::Cow => (-0.95 + 0.05 * chew, -0.95),
+            Body::Pig => (-0.6, -0.75 + 0.15 * chew),
+            _ => (-0.7 + 0.08 * chew, -0.6),
+        };
+    }
+    let mut neck = neck;
+    if sit {
+        np = 1.1 + 0.04 * (lp * tau).sin();
+        neck *= 1.6;
+    }
     let neck_top = add(
         sho,
         [neck * np.cos() + lunge * 0.1 * len, 0.0, neck * np.sin()],
     );
     prim(&mut v, sho, neck_top, rf * 0.6, hr * 0.8, col, Mat::Matte);
-    let head = add(neck_top, [hr * 0.5, 0.0, 0.0]);
+    if kind == Body::Cow {
+        // the dewlap hanging from throat to brisket
+        prim(
+            &mut v,
+            add(sho, [rf * 0.5, 0.0, -rf * 0.55]),
+            add(neck_top, [0.0, 0.0, -hr * 0.85]),
+            0.07,
+            0.045,
+            col,
+            Mat::Matte,
+        );
+    }
+    let (ps, pc) = pitch.sin_cos();
+    let head = add(neck_top, [hr * 0.5 * pc, 0.0, hr * 0.5 * ps]);
+    // a point on the head: forward, to the side, up, turned with its pitch
+    let hoff = |x: f32, y: f32, z: f32| add(head, [x * pc - z * ps, y, x * ps + z * pc]);
     prim(&mut v, head, head, hr, hr, col, Mat::Matte);
     let (snout, snr) = match kind {
         Body::Rabbit => (0.05, 0.045),
         Body::Rat => (0.09, 0.035),
         Body::Dragon => (0.32, 0.12),
+        Body::Dog => (0.1, 0.042),
+        Body::Cat => (0.025, 0.03),
+        Body::Cow => (0.19, 0.085),
+        Body::Pig => (0.08, 0.07),
         _ => (0.14, 0.05),
+    };
+    let muzzle = match kind {
+        Body::Cow => 0x5a5250ff,
+        Body::Dog if look.patch != 0 => look.patch,
+        _ => col,
     };
     let jaw_open = if kind == Body::Dragon && (a == Anim::Attack || a == Anim::Cast) {
         0.35
     } else {
         0.0
     };
-    let tip = add(head, [hr * 0.6 + snout, 0.0, -0.02]);
+    let tip = hoff(hr * 0.6 + snout, 0.0, -0.02);
     prim(
         &mut v,
-        add(head, [hr * 0.4, 0.0, 0.0]),
+        hoff(hr * 0.4, 0.0, 0.0),
         tip,
         snr * 1.2,
         snr * 0.8,
-        col,
+        muzzle,
         Mat::Matte,
     );
+    match kind {
+        Body::Dog => {
+            let nose = hoff(hr * 0.6 + snout + 0.01, 0.0, -0.005);
+            prim(
+                &mut v,
+                nose,
+                nose,
+                snr * 0.5,
+                snr * 0.5,
+                0x141010ff,
+                Mat::Hair,
+            );
+        }
+        Body::Cat => {
+            let nose = hoff(hr * 0.6 + snout + 0.012, 0.0, 0.0);
+            prim(&mut v, nose, nose, 0.01, 0.01, 0xb87878ff, Mat::Matte);
+        }
+        Body::Cow => {
+            let nose = hoff(hr * 0.6 + snout + 0.02, 0.0, -0.03);
+            prim(
+                &mut v,
+                nose,
+                nose,
+                snr * 0.8,
+                snr * 0.8,
+                0x2e2826ff,
+                Mat::Matte,
+            );
+        }
+        Body::Pig => {
+            // the flat disc of the snout, and its nostrils
+            let disc = hoff(hr * 0.6 + snout + 0.03, 0.0, -0.02);
+            prim(
+                &mut v,
+                tip,
+                disc,
+                snr,
+                snr,
+                shade_col(col, 0.85),
+                Mat::Matte,
+            );
+            for es in [-1.0f32, 1.0] {
+                let ns = hoff(hr * 0.6 + snout + 0.045, es * snr * 0.4, -0.02);
+                prim(
+                    &mut v,
+                    ns,
+                    ns,
+                    snr * 0.22,
+                    snr * 0.22,
+                    0x2a1a18ff,
+                    Mat::Hair,
+                );
+            }
+        }
+        _ => {}
+    }
     if jaw_open > 0.0 {
         prim(
             &mut v,
@@ -1652,11 +1894,12 @@ fn quad(look: &Look, a: Anim, f: usize, n: usize) -> Figure {
     }
     // eyes
     for es in [-1.0f32, 1.0] {
-        let e = add(head, [hr * 0.75, es * hr * 0.5, hr * 0.3]);
-        let ec = if kind == Body::Dragon {
-            0xffd040ff
-        } else {
-            0x100808ff
+        let wide = if kind == Body::Cow { 0.62 } else { 0.5 };
+        let e = hoff(hr * 0.75, es * hr * wide, hr * 0.3);
+        let ec = match kind {
+            Body::Dragon => 0xffd040ff,
+            Body::Cat => 0xa8a030ff,
+            _ => 0x100808ff,
         };
         prim(
             &mut v,
@@ -1674,7 +1917,7 @@ fn quad(look: &Look, a: Anim, f: usize, n: usize) -> Figure {
     }
     // ears / horns
     for es in [-1.0f32, 1.0] {
-        let base = add(head, [-hr * 0.2, es * hr * 0.5, hr * 0.6]);
+        let base = hoff(-hr * 0.2, es * hr * 0.5, hr * 0.6);
         match kind {
             Body::Rabbit => prim(
                 &mut v,
@@ -1703,6 +1946,73 @@ fn quad(look: &Look, a: Anim, f: usize, n: usize) -> Figure {
                 0xe0d8c0ff,
                 Mat::Bone,
             ),
+            // pricked (`ears`) or hanging
+            Body::Dog if look.ears => prim(
+                &mut v,
+                base,
+                hoff(-hr * 0.3, es * hr * 0.62, hr * 1.35),
+                0.032,
+                0.008,
+                dark,
+                Mat::Matte,
+            ),
+            Body::Dog => {
+                let b = hoff(-hr * 0.1, es * hr * 0.6, hr * 0.5);
+                prim(
+                    &mut v,
+                    b,
+                    hoff(hr * 0.0, es * hr * 0.95, -hr * 0.3),
+                    0.034,
+                    0.026,
+                    dark,
+                    Mat::Matte,
+                );
+            }
+            Body::Cat => prim(
+                &mut v,
+                hoff(-hr * 0.1, es * hr * 0.5, hr * 0.6),
+                hoff(-hr * 0.15, es * hr * 0.62, hr * 1.4),
+                0.024,
+                0.004,
+                col,
+                Mat::Matte,
+            ),
+            Body::Cow => {
+                // long ears hanging out sideways, and horns sweeping up
+                let b = hoff(-hr * 0.35, es * hr * 0.8, hr * 0.3);
+                prim(
+                    &mut v,
+                    b,
+                    add(b, [-0.02, es * 0.13, -0.06]),
+                    0.035,
+                    0.022,
+                    col,
+                    Mat::Matte,
+                );
+                let hc = if look.horns != 0 {
+                    look.horns
+                } else {
+                    0xd8ccb0ff
+                };
+                let h0 = hoff(-hr * 0.3, es * hr * 0.45, hr * 0.8);
+                let h1 = add(h0, [-0.05, es * 0.11, 0.12]);
+                let h2 = add(h1, [0.05, es * 0.02, 0.14]);
+                prim(&mut v, h0, h1, 0.038, 0.028, hc, Mat::Bone);
+                prim(&mut v, h1, h2, 0.028, 0.01, hc, Mat::Bone);
+            }
+            Body::Pig => {
+                // ears flopping forward over the eyes
+                let b = hoff(-hr * 0.15, es * hr * 0.55, hr * 0.65);
+                prim(
+                    &mut v,
+                    b,
+                    hoff(hr * 0.45, es * hr * 0.8, hr * 0.5),
+                    0.05,
+                    0.012,
+                    col,
+                    Mat::Matte,
+                );
+            }
             _ => prim(
                 &mut v,
                 base,
@@ -1715,12 +2025,16 @@ fn quad(look: &Look, a: Anim, f: usize, n: usize) -> Figure {
         }
     }
     // tail
-    let wag = (ph * 1.3).sin()
-        * if a == Anim::Walk || a == Anim::Idle {
-            0.12
-        } else {
-            0.0
-        };
+    let wag = if graze && kind == Body::Dog {
+        0.18 * (lp * tau * 2.0).sin()
+    } else {
+        (ph * 1.3).sin()
+            * if gait || a == Anim::Idle || sit {
+                0.12
+            } else {
+                0.0
+            }
+    };
     match kind {
         Body::Rabbit => {
             let t = add(hip, [-0.07, 0.0, 0.03]);
@@ -1756,6 +2070,77 @@ fn quad(look: &Look, a: Anim, f: usize, n: usize) -> Figure {
                 p0 = p1;
             }
         }
+        Body::Dog => {
+            // curled up over the back; tucked low when it runs
+            let t0 = add(hip, [-0.05, 0.0, rb * 0.45]);
+            let (t1, t2) = if run {
+                let t1 = add(t0, [-0.1, wag * 0.3, -0.05]);
+                (t1, add(t1, [-0.05, wag * 0.5, -0.08]))
+            } else {
+                let t1 = add(t0, [-0.08, wag * 0.4, 0.15]);
+                (t1, add(t1, [0.06, wag * 0.8, 0.08]))
+            };
+            let tc = if look.patch != 0 { look.patch } else { col };
+            prim(&mut v, t0, t1, 0.038, 0.034, col, Mat::Matte);
+            prim(&mut v, t1, t2, 0.034, 0.02, tc, Mat::Matte);
+        }
+        Body::Cat => {
+            let mut p0 = add(hip, [-rb * 0.6, 0.0, rb * 0.2]);
+            for k in 0..6 {
+                let kf = k as f32;
+                let p1 = if sit {
+                    // round along the ground and forward about the feet
+                    let th = std::f32::consts::PI - kf * 0.33 - 0.15 * (lp * tau).sin() * kf / 5.0;
+                    [hip[0] + 0.02 + 0.13 * th.cos(), 0.13 * th.sin(), 0.022]
+                } else {
+                    // carried high, hooked over at the tip; streaming out at a run
+                    let ang = if run {
+                        0.15 + 0.05 * kf
+                    } else {
+                        0.55 + kf * 0.3
+                    };
+                    add(
+                        p0,
+                        [-0.045 * ang.cos(), wag * 0.25 * kf / 5.0, 0.045 * ang.sin()],
+                    )
+                };
+                let tc = if look.stripes != 0 && k % 2 == 1 {
+                    look.stripes
+                } else {
+                    col
+                };
+                prim(&mut v, p0, p1, 0.018, 0.016, tc, Mat::Matte);
+                p0 = p1;
+            }
+        }
+        Body::Cow => {
+            // a long thin tail with a dark tuft at the hock
+            let t0 = add(hip, [-rb * 0.55, 0.0, rb * 0.7]);
+            let t1 = add(t0, [-0.09, wag * 0.3, -0.05]);
+            let t2 = add(t1, [-0.02, wag * 0.6, -0.42]);
+            prim(&mut v, t0, t1, 0.03, 0.02, col, Mat::Matte);
+            prim(&mut v, t1, t2, 0.02, 0.015, col, Mat::Matte);
+            prim(
+                &mut v,
+                t2,
+                add(t2, [0.0, 0.0, -0.06]),
+                0.04,
+                0.03,
+                hoof,
+                Mat::Hair,
+            );
+        }
+        Body::Pig => {
+            // a tight little corkscrew
+            let c = add(hip, [-rb * 0.95, 0.0, rb * 0.4]);
+            let mut p0 = add(hip, [-rb * 0.8, 0.0, rb * 0.4]);
+            for k in 0..6 {
+                let th = k as f32 * 1.3 + wag * 3.0;
+                let p1 = add(c, [-0.01 * k as f32, 0.028 * th.cos(), 0.028 * th.sin()]);
+                prim(&mut v, p0, p1, 0.013, 0.012, col, Mat::Matte);
+                p0 = p1;
+            }
+        }
         _ => {
             let t0 = add(hip, [-0.05, 0.0, 0.03]);
             prim(
@@ -1786,6 +2171,220 @@ fn quad(look: &Look, a: Anim, f: usize, n: usize) -> Figure {
         boxes: vec![],
         pitch: 0.0,
         roll: 1.45 * die,
+        lift: 0.0,
+    }
+}
+
+/// A feathered wing: the arm out to the wrist, secondaries trailing behind
+/// it and long primaries fanned from the wrist. `flap` raises it (radians
+/// above level).
+fn feather_wing(v: &mut Vec<Prim>, root: V3, side: f32, span: f32, flap: f32, color: u32) {
+    let (fs, fc) = flap.sin_cos();
+    let wrist = add(root, [-0.02, side * 0.45 * span * fc, 0.45 * span * fs]);
+    prim(v, root, wrist, 0.03, 0.022, color, Mat::Matte);
+    for k in 0..5 {
+        let t = k as f32 / 4.0;
+        let b = lerp3(root, wrist, t);
+        let tip = add(
+            b,
+            [
+                -0.3 * span,
+                side * 0.05 * span * fc * t,
+                0.05 * span * fs * t,
+            ],
+        );
+        prim(v, b, tip, 0.024, 0.012, color, Mat::Matte);
+    }
+    let pc = shade_col(color, 0.7);
+    for k in 0..4 {
+        let kf = k as f32;
+        let out = (0.5 - 0.07 * kf) * span;
+        let tip = add(
+            wrist,
+            [-0.06 * span - 0.09 * span * kf, side * out * fc, out * fs],
+        );
+        prim(v, wrist, tip, 0.02, 0.008, pc, Mat::Matte);
+    }
+}
+
+/// A pigeon: a plump body, a small head on an iridescent neck that bobs as
+/// it walks and goes down to the ground as it pecks, folded wings barred
+/// with black, a dark-banded tail and red feet. It flies (`Run`) with beating
+/// wings and its feet tucked up; it falls on its side when it dies. The
+/// look's `skin` is the body, `body` the wings and `legs` the neck.
+fn bird(look: &Look, a: Anim, f: usize, n: usize) -> Figure {
+    let tau = std::f32::consts::TAU;
+    let mut v = vec![];
+    let col = look.skin;
+    let wingc = look.body;
+    let neckc = look.legs;
+    let band = 0x34343cff;
+    let (ph, _, recoil, die, _) = creature_phase(a, f, n);
+    let lp = f as f32 / n.max(1) as f32;
+    let fly = a == Anim::Run;
+    let walk = a == Anim::Walk;
+    // pecking: the head goes down to the ground and comes up again
+    let peck = if a == Anim::Look {
+        (lp * tau).sin().max(0.0).powf(0.7)
+    } else {
+        0.0
+    };
+    let lean = 0.03 * peck;
+    let rear = [-0.07 - 0.02 * recoil, 0.0, 0.135 + lean];
+    let breast = [0.04 - 0.02 * recoil, 0.0, 0.13 - lean];
+    prim(&mut v, rear, breast, 0.048, 0.06, col, Mat::Matte);
+    // the neck and head: thrust forward and back with each step
+    let bobx = if walk { 0.022 * ph.sin() } else { 0.0 };
+    let idle_t = if a == Anim::Idle {
+        0.006 * (f as f32 * 2.1).sin()
+    } else {
+        0.0
+    };
+    let up_head = [0.085 + bobx, 0.0, 0.245 + idle_t];
+    let down_head = [0.115, 0.0, 0.03];
+    let head = if fly {
+        [0.11, 0.0, 0.17]
+    } else {
+        lerp3(up_head, down_head, peck)
+    };
+    let neck0 = add(breast, [0.01, 0.0, 0.03]);
+    prim(
+        &mut v,
+        neck0,
+        lerp3(neck0, head, 0.6),
+        0.05,
+        0.044,
+        neckc,
+        Mat::Matte,
+    );
+    prim(
+        &mut v,
+        lerp3(neck0, head, 0.55),
+        head,
+        0.04,
+        0.042,
+        col,
+        Mat::Matte,
+    );
+    prim(&mut v, head, head, 0.044, 0.044, col, Mat::Matte);
+    // the beak, with its white cere, points along the line of the neck
+    let dir = {
+        let d = [head[0] - neck0[0], 0.0, head[2] - neck0[2]];
+        let l = (d[0] * d[0] + d[2] * d[2]).sqrt().max(1e-4);
+        let k = 1.0 - peck * 0.5;
+        // level when the head is up, down along the neck when pecking
+        let (bx, bz) = (k + (1.0 - k) * d[0] / l, (1.0 - k) * d[2] / l - 0.15);
+        let m = (bx * bx + bz * bz).sqrt();
+        [bx / m, 0.0, bz / m]
+    };
+    let b0 = add(head, mul(dir, 0.036));
+    prim(&mut v, b0, b0, 0.009, 0.009, 0xe8e6dcff, Mat::Matte);
+    prim(
+        &mut v,
+        b0,
+        add(b0, mul(dir, 0.028)),
+        0.008,
+        0.003,
+        0x3a3634ff,
+        Mat::Matte,
+    );
+    for es in [-1.0f32, 1.0] {
+        let e = add(head, [0.016, es * 0.032, 0.01]);
+        prim(&mut v, e, e, 0.009, 0.009, 0xc8601cff, Mat::Hair);
+    }
+    // tail: grey with a black band at the end, fanned in flight
+    let t0 = add(rear, [-0.01, 0.0, -0.005]);
+    for side in if fly { [-1.0f32, 1.0] } else { [0.0, 0.0] } {
+        let t1 = add(t0, [-0.09, side * 0.025, -0.02 + lean]);
+        let t2 = add(t1, [-0.03, side * 0.01, -0.005]);
+        prim(&mut v, t0, t1, 0.03, 0.036, col, Mat::Matte);
+        prim(&mut v, t1, t2, 0.036, 0.036, band, Mat::Matte);
+    }
+    // wings
+    for side in [-1.0f32, 1.0] {
+        if fly || a == Anim::Die {
+            let flap = if a == Anim::Die {
+                0.2 - 0.4 * die
+            } else {
+                0.15 + 0.85 * (lp * tau).sin()
+            };
+            feather_wing(
+                &mut v,
+                add(breast, [-0.01, side * 0.04, 0.035]),
+                side,
+                0.34,
+                flap,
+                wingc,
+            );
+        } else {
+            let sh = add(breast, [-0.01, side * 0.045, 0.035 - lean]);
+            let tip = add(rear, [-0.07, side * 0.028, 0.0 + lean]);
+            prim(&mut v, sh, tip, 0.034, 0.014, wingc, Mat::Matte);
+            for t in [0.42, 0.6] {
+                let c = add(lerp3(sh, tip, t), [0.0, side * 0.012, 0.0]);
+                prim(
+                    &mut v,
+                    add(c, [0.0, 0.0, 0.016]),
+                    add(c, [-0.006, side * 0.006, -0.012]),
+                    0.008,
+                    0.008,
+                    band,
+                    Mat::Matte,
+                );
+            }
+        }
+    }
+    // feet: walking in turn, or tucked up in flight
+    for side in [-1.0f32, 1.0] {
+        let hipp = add(lerp3(rear, breast, 0.55), [0.0, side * 0.022, -0.05]);
+        let foot = if fly {
+            add(hipp, [-0.05, 0.0, -0.01])
+        } else {
+            let s = if walk {
+                0.03 * (ph
+                    + if side > 0.0 {
+                        0.0
+                    } else {
+                        std::f32::consts::PI
+                    })
+                .sin()
+            } else {
+                0.0
+            };
+            let lift = if walk {
+                0.015
+                    * (ph
+                        + if side > 0.0 {
+                            0.0
+                        } else {
+                            std::f32::consts::PI
+                        })
+                    .cos()
+                    .max(0.0)
+            } else {
+                0.0
+            };
+            [hipp[0] + s, hipp[1], lift]
+        };
+        let feet = 0xb04a44ff;
+        prim(&mut v, hipp, foot, 0.009, 0.007, feet, Mat::Matte);
+        if !fly {
+            prim(
+                &mut v,
+                foot,
+                add(foot, [0.026, 0.0, 0.0]),
+                0.007,
+                0.005,
+                feet,
+                Mat::Matte,
+            );
+        }
+    }
+    Figure {
+        prims: v,
+        boxes: vec![],
+        pitch: 0.0,
+        roll: 1.4 * die,
         lift: 0.0,
     }
 }

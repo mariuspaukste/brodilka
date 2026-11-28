@@ -5,6 +5,7 @@ use crate::rng::Rng;
 use crate::world::*;
 use std::collections::VecDeque;
 
+pub mod critters;
 pub mod market;
 pub mod shadow;
 pub mod sky;
@@ -116,6 +117,8 @@ pub struct Anim {
     pub ready: f32,
     /// drawn height above level 0, following the ground (in levels)
     pub vz: f32,
+    /// a flying bird's height above the ground, 0..1 of `critters::FLIGHT`
+    pub air: f32,
 }
 
 impl Default for Anim {
@@ -131,6 +134,7 @@ impl Default for Anim {
             hurt: 0.0,
             ready: 0.0,
             vz: 0.0,
+            air: 0.0,
         }
     }
 }
@@ -238,6 +242,10 @@ pub struct Ent {
     pub wp: usize,
     /// the storey it stands on: 0 is the ground, 1 the floor above, …
     pub fl: u8,
+    /// a beast of the streets: whom it is after or tagging along with (0 none),
+    /// and for how much longer
+    pub chase: u32,
+    pub busy_t: f32,
 }
 
 impl Ent {
@@ -270,6 +278,8 @@ impl Ent {
             march: 0,
             wp: 0,
             fl: 0,
+            chase: 0,
+            busy_t: 0.0,
         }
     }
     /// 0 wild (or not a horse), 1 the player's own, 2 the stablemaster's
@@ -804,8 +814,7 @@ impl Game {
             });
         }
         for si in 0..g.spawners.len() {
-            let s = &g.spawners[si];
-            for _ in 0..g.sim.cap(s.site, s.max) {
+            for _ in 0..g.spawn_cap(si) {
                 g.spawn(si);
             }
         }
@@ -875,13 +884,30 @@ impl Game {
         &mut self.ents[0]
     }
 
+    /// How many a spawner keeps: the wild's follow the strength of their
+    /// site in the world simulation, the beasts of the streets don't.
+    fn spawn_cap(&self, si: usize) -> usize {
+        let s = &self.spawners[si];
+        if MONS[s.mon].domestic {
+            s.max
+        } else {
+            self.sim.cap(s.site, s.max)
+        }
+    }
+
     fn spawn(&mut self, si: usize) {
         let s = &self.spawners[si];
         let (mi, sx, sy, r) = (s.mon, s.x, s.y, s.r);
+        let tame = MONS[mi].domestic;
         for _ in 0..30 {
             let x = sx + self.rng.range(-r, r);
             let y = sy + self.rng.range(-r, r);
-            if !self.map.passable(x, y) || self.map.guarded(x, y) || !self.map.reach[idx(x, y)] {
+            if !self.map.passable(x, y) || !self.map.reach[idx(x, y)] {
+                continue;
+            }
+            // the wild keeps off guarded ground; the street beasts live on
+            // it, out of doors
+            if tame != self.map.guarded(x, y) || (tame && !self.map.outdoors(x, y)) {
                 continue;
             }
             if self.created && self.ents[0].dist(x as f32, y as f32) < 9.0 {
@@ -893,6 +919,10 @@ impl Game {
             e.home = (sx, sy);
             e.spawner = si as i32;
             e.ai_t = self.rng.f() * 3.0;
+            if tame {
+                // which coat it wears
+                e.look = self.rng.next_u32();
+            }
             if d.caster.len() > 0 {
                 e.mana = 200;
                 e.mmana = 200;
@@ -1223,10 +1253,10 @@ impl Game {
         for si in 0..self.spawners.len() {
             self.spawners[si].t -= dt;
             if self.spawners[si].t <= 0.0 {
-                let (site, max) = (self.spawners[si].site, self.spawners[si].max);
+                let site = self.spawners[si].site;
                 self.spawners[si].t = (25.0 + self.rng.f() * 20.0) * self.sim.pace(site);
                 let alive = self.ents.iter().filter(|e| e.spawner == si as i32).count();
-                if alive < self.sim.cap(site, max) {
+                if alive < self.spawn_cap(si) {
                     self.spawn(si);
                 }
             }
@@ -1838,8 +1868,11 @@ impl Game {
         };
         let d = &MONS[mi];
         self.ents[i].dead = true;
-        for n in self.sim.slain(d.id, d.fame, self.time) {
-            self.msg(&n, C_LORE);
+        // the beasts of the streets belong to no site of the wild
+        if !d.domestic {
+            for n in self.sim.slain(d.id, d.fame, self.time) {
+                self.msg(&n, C_LORE);
+            }
         }
         if by_player && self.ents[i].march != 0 {
             self.raider_slain(self.ents[i].march);
@@ -1915,6 +1948,10 @@ impl Game {
                     as i32;
                 self.pl.karma = (self.pl.karma + g).min(15000);
                 self.msg("You have gained some karma.", C_GOOD);
+            }
+            if d.karma > 0 && self.pl.karma > -15000 {
+                self.pl.karma = (self.pl.karma - d.karma).max(-15000);
+                self.msg("You have lost some karma.", C_WARN);
             }
         }
         if self.ents[0].combat.target == self.ents[i].id {
@@ -2142,6 +2179,10 @@ impl Game {
             return;
         }
         let d = &MONS[mi];
+        if d.domestic {
+            self.critter_tick(i, mi, dt);
+            return;
+        }
         self.move_ent(i, d.mv, dt);
         {
             let e = &mut self.ents[i];

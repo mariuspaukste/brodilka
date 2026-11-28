@@ -746,6 +746,12 @@ impl Map {
         x >= x0 && y >= y0 && x < x1 && y < y1
     }
 
+    /// Open ground in the world, under no roof: where the beasts of the
+    /// streets go.
+    pub fn outdoors(&self, x: i32, y: i32) -> bool {
+        inb(x, y) && self.bld[idx(x, y)] == 0 && self.passable(x, y)
+    }
+
     /// Ground the guards keep: the town, the city, the stables, the village
     /// and around each road post.
     pub fn guarded(&self, x: i32, y: i32) -> bool {
@@ -2284,11 +2290,51 @@ pub fn generate(seed: u32) -> Map {
         ("rabbit", 96, 224, 10, 4),
         ("rabbit", 200, 300, 10, 4),
     ];
+    let beasts = street_beasts(&m, town_c);
+    m.spawns.extend(beasts);
     // every door was left open while the world was made; shut them now
     for &i in &m.doors {
         m.door[i] = 0.0;
     }
     m
+}
+
+/// The beasts of the streets (`game/critters.rs`): flocks of pigeons on the
+/// squares, dogs and cats about the town, Duskhold and the village, and in
+/// the two cities of the south cows and pigs wandering the streets as well.
+fn street_beasts(m: &Map, town_c: (i32, i32)) -> Vec<(&'static str, i32, i32, i32, usize)> {
+    let centre = |(x0, y0, x1, y1): (i32, i32, i32, i32)| ((x0 + x1) / 2, (y0 + y1) / 2);
+    let half = |(x0, y0, x1, y1): (i32, i32, i32, i32)| (x1 - x0).max(y1 - y0) / 2;
+    let mut v = vec![];
+    // the town: a flock on the square and one by the well
+    let (tx, ty) = centre(m.town);
+    let (x0, y0, _, _) = m.town;
+    v.push(("pigeon", town_c.0, town_c.1, 4, 6));
+    v.push(("pigeon", x0 + 21, y0 + 34, 3, 5));
+    v.push(("dog", tx, ty, half(m.town), 3));
+    v.push(("cat", tx, ty, half(m.town), 3));
+    // Duskhold: the market square and the castle bailey
+    let (cx, cy) = centre(m.city);
+    let (mx, my) = centre(m.market);
+    v.push(("pigeon", mx, my, 5, 7));
+    v.push(("pigeon", cx, m.city.1 + 12, 4, 5));
+    v.push(("dog", cx, cy, half(m.city), 3));
+    v.push(("cat", cx, cy, half(m.city), 4));
+    // the village
+    let (vx, vy) = centre(m.village);
+    v.push(("dog", vx, vy, half(m.village) - 4, 2));
+    v.push(("cat", vx, vy, half(m.village) - 4, 2));
+    // Suryagarh and Kanakpur
+    for &r in &m.raj {
+        let (rx, ry) = centre(r);
+        let h = half(r);
+        v.push(("pigeon", rx, ry, 5, 7));
+        v.push(("dog", rx, ry, h, 3));
+        v.push(("cat", rx, ry, h, 2));
+        v.push(("cow", rx, ry, h, 4));
+        v.push(("pig", rx, ry, h, 3));
+    }
+    v
 }
 
 /// The stables east of the town: a timber barn with the stablemaster, and a

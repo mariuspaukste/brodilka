@@ -815,6 +815,10 @@ pub struct MonDef {
     pub regs: bool,
     pub drops: &'static [&'static str],
     pub flies: bool,
+    /// a beast of the streets (`game/critters.rs`): it lives on guarded
+    /// ground, keeps out of doors and has its own habits; slaying one costs
+    /// `karma` rather than earning it
+    pub domestic: bool,
 }
 
 const MB: MonDef = MonDef {
@@ -839,6 +843,7 @@ const MB: MonDef = MonDef {
     regs: false,
     drops: &[],
     flies: false,
+    domestic: false,
 };
 
 static MONS_DEF: &[MonDef] = &[
@@ -1091,6 +1096,77 @@ static MONS_DEF: &[MonDef] = &[
         size: 0.95,
         color: 0xd8781aff,
         ar: 6,
+        ..MB
+    },
+    // the beasts of the streets: pigeons, dogs and cats in the towns and
+    // cities, and cows and pigs in the cities of the south as well
+    MonDef {
+        id: "pigeon",
+        name: "a pigeon",
+        hp: 4,
+        dmg: (1, 1),
+        skill: 5,
+        mv: 1.6,
+        passive: true,
+        size: 0.45,
+        color: 0x86889aff,
+        flies: true,
+        domestic: true,
+        ..MB
+    },
+    MonDef {
+        id: "dog",
+        name: "a dog",
+        hp: 24,
+        dmg: (2, 5),
+        skill: 30,
+        mv: 2.8,
+        passive: true,
+        size: 0.75,
+        color: 0xb4844eff,
+        karma: 15,
+        domestic: true,
+        ..MB
+    },
+    MonDef {
+        id: "cat",
+        name: "a cat",
+        hp: 10,
+        dmg: (1, 3),
+        skill: 25,
+        mv: 2.2,
+        passive: true,
+        size: 0.55,
+        color: 0xc4783aff,
+        karma: 15,
+        domestic: true,
+        ..MB
+    },
+    MonDef {
+        id: "cow",
+        name: "a cow",
+        hp: 60,
+        dmg: (2, 6),
+        skill: 20,
+        mv: 1.3,
+        passive: true,
+        size: 1.2,
+        color: 0xe2ddd2ff,
+        karma: 40,
+        domestic: true,
+        ..MB
+    },
+    MonDef {
+        id: "pig",
+        name: "a pig",
+        hp: 30,
+        dmg: (1, 4),
+        skill: 15,
+        mv: 1.8,
+        passive: true,
+        size: 0.8,
+        color: 0xd8a090ff,
+        domestic: true,
         ..MB
     },
 ];

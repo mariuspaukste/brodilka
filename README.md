@@ -37,6 +37,8 @@ canvas and renders the windows ("gumps") from JSON; all game logic is in Rust.
   saddle, you can't kick from horseback, and if you lose your horse the
   stablemaster will send a lad to fetch it. Wild horses run the western
   meadows, and the stablemaster's own graze in his paddock.
+- **Street life**: pigeons that flock up when you come near, dogs and cats
+  in the towns, and cows and pigs in the streets of the southern cities.
 - **Death** turns you into a ghost and leaves your belongings on your corpse;
   find a healer or an ankh shrine, then run back for your things.
 - **Karak Dhum**, a dwarf hold hewn into the eastern range: a gate through
@@ -204,6 +206,29 @@ flagstone and the rugs are cotton dhurries. Its people have their own names
 and talk: sipahi guards in red coats and saffron turbans with brass shields
 and talwars, men in turbans and white, women in saris with the end over the
 shoulder or the head, the Raja in gold, the priest in saffron.
+
+## The beasts of the streets
+
+The towns have their animals (`src/game/critters.rs`). Flocks of **pigeons**
+peck about the squares of the town, Duskhold's market and castle bailey and
+the southern cities, heads bobbing as they walk. Come close, or walk through
+them, and the whole flock takes wing with beating wings and lands again a few
+yards off. **Dogs** and **cats** live in the town, Duskhold, the village and
+the south. Dogs roam the streets, sniff the ground, now and then trot along
+at your heels a while, and chase the cats. They keep away from monsters but
+bark at them. Cats sit a good deal, wander, and run hissing from the dogs.
+In **Suryagarh** and **Kanakpur** humped white, grey and red **cows**, some
+with painted horns, amble and graze in the streets. **Pigs**, pink, black
+and spotted, root about and grunt.
+
+They live on guarded ground, out of doors, and the guards leave them be.
+Struck, they run (a cow only walks off, and a pig squeals). Killing a dog, a
+cat or a cow costs karma, and none of them counts against the wild in the
+world's chronicle. Each is a baked figure on its own rig: zebu with hump,
+dewlap and horns, pigs with a snout disc and a corkscrew tail, dogs with
+pricked or hanging ears and a curled tail, cats sitting with their tail
+round their feet, and pigeons that peck, walk and fly. Every kind comes in a
+few coats.
 
 ## Light and weather
 
