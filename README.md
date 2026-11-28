@@ -282,8 +282,8 @@ rise from the sea to join them. Strike one of them and the town turns at
 once. Get out and stay away a while, and Saltgrave falls quiet again: the
 deep ones go back into the sea and its people go back to their nets as if
 nothing had happened. A **priest of the deep** keeps the idol and preaches
-until the town turns, and **great crabs** scuttle on the shore, out of the way of
-whoever bothers them.
+until the town turns, and **great crabs** scuttle about the shore and run from
+anyone who bothers them.
 
 ## Light and weather
 
