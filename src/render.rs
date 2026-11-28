@@ -6004,7 +6004,7 @@ pub fn street_look(id: &str, seed: u32) -> Option<Look> {
                 (0x8e8880ff, 0, false),
             ];
             let (c, p, ears) = COATS[k % 4];
-            let mut l = Look::creature(Body::Dog, c, 100);
+            let mut l = Look::creature(Body::Dog, c, 108);
             l.patch = p;
             l.ears = ears;
             l
@@ -6018,7 +6018,7 @@ pub fn street_look(id: &str, seed: u32) -> Option<Look> {
                 (0xe0d4bcff, 0),
             ];
             let (c, st) = COATS[k % 4];
-            let mut l = Look::creature(Body::Cat, c, 115);
+            let mut l = Look::creature(Body::Cat, c, 125);
             l.stripes = st;
             l
         }

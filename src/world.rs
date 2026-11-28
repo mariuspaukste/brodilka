@@ -2304,35 +2304,72 @@ pub fn generate(seed: u32) -> Map {
 /// the two cities of the south cows and pigs wandering the streets as well.
 fn street_beasts(m: &Map, town_c: (i32, i32)) -> Vec<(&'static str, i32, i32, i32, usize)> {
     let centre = |(x0, y0, x1, y1): (i32, i32, i32, i32)| ((x0 + x1) / 2, (y0 + y1) / 2);
-    let half = |(x0, y0, x1, y1): (i32, i32, i32, i32)| (x1 - x0).max(y1 - y0) / 2;
     let mut v = vec![];
-    // the town: a flock on the square and one by the well
-    let (tx, ty) = centre(m.town);
+    // a few dogs and cats about each of these spots, so they're met with
+    // wherever one walks, not thinly spread over the whole place
+    let dogs_cats = |v: &mut Vec<_>, at: &[(i32, i32)], dogs: usize, cats: usize| {
+        for &(x, y) in at {
+            v.push(("dog", x, y, 6, dogs));
+            v.push(("cat", x, y, 5, cats));
+        }
+    };
+    // the town: flocks on the square and by the well; dogs and cats by the
+    // start, the square, the pub and the library
     let (x0, y0, _, _) = m.town;
     v.push(("pigeon", town_c.0, town_c.1, 4, 6));
     v.push(("pigeon", x0 + 21, y0 + 34, 3, 5));
-    v.push(("dog", tx, ty, half(m.town), 3));
-    v.push(("cat", tx, ty, half(m.town), 3));
-    // Duskhold: the market square and the castle bailey
-    let (cx, cy) = centre(m.city);
+    let (sx, sy) = m.start;
+    dogs_cats(
+        &mut v,
+        &[(sx, sy + 2), town_c, (x0 + 8, y0 + 33), (x0 + 28, y0 + 33)],
+        2,
+        2,
+    );
+    // Duskhold: flocks on the market and in the castle bailey; dogs and cats
+    // by the south gate, the market, the pub and the bailey
+    let (cx0, cy0, _, cy1) = m.city;
+    let (cx, _) = centre(m.city);
     let (mx, my) = centre(m.market);
     v.push(("pigeon", mx, my, 5, 7));
-    v.push(("pigeon", cx, m.city.1 + 12, 4, 5));
-    v.push(("dog", cx, cy, half(m.city), 3));
-    v.push(("cat", cx, cy, half(m.city), 4));
+    v.push(("pigeon", cx, cy0 + 12, 4, 5));
+    dogs_cats(
+        &mut v,
+        &[
+            (cx, cy1 - 5),
+            (mx, my),
+            (cx0 + 15, cy0 + 26),
+            (cx, cy0 + 16),
+        ],
+        2,
+        2,
+    );
     // the village
     let (vx, vy) = centre(m.village);
-    v.push(("dog", vx, vy, half(m.village) - 4, 2));
-    v.push(("cat", vx, vy, half(m.village) - 4, 2));
-    // Suryagarh and Kanakpur
+    let (vx0, _, vx1, _) = m.village;
+    dogs_cats(
+        &mut v,
+        &[(vx, vy), ((vx0 + vx) / 2, vy), ((vx + vx1) / 2, vy)],
+        1,
+        1,
+    );
+    // Suryagarh and Kanakpur: their squares and streets
     for &r in &m.raj {
         let (rx, ry) = centre(r);
-        let h = half(r);
+        let (rx0, ry0, rx1, ry1) = r;
+        let (qx, qy) = ((rx1 - rx0) / 4, (ry1 - ry0) / 4);
         v.push(("pigeon", rx, ry, 5, 7));
-        v.push(("dog", rx, ry, h, 3));
-        v.push(("cat", rx, ry, h, 2));
-        v.push(("cow", rx, ry, h, 4));
-        v.push(("pig", rx, ry, h, 3));
+        let spots = [
+            (rx, ry),
+            (rx - qx, ry - qy),
+            (rx + qx, ry - qy),
+            (rx - qx, ry + qy),
+            (rx + qx, ry + qy),
+        ];
+        dogs_cats(&mut v, &spots, 2, 1);
+        for &(x, y) in &spots {
+            v.push(("cow", x, y, 7, 2));
+            v.push(("pig", x, y, 6, 1));
+        }
     }
     v
 }

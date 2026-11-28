@@ -95,23 +95,23 @@ impl Game {
         }
     }
     /// a free tile within `r` of `at`, off guarded ground
+    /// (any of them, however few: close by the walls there may be only one)
     fn free_near(&mut self, at: (i32, i32), r0: i32, r: i32) -> Option<(i32, i32)> {
-        for _ in 0..40 {
-            let x = at.0 + self.rng.range(-r, r);
-            let y = at.1 + self.rng.range(-r, r);
-            if (x - at.0).abs().max((y - at.1).abs()) < r0 {
-                continue;
-            }
-            if inb(x, y)
-                && self.map.passable(x, y)
-                && self.map.reach[idx(x, y)]
-                && !self.map.guarded(x, y)
-                && !self.ents.iter().any(|e| !e.dead && e.tile() == (x, y))
-            {
-                return Some((x, y));
+        let mut free = vec![];
+        for y in at.1 - r..=at.1 + r {
+            for x in at.0 - r..=at.0 + r {
+                if (x - at.0).abs().max((y - at.1).abs()) >= r0
+                    && inb(x, y)
+                    && self.map.passable(x, y)
+                    && self.map.reach[idx(x, y)]
+                    && !self.map.guarded(x, y)
+                    && !self.ents.iter().any(|e| !e.dead && e.tile() == (x, y))
+                {
+                    free.push((x, y));
+                }
             }
         }
-        None
+        (!free.is_empty()).then(|| *self.rng.pick(&free))
     }
     fn add_mon(&mut self, mon: &str, at: (i32, i32), march: u32) -> u32 {
         let mi = mon_idx(mon);

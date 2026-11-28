@@ -2143,11 +2143,15 @@ impl Game {
     // ------------------------------------------------------------ monsters
     fn occupied(&self, x: i32, y: i32, me: usize) -> bool {
         let fl = self.ents.get(me).map(|e| e.fl).unwrap_or(0);
+        // the beasts of the streets give way to everyone else
+        let tame = |e: &Ent| matches!(e.k, EK::Mon(m) if MONS[m].domestic);
+        let small = self.ents.get(me).is_some_and(tame);
         self.ents.iter().enumerate().any(|(j, e)| {
             j != me
                 && !e.dead
                 && e.fl == fl
                 && matches!(e.k, EK::Mon(_))
+                && (small || !tame(e))
                 && (e.tile() == (x, y) || e.path.first() == Some(&(x, y)))
         })
     }
