@@ -1329,20 +1329,31 @@ impl Game {
                         l.weapon = Weapon::Staff;
                         l.sash = 0x6a8a4aff;
                     }
-                    "deepone" => {
-                        // the deep ones: hunched, scaled and grey-green, with
-                        // gill-fins for ears, pale bulging eyes and a spear
-                        l.skin = 0x5e7e6cff;
-                        l.body = 0x4a6a5aff;
-                        l.legs = 0x4a6a5aff;
-                        l.boots = 0x3e5a4cff;
-                        l.eyes = 0xd8e8a0ff;
-                        l.ears = true;
-                        l.hunch = 28;
-                        l.bulk = 12;
-                        l.weapon = Weapon::Halberd;
-                        l.skirt = true;
-                        l.furs = 0x3a4a30ff;
+                    "deepone" => deep_one(&mut l),
+                    // Saltgrave's folk pass for fishermen, until the town
+                    // turns and their faces change
+                    "saltfolk" if self.salt.turned > 0.0 => deep_one(&mut l),
+                    "saltfolk" => {
+                        let r = e.look;
+                        const COATS: [u32; 5] =
+                            [0x5a5a3aff, 0x3a4a5aff, 0x5a5650ff, 0x4a3a2aff, 0x40483eff];
+                        l.skin = 0xa8b0a0ff;
+                        l.eyes = 0xe8ecd0ff;
+                        l.body = COATS[r as usize % 5];
+                        l.legs = 0x2e2a26ff;
+                        l.boots = 0x24221eff;
+                        l.hunch = 10 + (r >> 4) as u8 % 14;
+                        l.bulk = (r >> 8) as u8 % 16;
+                        l.female = r & 0x100 != 0;
+                        l.skirt = l.female;
+                        l.hair = if (r >> 10) % 3 == 0 { 0x8a8a80ff } else { 0 };
+                        l.long_hair = l.female && l.hair != 0;
+                        l.hat = if (r >> 12) % 3 == 0 { 0x6a6a3aff } else { 0 };
+                        l.hood = if l.female && l.hat == 0 {
+                            0x3a3a34ff
+                        } else {
+                            0
+                        };
                     }
                     "mongbat" => return Some(Look::creature(bake::Body::Bat, 0x6a4e6aff, 100)),
                     "slime" => return Some(Look::creature(bake::Body::Slime, 0x5aa83aff, 100)),
@@ -6083,4 +6094,24 @@ pub fn street_look(id: &str, seed: u32) -> Option<Look> {
         _ => return None,
     };
     Some(l)
+}
+
+/// A deep one's look: hunched, scaled and grey-green, with gill-fins for
+/// ears, pale bulging eyes and a spear.
+fn deep_one(l: &mut Look) {
+    l.skin = 0x5e7e6cff;
+    l.body = 0x4a6a5aff;
+    l.legs = 0x4a6a5aff;
+    l.boots = 0x3e5a4cff;
+    l.eyes = 0xd8e8a0ff;
+    l.ears = true;
+    l.hunch = 28;
+    l.bulk = 12;
+    l.weapon = Weapon::Halberd;
+    l.skirt = true;
+    l.furs = 0x3a4a30ff;
+    l.hair = 0;
+    l.hat = 0;
+    l.hood = 0;
+    l.female = false;
 }

@@ -218,9 +218,14 @@ impl Game {
 
     /// A deep one comes up out of the sea onto a beach round the bay.
     fn deep_one_ashore(&mut self, rl: (i32, i32)) {
+        self.deep_one_near(rl, 18, 16);
+    }
+    /// A deep one comes up out of the sea onto a beach within (rx, ry) of
+    /// `c`, out of the player's sight; its id.
+    pub(super) fn deep_one_near(&mut self, c: (i32, i32), rx: i32, ry: i32) -> Option<u32> {
         let mut spots = vec![];
-        for y in rl.1 - 16..=rl.1 + 16 {
-            for x in rl.0 - 18..=rl.0 + 18 {
+        for y in c.1 - ry..=c.1 + ry {
+            for x in c.0 - rx..=c.0 + rx {
                 if !self.map.passable(x, y)
                     || self.map.guarded(x, y)
                     || !self.map.reach[idx(x, y)]
@@ -237,7 +242,7 @@ impl Game {
             }
         }
         if spots.is_empty() {
-            return;
+            return None;
         }
         let (x, y) = *self.rng.pick(&spots);
         let mi = mon_idx("deepone");
@@ -246,6 +251,7 @@ impl Game {
         let mut e = Ent::new(id, EK::Mon(mi), d.name.to_string(), x, y, d.hp);
         e.ai_t = self.rng.f() * 2.0;
         self.ents.push(e);
+        Some(id)
     }
 
     /// Open sea within Cthulhu's reach of R'lyeh.
@@ -534,10 +540,10 @@ mod tests {
                     })
                     .count()
             };
-            assert!(count(&g, "deepone") >= 4, "seed {seed}");
+            assert!(count(&g, "saltfolk") >= 5, "seed {seed}");
             assert_eq!(count(&g, "deeppriest"), 1);
             assert!(count(&g, "crab") >= 2);
-            for id in ["deepone", "deeppriest", "crab"] {
+            for id in ["saltfolk", "deeppriest", "crab"] {
                 let i = g
                     .ents
                     .iter()
@@ -549,7 +555,7 @@ mod tests {
             let si = g
                 .spawners
                 .iter()
-                .position(|s| MONS[s.mon].id == "deepone")
+                .position(|s| MONS[s.mon].id == "saltfolk")
                 .unwrap();
             let calm = g.spawn_cap(si);
             g.sim.awake = 100.0;

@@ -1156,6 +1156,25 @@ static MONS_DEF: &[MonDef] = &[
         drops: &["scroll", "gems"],
         ..MB
     },
+    // its people, who pass for fishermen until the town turns
+    // (`game/saltgrave.rs`)
+    MonDef {
+        id: "saltfolk",
+        name: "a fisherman of Saltgrave",
+        hp: 60,
+        dmg: (5, 11),
+        skill: 55,
+        speed: 2.4,
+        mv: 3.0,
+        gold: (5, 40),
+        fame: 50,
+        karma: -50,
+        size: 1.0,
+        color: 0xa8b0a0ff,
+        ar: 4,
+        drops: &["fish"],
+        ..MB
+    },
     MonDef {
         id: "crab",
         name: "a great crab",
@@ -1164,6 +1183,7 @@ static MONS_DEF: &[MonDef] = &[
         skill: 45,
         speed: 2.2,
         mv: 2.6,
+        passive: true,
         fame: 40,
         karma: -20,
         size: 0.8,
@@ -1248,7 +1268,10 @@ static MONS_DEF: &[MonDef] = &[
 /// The things of the deep: Cthulhu and what serves him. They belong to no
 /// site of the wild, and come and go with R'lyeh (`game/deep.rs`).
 pub fn of_the_deep(id: &str) -> bool {
-    matches!(id, "cthulhu" | "deepone" | "deeppriest" | "crab")
+    matches!(
+        id,
+        "cthulhu" | "deepone" | "deeppriest" | "crab" | "saltfolk"
+    )
 }
 
 pub fn mon_idx(id: &str) -> usize {

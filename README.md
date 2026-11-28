@@ -261,15 +261,29 @@ later. The timers are kept in the save.
 
 On the eastern shore of the tropics, along an old unguarded track from
 Kanakpur, lies **Saltgrave** (`src/world/drowned.rs`), a fishing town the
-things of the sea have taken. Its people are long gone. Roofless cottages
-of grey stone stand broken along a cobbled street down to a jetty, their
-walls fallen in places and the tide standing in their rooms. Wrecked boats
-lie on the beach. In the square the deep ones have raised an idol of their
-sleeping god, octopus-headed with green-lit eyes, among skulls and black
-candles. Deep ones walk the street, a **priest of the deep** in a weed-dark
-robe keeps the idol and casts, and **great crabs** scuttle on the shore,
-snapping their claws. No guard comes here. While R'lyeh stands, Saltgrave
-teems with twice as many.
+things of the sea have taken. Roofless cottages of grey stone stand broken
+along a cobbled street down to a jetty, their walls fallen in places and the
+tide standing in their rooms. Wrecked boats lie on the beach. In the square
+stands an idol of the sleeping god, octopus-headed with green-lit eyes,
+among skulls and black candles.
+
+Its people are not what they seem (`src/game/saltgrave.rs`). By day they
+pass for fishermen and their wives: pale, stooped, thin-haired, with wide,
+unblinking eyes. They don't attack you. They stare, turn their backs and
+mutter that you're not from here, shy away if you come close, and some of
+them trail you down the street at a distance. Tap one and you only get a
+muttered word. The longer you stay, the closer they watch. Night, the
+idol, poking about their cottages, a drawn weapon and R'lyeh standing in the
+bay all make it worse. First you feel eyes on your back. Then more of them
+come out into the street, and none of them speaks. Then a bell tolls from
+the square and they gather round you. Then **Saltgrave turns**: their faces
+change, they take up spears, the whole town comes for you, and deep ones
+rise from the sea to join them. Strike one of them and the town turns at
+once. Get out and stay away a while, and Saltgrave falls quiet again: the
+deep ones go back into the sea and its people go back to their nets as if
+nothing had happened. A **priest of the deep** keeps the idol and preaches
+until the town turns, and **great crabs** scuttle on the shore, out of the way of
+whoever bothers them.
 
 ## Light and weather
 

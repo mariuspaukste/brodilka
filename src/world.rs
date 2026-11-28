@@ -2308,11 +2308,11 @@ pub fn generate(seed: u32) -> Map {
     ];
     let beasts = street_beasts(&m, town_c);
     m.spawns.extend(beasts);
-    // drowned Saltgrave: deep ones in the street, their priest at the idol,
+    // drowned Saltgrave: its folk in the street, their priest at the idol,
     // great crabs on the shore
     let (sx, sy, sw, sh) = SALT;
     m.spawns.extend([
-        ("deepone", sx + 14, sy + 10, 10, 6),
+        ("saltfolk", sx + 14, sy + 10, 11, 7),
         ("deeppriest", sx + 15, sy + 11, 2, 1),
         ("crab", sx + sw - 3, sy + sh / 2, 7, 4),
     ]);

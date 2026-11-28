@@ -8,6 +8,7 @@ use std::collections::VecDeque;
 pub mod critters;
 pub mod deep;
 pub mod market;
+pub mod saltgrave;
 pub mod shadow;
 pub mod sky;
 pub mod storeys;
@@ -644,6 +645,8 @@ pub struct Game {
     pub sim: crate::sim::Sim,
     /// raids and caravans on the roads
     pub travels: Vec<travel::Travel>,
+    /// the mood of drowned Saltgrave toward the player
+    pub salt: saltgrave::Salt,
     /// seconds until the Shadow is worked out again
     pub shadow_t: f32,
     /// how dark the view is about the player, 0..1, eased
@@ -711,6 +714,7 @@ impl Game {
             spawners: vec![],
             sim: crate::sim::Sim::new(crate::pack::get()),
             travels: vec![],
+            salt: saltgrave::Salt::default(),
             shadow_t: 0.0,
             gloom_view: 0.0,
             in_shadow: false,
@@ -927,9 +931,22 @@ impl Game {
             e.home = (sx, sy);
             e.spawner = si as i32;
             e.ai_t = self.rng.f() * 3.0;
-            if tame {
+            if tame || d.id == "saltfolk" {
                 // which coat it wears
                 e.look = self.rng.next_u32();
+            }
+            if d.id == "saltfolk" {
+                e.name = self
+                    .rng
+                    .pick(&[
+                        "a fisherman of Saltgrave",
+                        "a net-mender",
+                        "a hunched fisherman",
+                        "an old woman of Saltgrave",
+                        "a pale youth",
+                        "a fishwife",
+                    ])
+                    .to_string();
             }
             if d.caster.len() > 0 {
                 e.mana = 200;
@@ -2081,6 +2098,7 @@ impl Game {
         }
         self.travel_tick(dt);
         self.deep_tick(dt);
+        self.salt_tick(dt);
         self.shadow_tick(dt);
         self.sky_tick(dt);
         let day = crate::sim::Sim::day(self.time);
@@ -2211,6 +2229,9 @@ impl Game {
         }
         if d.id == "cthulhu" {
             self.cthulhu_tick(i, mi, dt);
+            return;
+        }
+        if saltgrave::salt_folk(d.id) && self.salt_folk_tick(i, mi, dt) {
             return;
         }
         self.move_ent(i, d.mv, dt);
@@ -3435,6 +3456,14 @@ impl Game {
                         };
                         self.ents[i].talk(line, 0xffffffff);
                     }
+                }
+                // Saltgrave's folk only mutter and turn away, until it turns
+                EK::Mon(m)
+                    if saltgrave::salt_folk(MONS[m].id)
+                        && self.salt.turned <= 0.0
+                        && !self.pl.war =>
+                {
+                    self.salt_snub(i);
                 }
                 EK::Mon(_) => {
                     if self.pl.ghost {
