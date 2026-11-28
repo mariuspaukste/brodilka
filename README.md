@@ -224,14 +224,26 @@ In **Suryagarh** and **Kanakpur** humped white, grey and red **cows**, some
 with painted horns, amble and graze in the streets. **Pigs**, pink, black
 and spotted, root about and grunt.
 
+Troops of **monkeys** keep to the temples of both cities, Suryagarh's square
+and Kanakpur's bazaar: brown rhesus macaques with pink-red faces and short
+tails, and pale Hanuman langurs with black faces and long tails arched up
+behind them. They go on all fours, bound when they run, and spend most of
+their time sitting on their haunches, chattering, grooming and looking about.
+Dogs chase them and they flee, screeching. They are thieves: walk among them
+with bread or fish in your pack (and no weapon drawn) and one may dart up,
+snatch some and run, then sit down out of reach to eat it. Strike it and it
+drops what it took; kill it and the food is on its corpse, but it costs you
+karma. Only one of them robs you at a time, and a monkey that has eaten
+leaves you be a while.
+
 They live on guarded ground, out of doors, and the guards leave them be.
 Struck, they run (a cow only walks off, and a pig squeals). Killing a dog, a
-cat or a cow costs karma, and none of them counts against the wild in the
-world's chronicle. Each is a baked figure on its own rig: zebu with hump,
-dewlap and horns, pigs with a snout disc and a corkscrew tail, dogs with
-pricked or hanging ears and a curled tail, cats sitting with their tail
-round their feet, and pigeons that peck, walk and fly. Every kind comes in a
-few coats.
+cat, a cow or a monkey costs karma, and none of them counts against the wild
+in the world's chronicle. Each is a baked figure on its own rig: zebu with
+hump, dewlap and horns, pigs with a snout disc and a corkscrew tail, dogs
+with pricked or hanging ears and a curled tail, cats sitting with their tail
+round their feet, pigeons that peck, walk and fly, and monkeys that sit with
+their knees up and eat from their hands. Every kind comes in a few coats.
 
 ## The awakening of Cthulhu
 

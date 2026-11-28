@@ -1,5 +1,6 @@
 //! The beasts of the streets: pigeons, dogs and cats in the town, Duskhold
-//! and the village, and in Suryagarh and Kanakpur cows and pigs as well.
+//! and the village, and in Suryagarh and Kanakpur cows, pigs and monkeys as
+//! well.
 //!
 //! They are `MonDef::domestic`: passive, at home on guarded ground (the
 //! guards leave them be) and out of doors, each kind with its own habits:
@@ -11,10 +12,16 @@
 //!   the cats, and keep their distance from monsters but bark at them;
 //! - **cats** sit a great deal, wash, and run from dogs;
 //! - **cows** amble and graze, and are not to be hurried;
-//! - **pigs** root about and grunt, and squeal and bolt when struck.
+//! - **pigs** root about and grunt, and squeal and bolt when struck;
+//! - **monkeys** go about in troops, sit a great deal, chatter and groom, and
+//!   flee from dogs. They are thieves: one will dart up to a player carrying
+//!   bread or fish, snatch it and run, and sit down out of reach to eat it.
+//!   Struck, it drops what it took; killed, its corpse still holds it. One
+//!   of a troop robs at a time, and a monkey that has eaten is sated a while.
 //!
-//! Struck, any of them flees. Slaying a dog, a cat or a cow costs karma, and
-//! none of them counts against a site of the wild in the world simulation.
+//! Struck, any of them flees. Slaying a dog, a cat, a cow or a monkey costs
+//! karma, and none of them counts against a site of the wild in the world
+//! simulation.
 use super::*;
 
 /// How high a pigeon flies, in levels of the terraced ground.
@@ -63,15 +70,34 @@ impl Game {
         let ghost = self.pl.ghost;
         // struck: off, away from whoever did it
         if self.ents[i].combat.provoked {
+            // a thief struck lets go of what it took
+            if let Some(it) = self.ents[i].stolen.take() {
+                self.msg(
+                    &format!(
+                        "{} drops your {}, and you snatch it back.",
+                        cap(&self.ents[i].name),
+                        it.def().name
+                    ),
+                    C_SYS,
+                );
+                self.pl.add(it);
+                self.touch_ui();
+            }
+            self.ents[i].chase = 0;
             if pd < 10.0 && !ghost {
                 if d.flies {
                     self.take_wing(i, px, py);
                     return;
                 }
                 if self.ents[i].path.is_empty() {
-                    if d.id == "pig" && self.ents[i].ai_t <= 0.0 {
+                    if matches!(d.id, "pig" | "monkey") && self.ents[i].ai_t <= 0.0 {
                         self.ents[i].ai_t = 2.0;
-                        self.ents[i].talk("*squeals*", C_BEAST);
+                        let say = if d.id == "pig" {
+                            "*squeals*"
+                        } else {
+                            "*screeches*"
+                        };
+                        self.ents[i].talk(say, C_BEAST);
                     }
                     // a cow won't be hurried
                     self.ents[i].running = d.id != "cow";
@@ -90,6 +116,7 @@ impl Game {
             "pigeon" => self.pigeon_tick(i, pd),
             "dog" => self.dog_tick(i, pd),
             "cat" => self.cat_tick(i, pd),
+            "monkey" => self.monkey_tick(i, pd),
             _ => {
                 self.ents[i].running = false;
                 // cows amble, pigs bustle
@@ -128,9 +155,11 @@ impl Game {
             + extra;
         let (x, y) = self.ents[i].tile();
         if (x - hx).abs() > r || (y - hy).abs() > r || !self.map.guarded(x, y) {
+            // never in through a door that someone has left open
             let step = self
                 .street_step(i, hx as f32, hy as f32, false)
-                .or_else(|| self.greedy_step(i, hx as f32, hy as f32, false));
+                .or_else(|| self.greedy_step(i, hx as f32, hy as f32, false))
+                .filter(|&(sx, sy)| self.map.outdoors(sx, sy) || !self.map.outdoors(x, y));
             if let Some(s) = step {
                 self.ents[i].path.push(s);
             }
@@ -344,7 +373,7 @@ impl Game {
             }
             return;
         }
-        // after a cat, or tagging along behind someone
+        // after a cat or a monkey, or tagging along behind someone
         if self.ents[i].chase != 0 && self.ents[i].busy_t > 0.0 {
             if let Some(t) = self.find(self.ents[i].chase) {
                 let (tx, ty) = (self.ents[t].x, self.ents[t].y);
@@ -373,8 +402,12 @@ impl Game {
         self.ents[i].chase = 0;
         self.ents[i].running = false;
         if self.ents[i].ai_t <= 0.0 {
-            // spot a cat and go for it, or take up with the player a while
-            if let Some((c, _)) = self.nearest_mon(i, "cat", 5.0) {
+            // spot a cat or a monkey and go for it, or take up with the
+            // player a while
+            let quarry = self
+                .nearest_mon(i, "cat", 5.0)
+                .or_else(|| self.nearest_mon(i, "monkey", 5.0));
+            if let Some((c, _)) = quarry {
                 if self.rng.chance(0.3) {
                     let id = self.ents[c].id;
                     let e = &mut self.ents[i];
@@ -424,7 +457,134 @@ impl Game {
         }
         self.potter(i, 5.0, 0.4, 2);
     }
+
+    // ------------------------------------------------------------ monkeys
+    /// Can a monkey rob the player now, and of what?
+    fn monkey_bait(&self) -> Option<usize> {
+        if self.pl.ghost || self.pl.war || self.pl.riding || self.ents[0].fl != 0 {
+            return None;
+        }
+        MONKEY_FOOD
+            .iter()
+            .map(|id| item_idx(id))
+            .find(|&id| self.pl.count(id) > 0)
+    }
+
+    fn monkey_tick(&mut self, i: usize, pd: f32) {
+        let (px, py) = (self.ents[0].x, self.ents[0].y);
+        let pid = self.ents[0].id;
+        // a dog close: off and away, screeching
+        if let Some((g, gd)) = self.nearest_mon(i, "dog", 2.8) {
+            let (gx, gy) = (self.ents[g].x, self.ents[g].y);
+            self.ents[i].running = true;
+            self.ents[i].chase = 0;
+            if let Some(s) = self.street_step(i, gx, gy, true) {
+                self.ents[i].path.push(s);
+            }
+            if gd < 1.8 && self.ents[i].ai_t <= 0.0 {
+                self.ents[i].ai_t = 4.0;
+                self.ents[i].talk("*screeches*", C_BEAST);
+            }
+            return;
+        }
+        // with something snatched: off out of reach, then sit and eat it
+        if self.ents[i].stolen.is_some() {
+            if pd < 6.0 && !self.pl.ghost {
+                self.ents[i].running = true;
+                if let Some(s) = self.street_step(i, px, py, true) {
+                    self.ents[i].path.push(s);
+                } else if self.ents[i].ai_t <= 0.0 {
+                    // cornered
+                    self.ents[i].ai_t = 2.5;
+                    self.ents[i].talk("*bares its teeth*", C_BEAST);
+                }
+                return;
+            }
+            self.ents[i].running = false;
+            if self.ents[i].busy_t <= 0.0 {
+                self.ents[i].stolen = None;
+                // sated a good while
+                self.ents[i].busy_t = 60.0 + self.rng.f() * 60.0;
+                if pd < 12.0 {
+                    self.ents[i].talk("*smacks its lips*", C_BEAST);
+                }
+            } else if pd < 10.0 && self.rng.chance(0.004) {
+                self.ents[i].talk("*munches*", C_BEAST);
+            }
+            return;
+        }
+        // after the player's food: close in, snatch it, and away
+        if self.ents[i].chase == pid {
+            let bait = self.monkey_bait();
+            if bait.is_none() || self.ents[i].busy_t <= 0.0 || pd > 8.0 {
+                self.ents[i].chase = 0;
+                self.ents[i].running = false;
+                self.ents[i].busy_t = 15.0;
+                return;
+            }
+            if pd < 1.5 {
+                let id = bait.unwrap();
+                self.pl.take(id, 1);
+                let it = Item::new(id, 1);
+                self.msg(
+                    &format!(
+                        "{} snatches your {} and is off with it!",
+                        cap(&self.ents[i].name),
+                        it.def().name
+                    ),
+                    C_WARN,
+                );
+                self.touch_ui();
+                let e = &mut self.ents[i];
+                e.stolen = Some(it);
+                e.chase = 0;
+                // how long before it has eaten it
+                e.busy_t = 20.0 + self.rng.f() * 10.0;
+                e.running = true;
+                e.talk("*shrieks*", C_BEAST);
+                return;
+            }
+            self.ents[i].running = pd > 2.5;
+            if let Some(s) = self.street_step(i, px, py, false) {
+                self.ents[i].path.push(s);
+            }
+            return;
+        }
+        self.ents[i].chase = 0;
+        self.ents[i].running = false;
+        // one thief at a time: none of the troop is after the player or
+        // still eating what it took
+        if self.ents[i].ai_t <= 0.0
+            && self.ents[i].busy_t <= 0.0
+            && pd < 5.0
+            && self.monkey_bait().is_some()
+            && self.rng.chance(0.2)
+        {
+            let busy = self.ents.iter().enumerate().any(|(j, e)| {
+                j != i
+                    && !e.dead
+                    && matches!(e.k, EK::Mon(m) if MONS[m].id == "monkey")
+                    && (e.chase == pid || e.stolen.is_some())
+            });
+            if !busy {
+                let e = &mut self.ents[i];
+                e.chase = pid;
+                e.busy_t = 7.0;
+                e.ai_t = 0.5;
+                return;
+            }
+        }
+        if self.potter(i, 3.0, 0.5, 2) && pd < 7.0 && self.rng.chance(0.1) {
+            let say = *self
+                .rng
+                .pick(&["*chatters*", "*hoots*", "*scratches*", "*grooms itself*"]);
+            self.ents[i].talk(say, C_BEAST);
+        }
+    }
 }
+
+/// What a monkey will snatch from the player, in order of preference.
+const MONKEY_FOOD: [&str; 2] = ["bread", "fish"];
 
 #[cfg(test)]
 mod tests {
@@ -441,7 +601,7 @@ mod tests {
         for seed in [1u32, 1997] {
             let mut g = Game::new(seed);
             g.create("Walker", false, 0, "warrior", [0, 0, 0]);
-            for id in ["pigeon", "dog", "cat", "cow", "pig"] {
+            for id in ["pigeon", "dog", "cat", "cow", "pig", "monkey"] {
                 let all = of(&g, id);
                 assert!(!all.is_empty(), "seed {seed}: no {id}");
                 for &i in &all {
@@ -453,9 +613,9 @@ mod tests {
                     assert!(street_look_ok(&g, i));
                 }
             }
-            // cows and pigs only in the cities of the south; pigeons, dogs
-            // and cats in the north's town and city too
-            for id in ["cow", "pig"] {
+            // cows, pigs and monkeys only in the cities of the south;
+            // pigeons, dogs and cats in the north's town and city too
+            for id in ["cow", "pig", "monkey"] {
                 assert!(of(&g, id).iter().all(|&i| {
                     let (x, y) = g.ents[i].tile();
                     g.map.in_raj(x, y)
@@ -473,19 +633,19 @@ mod tests {
             }
             // a few minutes of street life: the guards leave them be, they
             // keep out of doors and near home
-            let before: usize = ["pigeon", "dog", "cat", "cow", "pig"]
+            let before: usize = ["pigeon", "dog", "cat", "cow", "pig", "monkey"]
                 .iter()
                 .map(|id| of(&g, id).len())
                 .sum();
             for _ in 0..30 * 120 {
                 g.update(1.0 / 30.0);
             }
-            let after: usize = ["pigeon", "dog", "cat", "cow", "pig"]
+            let after: usize = ["pigeon", "dog", "cat", "cow", "pig", "monkey"]
                 .iter()
                 .map(|id| of(&g, id).len())
                 .sum();
             assert_eq!(before, after, "seed {seed}: street beasts died");
-            for id in ["cow", "pig", "cat"] {
+            for id in ["cow", "pig", "cat", "monkey"] {
                 for i in of(&g, id) {
                     let (x, y) = g.ents[i].tile();
                     assert!(g.map.outdoors(x, y), "seed {seed}: {id} indoors at {x},{y}");
@@ -541,17 +701,102 @@ mod tests {
         }
         assert_eq!(flew, near.len(), "the flock did not go up together");
         // the player stands back; they come down again on open ground
+        // (though a passer-by may put one up again)
         g.ents[0].path.clear();
         g.ents[0].x = x + 30.0;
+        let mut landed = vec![false; near.len()];
         for _ in 0..30 * 6 {
             g.update(1.0 / 30.0);
+            for (k, id) in near.iter().enumerate() {
+                let j = g.find(*id).unwrap();
+                let (lx, ly) = g.ents[j].tile();
+                if g.ents[j].anim.air == 0.0 && g.map.outdoors(lx, ly) {
+                    landed[k] = true;
+                }
+            }
         }
-        for id in &near {
-            let j = g.find(*id).unwrap();
-            assert_eq!(g.ents[j].anim.air, 0.0);
-            let (lx, ly) = g.ents[j].tile();
-            assert!(g.map.outdoors(lx, ly));
+        assert!(landed.iter().all(|&l| l), "a pigeon never came down");
+    }
+
+    #[test]
+    fn a_monkey_snatches_bread_and_drops_it_when_struck() {
+        let mut g = Game::new(1997);
+        g.create("Walker", false, 0, "warrior", [0, 0, 0]);
+        g.pl.pack.retain(|it| !MONKEY_FOOD.contains(&it.def().id));
+        let bread = item_idx("bread");
+        g.pl.add(Item::new(bread, 3));
+        // stand still in the street beside a monkey of the south
+        let m = of(&g, "monkey")
+            .into_iter()
+            .find(|&i| {
+                let (x, y) = g.ents[i].tile();
+                g.map.in_raj(x, y)
+            })
+            .unwrap();
+        let (mx, my) = g.ents[m].tile();
+        let spot = DIRS
+            .iter()
+            .map(|&(dx, dy)| (mx + 2 * dx, my + 2 * dy))
+            .find(|&(x, y)| g.map.passable(x, y) && g.map.outdoors(x, y) && g.map.guarded(x, y))
+            .unwrap();
+        {
+            let p = &mut g.ents[0];
+            p.x = spot.0 as f32;
+            p.y = spot.1 as f32;
+            p.path.clear();
         }
+        let mut stolen = false;
+        for _ in 0..30 * 120 {
+            g.ents[0].path.clear();
+            g.update(1.0 / 30.0);
+            if g.pl.count(bread) < 3 {
+                stolen = true;
+                break;
+            }
+        }
+        assert!(stolen, "no monkey took the bread");
+        assert_eq!(g.pl.count(bread), 2);
+        let thief = (1..g.ents.len())
+            .find(|&i| g.ents[i].stolen.is_some())
+            .expect("no monkey holds the bread");
+        assert_eq!(g.ents[thief].stolen.as_ref().unwrap().id, bread);
+        // one thief at a time
+        assert_eq!(
+            (1..g.ents.len())
+                .filter(|&i| g.ents[i].stolen.is_some())
+                .count(),
+            1
+        );
+        // it makes off out of reach
+        for _ in 0..30 * 3 {
+            g.ents[0].path.clear();
+            g.update(1.0 / 30.0);
+        }
+        let tid = g.ents[thief].id;
+        let t = g.find(tid).unwrap();
+        assert!(g.ents[t].dist(g.ents[0].x, g.ents[0].y) > 2.5);
+        // struck, it lets go
+        g.damage(t, 1, true);
+        g.update(1.0 / 30.0);
+        assert_eq!(g.pl.count(bread), 3);
+        assert!(g.ents[g.find(tid).unwrap()].stolen.is_none());
+    }
+
+    #[test]
+    fn a_monkey_left_alone_eats_what_it_took() {
+        let mut g = Game::new(1);
+        g.create("Walker", false, 0, "warrior", [0, 0, 0]);
+        let m = of(&g, "monkey")[0];
+        let id = g.ents[m].id;
+        g.ents[m].stolen = Some(Item::new(item_idx("fish"), 1));
+        g.ents[m].busy_t = 5.0;
+        for _ in 0..30 * 10 {
+            g.update(1.0 / 30.0);
+        }
+        let m = g.find(id).unwrap();
+        assert!(g.ents[m].stolen.is_none());
+        // and is sated a while
+        assert!(g.ents[m].busy_t > 30.0);
     }
 
     #[test]
@@ -571,5 +816,14 @@ mod tests {
         let hp = g.ents[p].hp;
         g.damage(p, hp + 1, true);
         assert_eq!(g.pl.karma, k1);
+        // a monkey is Hanuman's own, and its corpse keeps what it stole
+        let k2 = g.pl.karma;
+        let m = of(&g, "monkey")[0];
+        g.ents[m].stolen = Some(Item::new(item_idx("bread"), 1));
+        let hp = g.ents[m].hp;
+        g.damage(m, hp + 1, true);
+        assert!(g.pl.karma < k2);
+        let c = g.corpses.last().unwrap();
+        assert!(c.items.iter().any(|it| it.id == item_idx("bread")));
     }
 }

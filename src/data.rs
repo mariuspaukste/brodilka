@@ -1193,7 +1193,7 @@ static MONS_DEF: &[MonDef] = &[
         ..MB
     },
     // the beasts of the streets: pigeons, dogs and cats in the towns and
-    // cities, and cows and pigs in the cities of the south as well
+    // cities, and cows, pigs and monkeys in the cities of the south as well
     MonDef {
         id: "pigeon",
         name: "a pigeon",
@@ -1260,6 +1260,22 @@ static MONS_DEF: &[MonDef] = &[
         passive: true,
         size: 0.8,
         color: 0xd8a090ff,
+        domestic: true,
+        ..MB
+    },
+    // the monkeys of the southern cities: troops about the temples and the
+    // bazaar, and thieves of anything edible
+    MonDef {
+        id: "monkey",
+        name: "a monkey",
+        hp: 16,
+        dmg: (1, 3),
+        skill: 30,
+        mv: 2.6,
+        passive: true,
+        size: 0.6,
+        color: 0x8a6a48ff,
+        karma: 40,
         domestic: true,
         ..MB
     },

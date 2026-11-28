@@ -248,6 +248,8 @@ pub struct Ent {
     /// and for how much longer
     pub chase: u32,
     pub busy_t: f32,
+    /// what a monkey has snatched from the player and is off to eat
+    pub stolen: Option<Item>,
 }
 
 impl Ent {
@@ -282,6 +284,7 @@ impl Ent {
             fl: 0,
             chase: 0,
             busy_t: 0.0,
+            stolen: None,
         }
     }
     /// 0 wild (or not a horse), 1 the player's own, 2 the stablemaster's
@@ -934,6 +937,10 @@ impl Game {
             if tame || d.id == "saltfolk" {
                 // which coat it wears
                 e.look = self.rng.next_u32();
+            }
+            // the pale, black-faced coats are langurs (`render::street_look`)
+            if d.id == "monkey" && e.look % 4 >= 2 {
+                e.name = "a langur".to_string();
             }
             if d.id == "saltfolk" {
                 e.name = self
@@ -1942,6 +1949,10 @@ impl Game {
         }
         if d.id == "rabbit" && self.rng.chance(0.5) {
             items.push(Item::new(item_idx("fish"), 1)); // "meat" placeholder: edible
+        }
+        // a thief's corpse still clutches what it took
+        if let Some(it) = self.ents[i].stolen.take() {
+            items.push(it);
         }
         let bc = blood_color(&self.ents[i]);
         let look = self.look_for(i);

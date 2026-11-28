@@ -1313,7 +1313,9 @@ impl Game {
                         t.stripes = 0x1a1008ff;
                         return Some(t);
                     }
-                    "pigeon" | "dog" | "cat" | "cow" | "pig" => return street_look(d.id, e.look),
+                    "pigeon" | "dog" | "cat" | "cow" | "pig" | "monkey" => {
+                        return street_look(d.id, e.look)
+                    }
                     "cthulhu" => return Some(Look::creature(bake::Body::Cthulhu, d.color, 220)),
                     "crab" => return Some(Look::creature(bake::Body::Crab, d.color, 140)),
                     "deeppriest" => {
@@ -1555,6 +1557,9 @@ impl Game {
                 "cow" => Some((0.04, 0.6, 0.6)),
                 "pig" => Some((0.08, 0.5, 1.0)),
                 "dog" => Some((0.07, 0.3, 1.2)),
+                // a monkey with something to eat does nothing else
+                "monkey" if e.stolen.is_some() => Some((1.0, 1.0, 0.9)),
+                "monkey" => Some((0.09, 0.45, 0.9)),
                 _ => None,
             };
             if let Some((rate, frac, speed)) = spell {
@@ -3916,7 +3921,9 @@ impl Game {
                     "tiger" | "dog" | "cow" | "pig" => {
                         self.quad(c, e, sx, sy, z * s, col, "wolf", wk, t)
                     }
-                    "cat" | "pigeon" => self.quad(c, e, sx, sy, z * s, col, "rabbit", wk, t),
+                    "cat" | "pigeon" | "monkey" => {
+                        self.quad(c, e, sx, sy, z * s, col, "rabbit", wk, t)
+                    }
                     "crab" => self.slime(c, e, sx, sy, z * s, col, t),
                     "mongbat" => self.mongbat(c, e, sx, sy, z * s, col, t),
                     "slime" | "spider" => self.slime(c, e, sx, sy, z * s, col, t),
@@ -6022,7 +6029,8 @@ fn dwarf_look(l: &mut Look, v: usize, r: &dyn Fn(u32) -> u32, mine: bool) {
     }
 }
 
-/// The beasts of the streets, each in one of a few coats picked by `seed`.
+/// The beasts of the streets, each in one of a few coats picked by `seed`
+/// (a monkey's: 0 and 1 are macaques, 2 and 3 langurs).
 pub fn street_look(id: &str, seed: u32) -> Option<Look> {
     use bake::Body;
     let k = seed as usize;
@@ -6089,6 +6097,23 @@ pub fn street_look(id: &str, seed: u32) -> Option<Look> {
             let (c, p) = COATS[k % 3];
             let mut l = Look::creature(Body::Pig, c, 100);
             l.patch = p;
+            l
+        }
+        "monkey" => {
+            // fur, belly, face, hands and feet, long tail: rhesus macaques
+            // brown and greyer, Hanuman langurs buff and grey
+            const COATS: [(u32, u32, u32, u32, bool); 4] = [
+                (0x8e6a44ff, 0xb89870ff, 0xd88878ff, 0x6a5048ff, false),
+                (0x8a7c62ff, 0xb0a488ff, 0xc87a6cff, 0x5e504aff, false),
+                (0xc4baa6ff, 0xe0d8c8ff, 0x24201eff, 0x2a2624ff, true),
+                (0xa29c92ff, 0xc8c2b6ff, 0x1e1a1aff, 0x242020ff, true),
+            ];
+            let (c, b, f, h, long) = COATS[k % 4];
+            let mut l = Look::creature(Body::Monkey, c, 120);
+            l.body = b;
+            l.patch = f;
+            l.legs = h;
+            l.long_hair = long;
             l
         }
         _ => return None,

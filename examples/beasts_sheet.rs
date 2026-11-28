@@ -4,7 +4,7 @@
 fn main() {
     let dir = std::env::args().nth(1).unwrap_or("/tmp/beasts".into());
     std::fs::create_dir_all(&dir).unwrap();
-    for id in ["pigeon", "dog", "cat", "cow", "pig"] {
+    for id in ["pigeon", "dog", "cat", "cow", "pig", "monkey"] {
         for seed in 0..4 {
             let look = brodilka::render::street_look(id, seed).unwrap();
             let a = brodilka::bake::bake(&look);

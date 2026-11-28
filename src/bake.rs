@@ -8,6 +8,7 @@
 mod deep;
 mod furniture;
 pub mod icons;
+mod monkey;
 mod trees;
 mod tropic;
 use std::collections::hash_map::DefaultHasher;
@@ -146,7 +147,7 @@ const RIDER_ANIMS: &[(Anim, usize)] = &[
 pub fn anims(look: &Look) -> &'static [(Anim, usize)] {
     match look.body_type {
         Body::Horse => return HORSE_ANIMS,
-        Body::Dog | Body::Cat | Body::Cow | Body::Pig => return STREET_ANIMS,
+        Body::Dog | Body::Cat | Body::Cow | Body::Pig | Body::Monkey => return STREET_ANIMS,
         Body::Bird => return BIRD_ANIMS,
         Body::Cthulhu => return CTHULHU_ANIMS,
         _ => {}
@@ -242,6 +243,8 @@ pub enum Body {
     Pig,
     /// a pigeon
     Bird,
+    /// a monkey of the southern cities: a macaque or a langur
+    Monkey,
     /// Cthulhu, waist-deep in the sea
     Cthulhu,
     /// a great crab of the shore
@@ -276,6 +279,7 @@ pub struct Look {
     pub robe: bool,
     pub skirt: bool,
     pub hair: u32,
+    /// long hair; on a monkey, a langur's long tail
     pub long_hair: bool,
     pub helm: u32,
     pub hat: u32,
@@ -394,6 +398,7 @@ impl Look {
             // small beasts drawn large: their frames needn't be
             Body::Bird => (0.6, 0.55),
             Body::Cat => (0.8, 0.7),
+            Body::Monkey => (0.95, 0.85),
             _ if self.equine() => (1.8, 1.4),
             _ => (1.0, 1.0),
         }
@@ -415,6 +420,9 @@ impl Look {
             24.0
         } else if matches!(self.body_type, Body::Dog | Body::Pig) {
             16.0
+        } else if self.body_type == Body::Monkey {
+            // a sitting langur's tail lies out towards the viewer
+            18.0
         } else {
             8.0
         };
@@ -1464,6 +1472,7 @@ fn figure_for(look: &Look, a: Anim, f: usize, n: usize) -> Figure {
                 Body::Bat => bat(look, a, f, n),
                 Body::Spider => spider(look, a, f, n),
                 Body::Bird => bird(look, a, f, n),
+                Body::Monkey => monkey::monkey(look, a, f, n),
                 Body::Cthulhu => deep::cthulhu(a, f, n),
                 Body::Crab => deep::crab(look, a, f, n),
                 _ => quad(look, a, f, n),
@@ -5897,6 +5906,31 @@ mod tests {
         }
         assert_eq!(anims(&rider), RIDER_ANIMS);
         assert_eq!(slot(&rider, Block), slot(&rider, Stance));
+    }
+    /// the monkeys, macaques and langurs: every frame drawn, nothing cut off
+    #[test]
+    fn monkeys_fit_their_frames() {
+        for seed in 0..4 {
+            let l = crate::render::street_look("monkey", seed).unwrap();
+            let a = bake(&l);
+            for idx in 0..total_frames(&l) {
+                let (ox, oy) = ((idx % COLS) * a.fw, (idx / COLS) * a.fh);
+                let mut n = 0;
+                for y in 0..a.fh {
+                    for x in 0..a.fw {
+                        if a.rgba[((oy + y) * a.w + ox + x) * 4 + 3] > 0 {
+                            n += 1;
+                            let edge = x == 0 || y == 0 || x == a.fw - 1 || y == a.fh - 1;
+                            assert!(
+                                !edge,
+                                "monkey {seed} frame {idx} touches the edge at {x},{y}"
+                            );
+                        }
+                    }
+                }
+                assert!(n > 60, "monkey {seed} frame {idx} nearly empty ({n})");
+            }
+        }
     }
     #[test]
     fn bakes_every_frame() {

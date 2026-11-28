@@ -2325,7 +2325,8 @@ pub fn generate(seed: u32) -> Map {
 
 /// The beasts of the streets (`game/critters.rs`): flocks of pigeons on the
 /// squares, dogs and cats about the town, Duskhold and the village, and in
-/// the two cities of the south cows and pigs wandering the streets as well.
+/// the two cities of the south cows and pigs wandering the streets as well,
+/// and troops of monkeys.
 fn street_beasts(m: &Map, town_c: (i32, i32)) -> Vec<(&'static str, i32, i32, i32, usize)> {
     let centre = |(x0, y0, x1, y1): (i32, i32, i32, i32)| ((x0 + x1) / 2, (y0 + y1) / 2);
     let mut v = vec![];
@@ -2393,6 +2394,21 @@ fn street_beasts(m: &Map, town_c: (i32, i32)) -> Vec<(&'static str, i32, i32, i3
         for &(x, y) in &spots {
             v.push(("cow", x, y, 7, 2));
             v.push(("pig", x, y, 6, 1));
+        }
+    }
+    // troops of monkeys about the temples, Suryagarh's square and
+    // Kanakpur's bazaar
+    let (sx, sy, sw, sh) = south::SURYA;
+    let (kx, ky, kw, _) = south::KANAK;
+    let troops = [
+        (sx + 36, sy + 11, 5),
+        (sx + sw / 2 + 4, sy + sh / 2, 3),
+        (kx + kw / 2, ky + 11, 5),
+        (kx + 10, ky + 13, 4),
+    ];
+    if !m.raj.is_empty() {
+        for (x, y, n) in troops {
+            v.push(("monkey", x, y, 6, n));
         }
     }
     v
