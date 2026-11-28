@@ -799,6 +799,13 @@ impl Game {
                 }
                 w
             }
+            // the host puts the game itself up for this one (web/lines98)
+            Win::Lines => {
+                let mut w = WinJ::new("lines", "Lines");
+                w.head.push(format!("Thy best: {}", pl.lines_best));
+                w.foot("Leave the table", "close");
+                w
+            }
             Win::Res => {
                 let mut w = WinJ::new("res", "Resurrection");
                 w.head.push(
@@ -869,6 +876,8 @@ impl Game {
                 self.win = if self.win == w { Win::None } else { w };
             }
             "close" => self.win = Win::None,
+            // a game of Lines played out at the pub's table: lines:<score>
+            "lines" => self.lines_score(num(1)),
             "escape" => {
                 if self.pl.targeting >= 0 {
                     self.pl.targeting = -1;

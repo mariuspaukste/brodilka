@@ -270,6 +270,19 @@ driven into the deep at once and the sea casts up the treasures of R'lyeh
 at your feet. But that is not dead which can eternal lie: he wakes again,
 later. The timers are kept in the save.
 
+## Lines at the pub
+
+Every pub has a little table with a board of Lines on it, by the door.
+Tap it and you sit down to a game of **Lines 98**: the game from
+[mariuspaukste/lines-98](https://github.com/mariuspaukste/lines-98), copied
+as it is into `web/lines98/` and put up over the world, dressed in the
+pub's dark wood and candlelight (`web/main.js` does that from outside, so the
+game's own file stays a plain copy: to update it, copy the repository's
+`index.html` over it). Leave the table and come back and your game is still
+there. The pub chalks your best score on its board (kept in the save), and
+each time you beat it the barkeep, who has money on the regulars, stands you
+a fifth of the new score in gold, up to 300 (`src/game/lines.rs`).
+
 ## The Ethereal Void
 
 Below the land, beyond a gulf of nothing, the **Ethereal Void** hangs among

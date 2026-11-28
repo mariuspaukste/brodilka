@@ -937,6 +937,9 @@ function renderUI(u) {
   $('create').classList.toggle('hidden', u.screen !== 'create');
   if (u.screen === 'create') { setupCreate(u); win.classList.add('hidden'); return; }
   const w = u.win;
+  // at a pub's Lines table the game itself goes up over the world
+  showLines(!!w && w.id === 'lines');
+  if (w && w.id === 'lines') { win.classList.add('hidden'); lastWinKey = ''; return; }
   if (!w) { win.classList.add('hidden'); lastWinKey = ''; return; }
   const scrollKey = w.id + w.title;
   const oldRows = win.querySelector('.rows');
@@ -1000,6 +1003,55 @@ function renderUI(u) {
     const f = el('div', 'foot');
     for (const [l, c] of w.foot) f.appendChild(btn(l, c));
     win.appendChild(f);
+  }
+}
+
+// ------------------------------------------------------------------ Lines at the pub
+// Lines 98 as it is in its own repository (web/lines98/index.html is a copy
+// of mariuspaukste/lines-98). Being on the same origin, it is dressed for
+// the pub, given a way to leave the table, and has each finished game's
+// score reported, from here, without changing the game's own file. It stays
+// loaded while you are away from the table, so a game can be picked up again.
+const linesBox = $('lines'), linesFrame = $('linesFrame');
+const PUB_CSS = `
+body.in-pub { background: radial-gradient(circle at 50% 0%, #4a3220 0%, #1a110a 75%);
+  --panel: #3a2a1c; --accent: #e8b84a; --muted: #b8a48a; --text: #f0e4cc; --bg: #1a110a;
+  font-family: Palatino, Georgia, serif; }
+body.in-pub h1::after { content: ' at the pub'; font-size: 13px; color: var(--muted); letter-spacing: 1px; font-weight: 600; }
+body.in-pub button { border-color: #5a4430; }
+body.in-pub button:hover { background: #4a3626; }
+body.in-pub .next { background: #24180e; }
+body.in-pub .overlay { background: rgba(20,12,6,.75); }`;
+function hookLines() {
+  let d;
+  try { d = linesFrame.contentDocument; } catch (e) { return; }
+  if (!d || !d.body || d.body.classList.contains('in-pub')) return;
+  d.body.classList.add('in-pub');
+  const st = d.createElement('style'); st.textContent = PUB_CSS; d.head.appendChild(st);
+  const leave = d.createElement('button');
+  leave.textContent = '✕ Leave the table';
+  leave.addEventListener('click', () => cmd('close'));
+  const ctl = d.querySelector('.controls');
+  if (ctl) ctl.appendChild(leave);
+  d.addEventListener('keydown', (e) => { if (e.key === 'Escape') cmd('close'); });
+  // the game-over dialog coming up is a finished game: tell the pub its score
+  const over = d.getElementById('over'), score = d.getElementById('score');
+  if (!over || !score) return;
+  let told = false;
+  new MutationObserver(() => {
+    const up = over.classList.contains('show');
+    if (up && !told) cmd('lines:' + (parseInt(score.textContent, 10) || 0));
+    told = up;
+  }).observe(over, { attributes: true, attributeFilter: ['class'] });
+}
+linesFrame.addEventListener('load', hookLines);
+function showLines(on) {
+  if (on === !linesBox.classList.contains('hidden')) return;
+  linesBox.classList.toggle('hidden', !on);
+  if (on) {
+    if (!linesFrame.getAttribute('src')) linesFrame.src = 'lines98/index.html';
+    else hookLines();
+    linesFrame.focus();
   }
 }
 

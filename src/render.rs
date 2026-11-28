@@ -2972,6 +2972,7 @@ impl Game {
         match o {
             O_MOONGATE => self.moongate(c, x, y, sx, sy, z, t, lights),
             O_CRYSTAL => self.crystal(c, x, y, sx, sy, style, z, t, lights),
+            O_GAMEBOARD => self.gameboard(c, x, y, sx, sy, z),
             O_TREE => {
                 let depleted = self.map.res[idx(x, y)] == 0;
                 c.fill(0x00000040);
@@ -5975,6 +5976,61 @@ impl Game {
             oval(c, 11.0, 25.0);
         }
         stones(c, true);
+        c.outline(INK, ink);
+    }
+
+    /// A little pub table with a board of Lines on it: nine by nine grey
+    /// cells, and a few coloured balls in play.
+    #[allow(clippy::too_many_arguments)]
+    fn gameboard(&self, c: &mut Canvas, x: i32, y: i32, sx: f32, sy: f32, z: f32) {
+        let ink = self.pix.max(z);
+        let top = 15.0 * z;
+        let (hw, hh) = (22.0 * z, 11.0 * z);
+        // legs, then the table top and its edge
+        c.outline(INK, ink);
+        c.fill(0x3a2616ff);
+        for (dx, dy) in [(-0.7, 0.0), (0.7, 0.0), (0.0, 0.7)] {
+            let (lx, ly) = (sx + dx * hw, sy + dy * hh);
+            c.rect(lx - 1.5 * z, ly - top, 3.0 * z, top);
+        }
+        let ty = sy - top;
+        c.fill(0x4a3220ff);
+        c.poly(&[
+            (sx - hw, ty + 2.5 * z),
+            (sx, ty + hh + 2.5 * z),
+            (sx + hw, ty + 2.5 * z),
+            (sx + hw, ty),
+            (sx, ty + hh),
+            (sx - hw, ty),
+        ]);
+        c.fill(0x6a4a2eff);
+        c.poly(&[(sx, ty - hh), (sx + hw, ty), (sx, ty + hh), (sx - hw, ty)]);
+        // the board
+        let k = 0.78;
+        let (bw, bh) = (hw * k, hh * k);
+        c.fill(0xb8bcc2ff);
+        c.poly(&[(sx, ty - bh), (sx + bw, ty), (sx, ty + bh), (sx - bw, ty)]);
+        c.outline(0, 0.0);
+        let at = |u: f32, v: f32| (sx + (u - v) * bw, ty - bh + (u + v) * bh);
+        c.stroke(0x7a7e86ff, 0.6 * ink);
+        for i in 1..9 {
+            let f = i as f32 / 9.0;
+            let (a, b) = (at(f, 0.0), at(f, 1.0));
+            c.line(a.0, a.1, b.0, b.1);
+            let (a, b) = (at(0.0, f), at(1.0, f));
+            c.line(a.0, a.1, b.0, b.1);
+        }
+        const BALLS: [u32; 7] = [
+            0xd02028ff, 0x18a840ff, 0x2050d0ff, 0xd8c010ff, 0xc020a8ff, 0x10b0c0ff, 0x8a5020ff,
+        ];
+        for i in 0..11 {
+            let cell = (h2(x * 7 + i, y * 3 - i, 41) * 81.0) as i32;
+            let (u, v) = ((cell % 9) as f32 + 0.5, (cell / 9) as f32 + 0.5);
+            let (bx, by) = at(u / 9.0, v / 9.0);
+            let col = BALLS[(h2(x + i, y, 43) * 7.0) as usize % 7];
+            c.fill(col);
+            c.ell(bx, by - 0.8 * z, 1.4 * z, 1.2 * z);
+        }
         c.outline(INK, ink);
     }
 

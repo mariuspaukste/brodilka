@@ -46,6 +46,8 @@ button { font: inherit; color: var(--ink); cursor: pointer; }
 #radar { position: fixed; right: 8px; top: calc(8px + var(--safe-t)); width: 120px; height: 120px; border-radius: 50%;
   border: 2px solid var(--edge); box-shadow: 0 0 0 1px #000, 0 4px 12px rgba(0,0,0,.6); background: #000; }
 #bigmap { position: fixed; inset: 0; z-index: 30; background: #0a1a2a; touch-action: none; }
+#lines { position: fixed; inset: 0; z-index: 25; display: flex; justify-content: center; background: rgba(12,8,5,.88); }
+#lines iframe { width: min(100vw, 560px); height: 100%; border: 0; background: transparent; }
 #bigmap canvas { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; }
 #bigmap .bmbar { position: absolute; top: calc(8px + var(--safe-t)); right: 8px; display: flex; gap: 6px; }
 #bigmap .bmbar button, #bigmap .bmzoom button { background: var(--stone); border: 1px solid var(--edge); border-radius: 6px;

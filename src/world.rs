@@ -114,6 +114,9 @@ pub const O_RUIN: u8 = 54;
 pub const O_MOONGATE: u8 = 55;
 /// a cluster of the Void's glowing crystals (style: its colour)
 pub const O_CRYSTAL: u8 = 56;
+/// a little table in a pub with a board of Lines laid out on it: nine by
+/// nine, coloured balls (`game/lines.rs`)
+pub const O_GAMEBOARD: u8 = 57;
 /// O_RUIN styles: R'lyeh's monolith, door and jumble (0–2), the idol in
 /// drowned Saltgrave, a wrecked boat
 pub const RUIN_IDOL: u8 = 3;
@@ -172,6 +175,7 @@ pub fn size(o: u8) -> (i32, f32) {
         O_RUIN => (1, 3.2),
         O_MOONGATE => (1, 3.0),
         O_CRYSTAL => (1, 1.2),
+        O_GAMEBOARD => (1, 0.9),
         O_WARDROBE => (1, 2.0),
         O_DRESSER => (1, 1.95),
         O_RACK => (1, 1.9),
@@ -1077,6 +1081,8 @@ impl Map {
                 // behind the bar: crockery and jars of pickles
                 (back(bx + 3), O_DRESSER),
                 (back(bx + 4), O_JARS),
+                // a table with a board of Lines on it, for whoever will play
+                ((bx + 3, by + 3, false), O_GAMEBOARD),
             ],
             V_STABLE => vec![
                 // feed sacks and water barrels, a tack chest, a cart of hay

@@ -7,6 +7,7 @@ use std::collections::VecDeque;
 
 pub mod critters;
 pub mod deep;
+pub mod lines;
 pub mod market;
 pub mod saltgrave;
 pub mod shadow;
@@ -365,6 +366,8 @@ pub enum Win {
     Craft,
     Res,
     Ctx(u32),
+    /// at a pub's Lines table: the host shows the game itself
+    Lines,
 }
 
 pub struct Corpse {
@@ -450,6 +453,8 @@ pub struct Pl {
     pub karma: i32,
     pub fame: i32,
     pub kills: i32,
+    /// the best score the player has made at Lines in a pub (`game/lines.rs`)
+    pub lines_best: i64,
     pub war: bool,
     pub ghost: bool,
     pub chase: bool,
@@ -492,6 +497,7 @@ impl Pl {
             karma: 0,
             fame: 0,
             kills: 0,
+            lines_best: 0,
             war: false,
             ghost: false,
             chase: false,
@@ -2804,7 +2810,9 @@ impl Game {
             }
             Pending::Gather(s, x, y) => self.start_gather(s, x, y),
             Pending::Station(o, _, _) => {
-                if o == O_ANVIL {
+                if o == O_GAMEBOARD {
+                    self.sit_to_lines();
+                } else if o == O_ANVIL {
                     self.win = Win::Craft;
                 } else {
                     self.smelt();
@@ -3561,7 +3569,7 @@ impl Game {
                 }
                 return;
             }
-            if matches!(o, O_ANVIL | O_FORGE | O_ANKH) {
+            if matches!(o, O_ANVIL | O_FORGE | O_ANKH | O_GAMEBOARD) {
                 self.cancel_activity();
                 let pend = if o == O_ANKH {
                     Pending::Ankh(x, y)

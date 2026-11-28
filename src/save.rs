@@ -64,6 +64,7 @@ impl Game {
         kv("karma", pl.karma.to_string());
         kv("fame", pl.fame.to_string());
         kv("kills", pl.kills.to_string());
+        kv("lines", pl.lines_best.to_string());
         kv("spells", pl.spells.to_string());
         kv("ghost", (pl.ghost as u8).to_string());
         kv(
@@ -158,6 +159,7 @@ impl Game {
                 "karma" => pl.karma = v.parse().unwrap_or(0),
                 "fame" => pl.fame = v.parse().unwrap_or(0),
                 "kills" => pl.kills = v.parse().unwrap_or(0),
+                "lines" => pl.lines_best = v.parse().unwrap_or(0).max(0),
                 "spells" => pl.spells = v.parse().unwrap_or(0),
                 "ghost" => pl.ghost = v == "1",
                 "pos" => {
