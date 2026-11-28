@@ -244,6 +244,8 @@ pub enum Body {
     Bird,
     /// Cthulhu, waist-deep in the sea
     Cthulhu,
+    /// a great crab of the shore
+    Crab,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -1463,6 +1465,7 @@ fn figure_for(look: &Look, a: Anim, f: usize, n: usize) -> Figure {
                 Body::Spider => spider(look, a, f, n),
                 Body::Bird => bird(look, a, f, n),
                 Body::Cthulhu => deep::cthulhu(a, f, n),
+                Body::Crab => deep::crab(look, a, f, n),
                 _ => quad(look, a, f, n),
             }
         }
@@ -3279,8 +3282,8 @@ pub const P_PALM: usize = 118; // tall, leaning
 pub const P_BANYAN: usize = 120;
 pub const P_BAMBOO: usize = 121;
 /// the ruins of R'lyeh, risen from the sea (`bake/deep.rs`)
-pub const P_RUIN: usize = 122; // monolith, door, jumble
-pub const N_PROPS: usize = 125;
+pub const P_RUIN: usize = 122; // monolith, door, jumble, idol, wreck
+pub const N_PROPS: usize = 127;
 
 /// flames licking up from `base`, varied by animation frame `f`
 fn flames(p: &mut Vec<Prim>, base: V3, size: f32, f: usize) {

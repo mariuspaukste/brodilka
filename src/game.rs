@@ -891,6 +891,13 @@ impl Game {
         let s = &self.spawners[si];
         if MONS[s.mon].domestic {
             s.max
+        } else if of_the_deep(MONS[s.mon].id) {
+            // drowned Saltgrave teems while R'lyeh stands
+            if self.sim.awake > 0.0 {
+                s.max * 2
+            } else {
+                s.max
+            }
         } else {
             self.sim.cap(s.site, s.max)
         }
@@ -1878,7 +1885,7 @@ impl Game {
         self.ents[i].dead = true;
         // the beasts of the streets and the things of the deep belong to no
         // site of the wild
-        if !d.domestic && !matches!(d.id, "cthulhu" | "deepone") {
+        if !d.domestic && !of_the_deep(d.id) {
             for n in self.sim.slain(d.id, d.fame, self.time) {
                 self.msg(&n, C_LORE);
             }

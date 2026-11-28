@@ -17,7 +17,9 @@ fn wall_tex(style: u8) -> u32 {
     match style {
         2 => TEX_WOODWALL,
         3 => TEX_PLASTER,
-        WALL_CASTLE | WALL_TOWER | WALL_ELVEN | WALL_DWARF => TEX_ASHLAR,
+        WALL_CASTLE | WALL_TOWER | WALL_ELVEN | WALL_DWARF | WALL_DROWNED | WALL_DROWNED_LOW => {
+            TEX_ASHLAR
+        }
         WALL_FORT | WALL_BASTION | WALL_PALACE | WALL_TEMPLE => TEX_SANDSTONE,
         WALL_HAVELI => TEX_LIMEWASH,
         _ => TEX_BRICK,
@@ -1313,6 +1315,20 @@ impl Game {
                     }
                     "pigeon" | "dog" | "cat" | "cow" | "pig" => return street_look(d.id, e.look),
                     "cthulhu" => return Some(Look::creature(bake::Body::Cthulhu, d.color, 220)),
+                    "crab" => return Some(Look::creature(bake::Body::Crab, d.color, 140)),
+                    "deeppriest" => {
+                        // a deep one in a weed-dark robe and hood, with a staff
+                        l.skin = 0x5e7e6cff;
+                        l.eyes = 0xd8e8a0ff;
+                        l.ears = true;
+                        l.hunch = 22;
+                        l.robe = true;
+                        l.body = 0x22302aff;
+                        l.legs = 0x22302aff;
+                        l.hood = 0x1a2620ff;
+                        l.weapon = Weapon::Staff;
+                        l.sash = 0x6a8a4aff;
+                    }
                     "deepone" => {
                         // the deep ones: hunched, scaled and grey-green, with
                         // gill-fins for ears, pale bulging eyes and a spear
@@ -2789,7 +2805,7 @@ impl Game {
                 O_ORRERY => Some((bake::P_ORRERY, false)),
                 O_STOOL => Some((bake::P_STOOL, flip_v)),
                 O_HERBS => Some((bake::P_HERBS, style & FACE_S != 0)),
-                O_RUIN => Some((bake::P_RUIN + (style as usize % 3), flip_v)),
+                O_RUIN => Some((bake::P_RUIN + (style as usize % 5), flip_v)),
                 O_DOOR if self.map.door_shut(x, y) && !self.odd_door(x, y) => Some((
                     bake::P_DOOR + (self.map.obj(x - 1, y) != O_WALL) as usize,
                     true,
@@ -3890,6 +3906,7 @@ impl Game {
                         self.quad(c, e, sx, sy, z * s, col, "wolf", wk, t)
                     }
                     "cat" | "pigeon" => self.quad(c, e, sx, sy, z * s, col, "rabbit", wk, t),
+                    "crab" => self.slime(c, e, sx, sy, z * s, col, t),
                     "mongbat" => self.mongbat(c, e, sx, sy, z * s, col, t),
                     "slime" | "spider" => self.slime(c, e, sx, sy, z * s, col, t),
                     "dragon" => self.dragon(c, e, sx, sy, z * s, col, wk, t),
@@ -4729,6 +4746,8 @@ fn wall_h(style: u8) -> f32 {
         WALL_PALACE => 1.35,
         WALL_TEMPLE => 1.1,
         WALL_DWARF => 1.25,
+        WALL_DROWNED => 0.7,
+        WALL_DROWNED_LOW => 0.35,
         _ => 1.0,
     }
 }

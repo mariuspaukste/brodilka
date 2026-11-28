@@ -88,6 +88,8 @@ impl Map {
 
         self.suryagarh(elev, &mut rng);
         self.kanakpur(elev, &mut rng);
+        // Saltgrave, the drowned town on the eastern shore
+        self.saltgrave(elev, &mut rng);
 
         // roads: down from each pass over the southern range, and between
         // the two cities
@@ -101,6 +103,9 @@ impl Map {
         self.road_post(&east);
         let between = self.carve_road(east_gate, (kx - 1, ky + 15), seed ^ 53);
         self.road_post(&between);
+        // an old track along the coast to Saltgrave: no post keeps it
+        let (dx, dy, _, _) = super::drowned::SALT;
+        self.carve_road((kx + kw, ky + 13), (dx - 1, dy + 10), seed ^ 54);
         // keep the gates and the town's edges clear of anything the roads
         // brushed past
         let _ = (sh, kh);
@@ -108,7 +113,15 @@ impl Map {
     }
 
     /// Clear a rectangle of ground flat and bare (plus a margin of `pad`).
-    fn level_out(&mut self, elev: &mut [f32], x0: i32, y0: i32, w: i32, h: i32, pad: i32) {
+    pub(super) fn level_out(
+        &mut self,
+        elev: &mut [f32],
+        x0: i32,
+        y0: i32,
+        w: i32,
+        h: i32,
+        pad: i32,
+    ) {
         for y in y0 - pad..y0 + h + pad {
             for x in x0 - pad..x0 + w + pad {
                 self.clear_flat(elev, x, y);
@@ -172,7 +185,7 @@ impl Map {
     }
 
     /// Paved streets of red flagstone from a to b, `width` tiles wide.
-    fn street(&mut self, a: (i32, i32), b: (i32, i32), width: i32) {
+    pub(super) fn street(&mut self, a: (i32, i32), b: (i32, i32), width: i32) {
         for y in a.1.min(b.1)..=a.1.max(b.1) + width - 1 {
             for x in a.0.min(b.0)..=a.0.max(b.0) + width - 1 {
                 if inb(x, y) && self.o[idx(x, y)] != O_WALL {

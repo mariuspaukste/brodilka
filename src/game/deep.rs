@@ -390,6 +390,15 @@ mod tests {
     fn journal_has(g: &Game, s: &str) -> bool {
         g.journal.iter().any(|(_, t, _)| t.contains(s))
     }
+    /// R'lyeh's stones stand in the bay
+    fn rlyeh_up(g: &Game) -> bool {
+        let rl = g.map.rlyeh.unwrap();
+        RUINS
+            .iter()
+            .filter(|&&(dx, dy, _)| g.map.o[idx(rl.0 + dx, rl.1 + dy)] == O_RUIN)
+            .count()
+            >= 5
+    }
     fn run(g: &mut Game, secs: f32) {
         for _ in 0..(secs * 30.0) as i32 {
             g.update(1.0 / 30.0);
@@ -429,7 +438,7 @@ mod tests {
         let c = g.cthulhu().expect("Cthulhu did not rise");
         let (cx, cy) = g.ents[c].tile();
         assert_eq!(g.map.t[idx(cx, cy)], T_WATER);
-        assert!(g.map.o.iter().filter(|&&o| o == O_RUIN).count() >= 5);
+        assert!(rlyeh_up(&g));
         assert!(g.look_for(c).is_some());
         // the player on the shore: he wades up and strikes
         let (sx, sy) = g
@@ -456,7 +465,7 @@ mod tests {
         assert!(!g.corpses.iter().any(|k| k.name.contains("Cthulhu")));
         assert!(journal_has(&g, "driven Cthulhu down"));
         assert_eq!(g.sim.awake, 0.0);
-        assert!(!g.map.o.contains(&O_RUIN));
+        assert!(!rlyeh_up(&g));
         assert!(g.sim.deep_t > DAY * 8.0);
         run(&mut g, 2.0);
         assert!(g.cthulhu().is_none());
@@ -477,13 +486,85 @@ mod tests {
         assert!(h.sim.awake > 0.0);
         run(&mut h, 0.5);
         assert!(h.cthulhu().is_some());
-        assert!(h.map.o.contains(&O_RUIN));
+        assert!(rlyeh_up(&h));
         // a day on, it sinks and he sleeps
         h.sim.awake = 0.2;
         run(&mut h, 1.0);
         assert!(h.cthulhu().is_none());
-        assert!(!h.map.o.contains(&O_RUIN));
+        assert!(!rlyeh_up(&h));
         assert!(journal_has(&h, "sleeps again"));
         assert!(h.deep_ones().is_empty());
+    }
+
+    #[test]
+    fn saltgrave_is_held_by_the_deep() {
+        for seed in [1u32, 640, 1997] {
+            let mut g = Game::new(seed);
+            let (x0, y0, w, h) = SALT;
+            let inside =
+                |x: i32, y: i32| x >= x0 - 3 && x < x0 + w + 3 && y >= y0 - 3 && y < y0 + h + 3;
+            // the town: broken walls, the idol, wrecks, the sea to the east
+            assert!(g
+                .map
+                .o
+                .iter()
+                .enumerate()
+                .any(|(i, &o)| o == O_RUIN && g.map.style[i] == RUIN_IDOL));
+            let walls = (y0..y0 + h)
+                .flat_map(|y| (x0..x0 + w).map(move |x| (x, y)))
+                .filter(|&(x, y)| g.map.o[idx(x, y)] == O_WALL)
+                .count();
+            assert!(walls > 40, "seed {seed}: {walls} walls");
+            assert_eq!(g.map.t[idx(x0 + w + 4, y0 + 2)], T_WATER);
+            assert!(!g.map.guarded(x0 + 15, y0 + 10));
+            let (sx, sy) = g.map.start;
+            assert!(
+                g.map
+                    .find_path_as(sx, sy, x0 + 15, y0 + 10, 1, PERSON)
+                    .is_some(),
+                "seed {seed}: Saltgrave unreachable"
+            );
+            // its people
+            let count = |g: &Game, id: &str| {
+                g.ents
+                    .iter()
+                    .filter(|e| {
+                        let (x, y) = e.tile();
+                        !e.dead && inside(x, y) && matches!(e.k, EK::Mon(m) if MONS[m].id == id)
+                    })
+                    .count()
+            };
+            assert!(count(&g, "deepone") >= 4, "seed {seed}");
+            assert_eq!(count(&g, "deeppriest"), 1);
+            assert!(count(&g, "crab") >= 2);
+            for id in ["deepone", "deeppriest", "crab"] {
+                let i = g
+                    .ents
+                    .iter()
+                    .position(|e| matches!(e.k, EK::Mon(m) if MONS[m].id == id))
+                    .unwrap();
+                assert!(g.look_for(i).is_some());
+            }
+            // they teem while R'lyeh stands
+            let si = g
+                .spawners
+                .iter()
+                .position(|s| MONS[s.mon].id == "deepone")
+                .unwrap();
+            let calm = g.spawn_cap(si);
+            g.sim.awake = 100.0;
+            assert_eq!(g.spawn_cap(si), calm * 2);
+            // and slaying them does not thin the wild
+            let wild = g.sim.sites[4].strength;
+            let i = g
+                .ents
+                .iter()
+                .position(|e| matches!(e.k, EK::Mon(m) if MONS[m].id == "crab"))
+                .unwrap();
+            let hp = g.ents[i].hp;
+            g.create("Wader", false, 0, "warrior", [0, 0, 0]);
+            g.damage(i, hp + 1, true);
+            assert_eq!(g.sim.sites[4].strength, wild);
+        }
     }
 }

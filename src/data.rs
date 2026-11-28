@@ -1134,6 +1134,44 @@ static MONS_DEF: &[MonDef] = &[
         drops: &["fish", "gems"],
         ..MB
     },
+    // drowned Saltgrave's: the deep ones' priest at the idol, and the great
+    // crabs of its shore
+    MonDef {
+        id: "deeppriest",
+        name: "a priest of the deep",
+        hp: 95,
+        dmg: (4, 9),
+        skill: 60,
+        speed: 2.5,
+        mv: 2.8,
+        gold: (60, 150),
+        fame: 160,
+        karma: -160,
+        size: 1.05,
+        color: 0x5e7e6cff,
+        ar: 6,
+        caster: &[0, 2, 5],
+        magery: 850,
+        regs: true,
+        drops: &["scroll", "gems"],
+        ..MB
+    },
+    MonDef {
+        id: "crab",
+        name: "a great crab",
+        hp: 40,
+        dmg: (4, 9),
+        skill: 45,
+        speed: 2.2,
+        mv: 2.6,
+        fame: 40,
+        karma: -20,
+        size: 0.8,
+        color: 0x8a3a26ff,
+        ar: 20,
+        drops: &["fish"],
+        ..MB
+    },
     // the beasts of the streets: pigeons, dogs and cats in the towns and
     // cities, and cows and pigs in the cities of the south as well
     MonDef {
@@ -1206,6 +1244,12 @@ static MONS_DEF: &[MonDef] = &[
         ..MB
     },
 ];
+
+/// The things of the deep: Cthulhu and what serves him. They belong to no
+/// site of the wild, and come and go with R'lyeh (`game/deep.rs`).
+pub fn of_the_deep(id: &str) -> bool {
+    matches!(id, "cthulhu" | "deepone" | "deeppriest" | "crab")
+}
 
 pub fn mon_idx(id: &str) -> usize {
     MONS.iter()

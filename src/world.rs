@@ -98,6 +98,10 @@ pub const O_STOOL: u8 = 52;
 pub const O_HERBS: u8 = 53;
 /// a cyclopean ruin of sunken R'lyeh, risen from the sea (style: which)
 pub const O_RUIN: u8 = 54;
+/// O_RUIN styles: R'lyeh's monolith, door and jumble (0–2), the idol in
+/// drowned Saltgrave, a wrecked boat
+pub const RUIN_IDOL: u8 = 3;
+pub const RUIN_WRECK: u8 = 4;
 /// seconds a door stays open before it swings shut
 pub const DOOR_OPEN: f32 = 5.0;
 
@@ -122,6 +126,10 @@ pub const WALL_PALACE: u8 = 12;
 pub const WALL_TEMPLE: u8 = 13;
 /// the dark granite halls of the dwarves of Karak Dhum
 pub const WALL_DWARF: u8 = 14;
+/// the broken grey stone of Saltgrave's drowned cottages, and where they
+/// have half fallen
+pub const WALL_DROWNED: u8 = 15;
+pub const WALL_DROWNED_LOW: u8 = 16;
 /// great-tree style: the golden trees of the elven wood
 pub const GOLDEN: u8 = 1;
 /// fence style: a thick hedge (the village's ring)
@@ -1730,8 +1738,10 @@ const TOWER_TOP: &[(i32, i32, bool, u8)] = &[
     (1, 4, false, O_ORRERY),
 ];
 
+mod drowned;
 mod dwarves;
 mod south;
+pub use drowned::SALT;
 pub use dwarves::HOLD;
 pub use south::{KANAK, SURYA};
 
@@ -2298,6 +2308,14 @@ pub fn generate(seed: u32) -> Map {
     ];
     let beasts = street_beasts(&m, town_c);
     m.spawns.extend(beasts);
+    // drowned Saltgrave: deep ones in the street, their priest at the idol,
+    // great crabs on the shore
+    let (sx, sy, sw, sh) = SALT;
+    m.spawns.extend([
+        ("deepone", sx + 14, sy + 10, 10, 6),
+        ("deeppriest", sx + 15, sy + 11, 2, 1),
+        ("crab", sx + sw - 3, sy + sh / 2, 7, 4),
+    ]);
     // every door was left open while the world was made; shut them now
     for &i in &m.doors {
         m.door[i] = 0.0;

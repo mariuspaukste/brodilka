@@ -1,5 +1,6 @@
 //! The things of the deep: Cthulhu, risen to the waist from the sea, and the
-//! cyclopean ruins of R'lyeh (`game/deep.rs`).
+//! cyclopean ruins of R'lyeh (`game/deep.rs`); the idol and the wrecks of
+//! drowned Saltgrave (`world/drowned.rs`), and the great crabs of its shore.
 //!
 //! Cthulhu is modelled from the waterline (z = 0) up and baked with
 //! `WATERLINE` set, so nothing below the surface is drawn: a scaled, hunched
@@ -257,7 +258,7 @@ pub(super) fn cthulhu(a: Anim, f: usize, n: usize) -> Figure {
 /// two pillars, a jumble of blocks set at wrong angles. Dark green stone
 /// hung with weed, standing in the foam.
 pub(super) fn build(kind: usize, p: &mut Vec<Prim>, b: &mut Vec<BoxP>) -> bool {
-    if !(P_RUIN..P_RUIN + 3).contains(&kind) {
+    if !(P_RUIN..P_RUIN + 5).contains(&kind) {
         return false;
     }
     let stone = 0x3a4a3cff;
@@ -324,6 +325,150 @@ pub(super) fn build(kind: usize, p: &mut Vec<Prim>, b: &mut Vec<BoxP>) -> bool {
                 ([0.2, 0.3, 1.9], 0.6),
             ]);
         }
+        3 => {
+            // the idol of the sleeper on a plinth: a squatting thing with an
+            // octopus head, wings folded, feelers down its chest
+            slab([0.0, 0.0, 0.2], [0.42, 0.42, 0.2], 0.0, dark);
+            slab([0.0, 0.0, 0.44], [0.34, 0.34, 0.05], 0.785, stone);
+            let st = 0x4a5e48ff;
+            prim(
+                p,
+                [0.0, 0.0, 0.62],
+                [0.03, 0.0, 1.15],
+                0.24,
+                0.2,
+                st,
+                Mat::Matte,
+            );
+            for s in [-1.0f32, 1.0] {
+                // haunches, knees up, and the clawed hands upon them
+                prim(
+                    p,
+                    [0.0, s * 0.18, 0.62],
+                    [0.2, s * 0.2, 0.75],
+                    0.12,
+                    0.09,
+                    st,
+                    Mat::Matte,
+                );
+                prim(
+                    p,
+                    [0.2, s * 0.2, 0.75],
+                    [0.24, s * 0.2, 0.52],
+                    0.08,
+                    0.07,
+                    st,
+                    Mat::Matte,
+                );
+                prim(
+                    p,
+                    [0.05, s * 0.24, 1.05],
+                    [0.22, s * 0.2, 0.82],
+                    0.07,
+                    0.06,
+                    st,
+                    Mat::Matte,
+                );
+                // folded wings behind
+                prim(
+                    p,
+                    [-0.12, s * 0.12, 1.1],
+                    [-0.2, s * 0.22, 1.5],
+                    0.06,
+                    0.02,
+                    dark,
+                    Mat::Matte,
+                );
+            }
+            let head = [0.06, 0.0, 1.32];
+            prim(p, head, head, 0.17, 0.17, st, Mat::Matte);
+            prim(
+                p,
+                add(head, [-0.04, 0.0, 0.05]),
+                add(head, [-0.18, 0.0, 0.3]),
+                0.17,
+                0.09,
+                st,
+                Mat::Matte,
+            );
+            for k in 0..6 {
+                let y = (k as f32 - 2.5) * 0.045;
+                prim(
+                    p,
+                    add(head, [0.12, y, -0.08]),
+                    add(head, [0.17, y * 1.2, -0.36]),
+                    0.025,
+                    0.012,
+                    st,
+                    Mat::Matte,
+                );
+            }
+            for s in [-1.0f32, 1.0] {
+                let e = add(head, [0.14, s * 0.07, 0.03]);
+                prim(p, e, e, 0.025, 0.025, 0x5ac878ff, Mat::Glow);
+            }
+            strands.extend([([0.38, 0.3, 0.42], 0.3), ([-0.3, -0.36, 0.42], 0.35)]);
+        }
+        4 => {
+            // a fishing boat stove in and left on its side, mast snapped
+            let wood = 0x5a4a38ff;
+            let tilt = 0.35;
+            for k in 0..7 {
+                let x = -0.75 + k as f32 * 0.25;
+                let half = 0.36 * (1.0 - (x / 0.85).powi(2)).max(0.1);
+                for s in [-1.0f32, 1.0] {
+                    // the ribs, and the planks of the side that still holds
+                    let top = [x, s * half, 0.42 + s * tilt * 0.3];
+                    let keel = [x, 0.0, 0.08];
+                    if s > 0.0 || k % 3 != 1 {
+                        prim(
+                            p,
+                            keel,
+                            top,
+                            0.05,
+                            0.045,
+                            shade_col(wood, 0.8 + 0.05 * k as f32),
+                            Mat::Wood,
+                        );
+                    }
+                }
+            }
+            prim(
+                p,
+                [-0.85, 0.0, 0.1],
+                [0.9, 0.0, 0.12],
+                0.06,
+                0.05,
+                shade_col(wood, 0.7),
+                Mat::Wood,
+            );
+            for s in [-1.0f32, 1.0] {
+                let g = |x: f32| {
+                    [
+                        x,
+                        s * 0.36 * (1.0 - (x / 0.85).powi(2)).max(0.1),
+                        0.42 + s * tilt * 0.3,
+                    ]
+                };
+                for k in 0..6 {
+                    let x0 = -0.75 + k as f32 * 0.3;
+                    if s < 0.0 && k % 2 == 0 {
+                        continue;
+                    }
+                    prim(p, g(x0), g(x0 + 0.3), 0.065, 0.065, wood, Mat::Wood);
+                }
+            }
+            prim(
+                p,
+                [0.0, 0.0, 0.2],
+                [0.12, 0.55, 0.65],
+                0.04,
+                0.03,
+                wood,
+                Mat::Wood,
+            );
+            strands.extend([([0.4, 0.3, 0.5], 0.3), ([-0.3, 0.32, 0.5], 0.25)]);
+        }
         _ => {
             // blocks tumbled together at angles no mason would set
             slab([-0.2, -0.2, 0.32], [0.36, 0.3, 0.32], 0.7, stone);
@@ -347,6 +492,123 @@ pub(super) fn build(kind: usize, p: &mut Vec<Prim>, b: &mut Vec<BoxP>) -> bool {
             q = q1;
         }
     }
-    foam(p, [0.0, 0.0, 0.0], 0.5, 16, 0.045, 0.4);
+    // the stones of R'lyeh stand in the sea
+    if kind < P_RUIN + 3 {
+        foam(p, [0.0, 0.0, 0.0], 0.5, 16, 0.045, 0.4);
+    }
     true
+}
+
+/// A great crab: a broad shell slung between eight jointed legs, eyes on
+/// stalks, and two heavy claws that open and snap shut. Dying it turns
+/// over, legs curling.
+pub(super) fn crab(look: &Look, a: Anim, f: usize, n: usize) -> Figure {
+    let mut v = vec![];
+    let col = look.skin;
+    let dark = shade_col(col, 0.65);
+    let (ph, lunge, recoil, die, _) = creature_phase(a, f, n);
+    let pi = std::f32::consts::PI;
+    let bob = if a == Anim::Walk {
+        0.012 * (ph * 2.0).sin()
+    } else {
+        0.0
+    };
+    let c = [lunge * 0.06 - recoil * 0.06, 0.0, 0.17 + bob];
+    // the shell: broad, low, knobbed along its front edge
+    prim(
+        &mut v,
+        add(c, [0.0, -0.12, 0.0]),
+        add(c, [0.0, 0.12, 0.0]),
+        0.12,
+        0.12,
+        col,
+        Mat::Matte,
+    );
+    prim(
+        &mut v,
+        add(c, [0.02, -0.08, 0.06]),
+        add(c, [0.02, 0.08, 0.06]),
+        0.09,
+        0.09,
+        shade_col(col, 1.12),
+        Mat::Matte,
+    );
+    for k in 0..5 {
+        let y = (k as f32 - 2.0) * 0.06;
+        let q = add(c, [0.11, y, 0.04]);
+        prim(&mut v, q, q, 0.022, 0.022, shade_col(col, 1.2), Mat::Matte);
+    }
+    // eyes on stalks
+    for s in [-1.0f32, 1.0] {
+        let b = add(c, [0.1, s * 0.035, 0.06]);
+        let e = add(b, [0.03, s * 0.01, 0.07]);
+        prim(&mut v, b, e, 0.012, 0.01, dark, Mat::Matte);
+        prim(&mut v, e, e, 0.018, 0.018, 0x101010ff, Mat::Hair);
+    }
+    // the claws, raised and snapping in the attack
+    for s in [-1.0f32, 1.0] {
+        let open = if a == Anim::Attack {
+            0.07 * (1.0 - lunge)
+        } else {
+            0.02 + 0.015 * ph.sin().abs()
+        };
+        let up = 0.12 * lunge + if a == Anim::Stance { 0.08 } else { 0.0 };
+        let sh = add(c, [0.08, s * 0.12, -0.02]);
+        let el = add(sh, [0.1, s * 0.09, 0.03 + up * 0.5]);
+        let base = add(el, [0.12, -s * 0.03, up]);
+        prim(&mut v, sh, el, 0.035, 0.03, col, Mat::Matte);
+        prim(&mut v, el, base, 0.032, 0.05, col, Mat::Matte);
+        prim(
+            &mut v,
+            base,
+            add(base, [0.13, -s * 0.01, 0.02 + open]),
+            0.05,
+            0.015,
+            col,
+            Mat::Matte,
+        );
+        prim(
+            &mut v,
+            add(base, [0.0, 0.0, -0.02]),
+            add(base, [0.11, -s * 0.01, -0.03 - open]),
+            0.03,
+            0.01,
+            dark,
+            Mat::Matte,
+        );
+    }
+    // four legs a side, walking in alternate sets, curling up as it dies
+    for s in [-1.0f32, 1.0] {
+        for i in 0..4 {
+            let root = add(c, [0.04 - i as f32 * 0.055, s * 0.15, -0.03]);
+            let set = (i % 2) as f32 + if s > 0.0 { 1.0 } else { 0.0 };
+            let q = ph + set * pi;
+            let (step, lift) = if a == Anim::Walk {
+                (0.05 * q.sin(), 0.05 * q.cos().max(0.0))
+            } else {
+                (0.0, 0.0)
+            };
+            let yaw = 0.5 - i as f32 * 0.35;
+            let out = [yaw.sin() * 0.5, s * yaw.cos(), 0.0];
+            let curl = 1.0 - die * 0.7;
+            let knee = add(
+                root,
+                [out[0] * 0.14 * curl, out[1] * 0.14 * curl, 0.1 + die * 0.05],
+            );
+            let foot = [
+                root[0] + out[0] * 0.3 * curl + step,
+                root[1] + out[1] * 0.3 * curl,
+                (lift + die * 0.15 + root[2] - c[2] + 0.0).max(0.0) * 0.5,
+            ];
+            prim(&mut v, root, knee, 0.022, 0.018, col, Mat::Matte);
+            prim(&mut v, knee, foot, 0.018, 0.007, dark, Mat::Matte);
+        }
+    }
+    Figure {
+        prims: v,
+        boxes: vec![],
+        pitch: 0.0,
+        roll: 2.6 * die,
+        lift: 0.0,
+    }
 }

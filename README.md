@@ -257,6 +257,20 @@ driven into the deep at once and the sea casts up the treasures of R'lyeh
 at your feet. But that is not dead which can eternal lie: he wakes again,
 later. The timers are kept in the save.
 
+## Saltgrave, the drowned town
+
+On the eastern shore of the tropics, along an old unguarded track from
+Kanakpur, lies **Saltgrave** (`src/world/drowned.rs`), a fishing town the
+things of the sea have taken. Its people are long gone. Roofless cottages
+of grey stone stand broken along a cobbled street down to a jetty, their
+walls fallen in places and the tide standing in their rooms. Wrecked boats
+lie on the beach. In the square the deep ones have raised an idol of their
+sleeping god, octopus-headed with green-lit eyes, among skulls and black
+candles. Deep ones walk the street, a **priest of the deep** in a weed-dark
+robe keeps the idol and casts, and **great crabs** scuttle on the shore,
+snapping their claws. No guard comes here. While R'lyeh stands, Saltgrave
+teems with twice as many.
+
 ## Light and weather
 
 A day runs through six periods (`src/game/sky.rs`). Dusk reddens and darkens
