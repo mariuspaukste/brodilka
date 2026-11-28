@@ -13,14 +13,14 @@ impl Game {
     /// another level, and not a slope?
     pub(super) fn terraced(&self, x: i32, y: i32) -> bool {
         let t = self.map.tile(x, y);
-        if !inb(x, y) || matches!(t, T_WATER | T_MOUNT | T_BRIDGE) {
+        if !inb(x, y) || matches!(t, T_WATER | T_MOUNT | T_BRIDGE | T_VOID) {
             return false;
         }
         let l = self.map.level(x, y);
         DIRS.iter().any(|&(dx, dy)| {
             let (nx, ny) = (x + dx, y + dy);
             inb(nx, ny)
-                && !matches!(self.map.tile(nx, ny), T_WATER | T_BRIDGE)
+                && !matches!(self.map.tile(nx, ny), T_WATER | T_BRIDGE | T_VOID)
                 && self.map.level(nx, ny) != l
         })
     }

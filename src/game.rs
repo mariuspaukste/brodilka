@@ -13,6 +13,7 @@ pub mod shadow;
 pub mod sky;
 pub mod storeys;
 pub mod travel;
+pub mod void;
 
 pub const C_SYS: u32 = 0xe8e0c8ff;
 pub const C_GAIN: u32 = 0x8fd8ffff;
@@ -662,6 +663,10 @@ pub struct Game {
     pub mini_ver: u32,
     /// how thick the canopy is over the player, 0..1, eased
     pub forest_view: f32,
+    /// the isle of the Void the player was last told they came to
+    pub isle_seen: Option<usize>,
+    /// already told that the moongate they stand in is shut
+    pub gate_seen: bool,
     /// the weather last told in the journal (`sky::Weather` as u8)
     pub weather_seen: u8,
     pub journal: VecDeque<(u32, String, u32)>,
@@ -724,6 +729,8 @@ impl Game {
             shadow_band: -1,
             mini_ver: 0,
             forest_view: 0.0,
+            isle_seen: None,
+            gate_seen: false,
             weather_seen: u8::MAX,
             journal: VecDeque::new(),
             jid: 0,
@@ -748,7 +755,7 @@ impl Game {
             steering: false,
             keys: 0,
             cmds: Canvas::default(),
-            mini: vec![0; N * 4],
+            mini: vec![0; LAND_N * 4],
             dest: None,
             seed,
             tab: 0,
@@ -863,7 +870,8 @@ impl Game {
     }
 
     pub fn build_minimap(&mut self) {
-        for i in 0..N {
+        // the land only: the Void is on no map
+        for i in 0..LAND_N {
             let c = mini_color(&self.map, i);
             self.mini[i * 4..i * 4 + 4].copy_from_slice(&c);
         }
@@ -897,6 +905,8 @@ impl Game {
     fn spawn_cap(&self, si: usize) -> usize {
         let s = &self.spawners[si];
         if MONS[s.mon].domestic {
+            s.max
+        } else if of_the_void(MONS[s.mon].id) {
             s.max
         } else if of_the_deep(MONS[s.mon].id) {
             // drowned Saltgrave teems while R'lyeh stands
@@ -1907,9 +1917,9 @@ impl Game {
         };
         let d = &MONS[mi];
         self.ents[i].dead = true;
-        // the beasts of the streets and the things of the deep belong to no
-        // site of the wild
-        if !d.domestic && !of_the_deep(d.id) {
+        // the beasts of the streets and the things of the deep and of the
+        // Void belong to no site of the wild
+        if !d.domestic && !of_the_deep(d.id) && !of_the_void(d.id) {
             for n in self.sim.slain(d.id, d.fame, self.time) {
                 self.msg(&n, C_LORE);
             }
@@ -2112,6 +2122,7 @@ impl Game {
         self.salt_tick(dt);
         self.shadow_tick(dt);
         self.sky_tick(dt);
+        self.void_tick();
         let day = crate::sim::Sim::day(self.time);
         if day > self.sim.day_seen {
             self.sim.day_seen = day;
@@ -3659,7 +3670,11 @@ mod tests {
             let p = g.map.find_path_as(sx, sy, x, y, 4, PERSON);
             assert!(p.is_some(), "poi at {x},{y} unreachable");
         }
+        // every ankh on the land (the Void's is reached by its gate)
         for &(x, y) in g.map.ankhs.clone().iter() {
+            if g.map.in_void(x, y) {
+                continue;
+            }
             assert!(g.map.find_path_as(sx, sy, x, y, 1, PERSON).is_some());
         }
         assert!(g.ents.len() > 30);

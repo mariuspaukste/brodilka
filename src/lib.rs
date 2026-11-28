@@ -224,7 +224,8 @@ pub extern "C" fn map_w() -> i32 {
 }
 #[no_mangle]
 pub extern "C" fn map_h() -> i32 {
-    world::H
+    // the minimap and the big map show the land; the Void is on neither
+    world::LAND_H
 }
 #[no_mangle]
 pub extern "C" fn px() -> f32 {

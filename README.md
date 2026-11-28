@@ -270,6 +270,33 @@ driven into the deep at once and the sea casts up the treasures of R'lyeh
 at your feet. But that is not dead which can eternal lie: he wakes again,
 later. The timers are kept in the save.
 
+## The Ethereal Void
+
+Below the land, beyond a gulf of nothing, the **Ethereal Void** hangs among
+the stars (`src/world/void.rs`, `src/game/void.rs`): isles of pale violet
+stone with sheer rock beneath them, joined by narrow starways, over a
+starfield that twinkles and drifts as you walk. There is no weather and no
+day there, only a cold violet starlight, and glowing crystals, boulders and
+the statues of whoever came before stand about the isles.
+
+The way in is a **moongate** (marked on the map): a ring of standing stones in the woods
+between the town and Duskhold's eastern wall. By day the stones stand silent; at night a tall
+oval of blue light turns between them, and stepping into it sets you down on
+**the Isle of the Gate**, beside the gate that leads back, which never
+closes. You go through on horseback or on foot, alive or as a ghost, and the
+Gate isle has an ankh for anyone who dies out there. The journal names each
+isle as you come to it: the Isle of Echoes, the Glass Shoals, the Hanging
+Pillars, the Ember Reach, the Hollow Star and the Farthest Isle. Starbats,
+star-stalkers (indigo hunting beasts flecked with starlight) and
+voidwraiths (hooded things of bone that cast) live on them; none of them
+counts against the wild in the world's chronicle.
+
+The Void is in its own band of the map (rows 360–439, past the land's 320),
+so walking, fighting, spawning and saving all work there as on the land;
+the radar and the big map show only the land. The isles are left bare for
+peoples to come: a world pack can rename an isle and settle a people on it
+(see World packs).
+
 ## Saltgrave, the drowned town
 
 On the eastern shore of the tropics, along an old unguarded track from
@@ -457,6 +484,11 @@ chatter = ["All quiet."]
 [spell.fireball]             # spells by id: name, words
 [template.warrior]           # starting templates by id: name, desc
 
+[void.echoes]                # an isle of the Void: gate echoes glass pillars
+name = "the Isle of the Choir"   # ember hollow far: name, and a people to
+folk = "orc"                 # settle there (any monster id) and how many
+count = 6
+
 [text]                       # exact replacements of any shown text
 "Graveyard" = "Barrow-downs"
 
@@ -467,7 +499,8 @@ chatter = ["All quiet."]
 Text spoken in the world uses the pixel font, so accented letters are shown
 without their accents there (*Annúminas* → *Annuminas*). The rules —
 stats, damage, prices, the map's layout — stay the engine's; a pack changes
-names, words, colours and the seed. `src/pack.rs` has the format and parser, and
+names, words, colours and the seed, and may settle a people on an isle of the
+Void. `src/pack.rs` has the format and parser, and
 `cargo run --example pack_check -- my-world.toml` checks a pack.
 
 ## The living world

@@ -27,6 +27,9 @@
 //! [spell.fireball]           # spells by id: name, words
 //! [template.warrior]         # starting templates by id: name, desc
 //!
+//! [void.echoes]              # an isle of the Void: name, folk, count
+//! folk = "orc"               # settles them there (`world/void.rs`)
+//!
 //! [text]                     # exact replacements of any shown text
 //! "Graveyard" = "Barrow-downs"
 //!

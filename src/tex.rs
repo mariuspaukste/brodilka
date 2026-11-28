@@ -24,6 +24,10 @@ pub const TEX_REDFLAG: u32 = 16;
 /// the south's walls: red sandstone blocks, and lime-wash over plaster
 pub const TEX_SANDSTONE: u32 = 17;
 pub const TEX_LIMEWASH: u32 = 18;
+/// the Ethereal Void's starfield, under its isles
+pub const TEX_STARS: u32 = 19;
+/// the pale stone of the Void's isles
+pub const TEX_ASTRAL: u32 = 20;
 
 pub struct Texture {
     pub w: usize,
@@ -627,7 +631,68 @@ pub fn textures() -> Vec<Texture> {
         flag_of(0x7a4a34, 23),
         ashlar_of(0x9a5038),
         limewash(),
+        stars(),
+        astral(),
     ]
+}
+
+/// The starfield of the Void: black with a blue-violet haze, and stars of
+/// every brightness, a few of them coloured.
+fn stars() -> Texture {
+    let (w, h) = (128usize, 64usize);
+    let mut m = Img::new(w, h);
+    m.fill_noise(0x0c0a1c, 0.4, 1.3, 71);
+    for i in 0..70 {
+        let (x, y) = (
+            (hash(i, 1, 72) * w as f32) as i32,
+            (hash(i, 2, 72) * h as f32) as i32,
+        );
+        let b = hash(i, 3, 72);
+        let c = match i % 9 {
+            0 => 0xb0c8ff,
+            1 => 0xffd8b0,
+            2 => 0xd0b0ff,
+            _ => 0xe8e8f0,
+        };
+        let k = 0.25 + b * 0.75;
+        let col = rgb(c).map(|v| v * k);
+        m.set(x, y, col);
+        if b > 0.85 {
+            // the brightest with a little cross of light
+            for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+                m.set(x + dx, y + dy, col.map(|v| v * 0.45));
+            }
+        }
+    }
+    m.done()
+}
+
+/// The isles' stone: pale violet-grey slabs, finely cracked, with glints
+/// of crystal in them.
+fn astral() -> Texture {
+    let (w, h) = (128usize, 64usize);
+    let mut m = Img::new(w, h);
+    m.fill_noise(0x6e6888, 0.78, 1.14, 81);
+    for i in 0..5 {
+        let (mut x, mut y) = (
+            (hash(i, 7, 83) * w as f32) as i32,
+            (hash(i, 8, 83) * h as f32) as i32,
+        );
+        for j in 0..10 {
+            m.mul(x, y, 0.8);
+            m.mul(x + 1, y, 1.06);
+            x += if hash(i, j, 84) < 0.5 { 2 } else { -2 };
+            y += 1;
+        }
+    }
+    for i in 0..26 {
+        let (x, y) = (
+            (hash(i, 1, 85) * w as f32) as i32,
+            (hash(i, 2, 85) * h as f32) as i32,
+        );
+        m.set(x, y, rgb(if i % 3 == 0 { 0xa8e8f0 } else { 0xc8b8f0 }));
+    }
+    m.done()
 }
 
 /// A Pagan-ish 256-colour VGA palette built from hue ramps.
@@ -680,7 +745,7 @@ mod tests {
     #[test]
     fn textures_are_periodic_sized() {
         let t = textures();
-        assert_eq!(t.len(), TEX_LIMEWASH as usize + 1);
+        assert_eq!(t.len(), TEX_ASTRAL as usize + 1);
         for x in t.iter() {
             assert_eq!(x.rgba.len(), x.w * x.h * 4);
             assert_eq!(x.w % 64, 0);

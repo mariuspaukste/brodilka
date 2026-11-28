@@ -62,7 +62,7 @@ impl Game {
             .map(|&p| (p, 5.0))
             .chain(self.map.ankhs.iter().map(|&p| (p, 4.0)))
             .collect();
-        for y in 0..H {
+        for y in 0..LAND_H {
             for x in 0..W {
                 let mut v: f32 = 0.0;
                 for &((sx, sy), reach) in &src {
@@ -187,6 +187,6 @@ impl Game {
 
     /// The share of the land under the Shadow, 0..1.
     pub fn shadow_share(&self) -> f32 {
-        self.map.gloom.iter().filter(|&&g| g >= 2).count() as f32 / N as f32
+        self.map.gloom.iter().filter(|&&g| g >= 2).count() as f32 / LAND_N as f32
     }
 }

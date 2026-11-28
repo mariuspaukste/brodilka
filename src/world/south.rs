@@ -23,7 +23,8 @@ impl Map {
     /// southern range's foot, bending south round the elves' wood)?
     pub fn tropic(&self, x: i32, y: i32) -> bool {
         let xi = x.clamp(0, W - 1) as usize;
-        !self.tropic_line.is_empty() && y >= self.tropic_line[xi]
+        // the land's south only: the Void below it is no tropic
+        !self.tropic_line.is_empty() && y >= self.tropic_line[xi] && y < LAND_H
     }
 
     /// In one of the southern cities (with a margin): guarded ground.
@@ -52,7 +53,7 @@ impl Map {
 
         // the land: wide pale beaches, thick jungle where it is wet, red
         // earth where it is dry, and no toadstools
-        for y in 0..H {
+        for y in 0..LAND_H {
             for x in 0..W {
                 if !self.tropic(x, y) {
                     continue;
@@ -358,7 +359,7 @@ impl Map {
         // a bay of the sea below the town: the ghats step down into it
         // along the town's south edge, and its shores are sand
         let (cx, cy) = ((x0 + xe) / 2, ye + 14);
-        for y in ye + 1..H {
+        for y in ye + 1..LAND_H {
             for x in x0 - 14..=xe + 14 {
                 if !inb(x, y) {
                     continue;
@@ -394,7 +395,7 @@ impl Map {
         };
         let want = (cx, ye + 10);
         let mut best: Option<((i32, i32), i32)> = None;
-        for y in ye + 4..H {
+        for y in ye + 4..LAND_H {
             for x in x0 - 14..=xe + 14 {
                 if open(self, x, y) {
                     let d = (x - want.0).pow(2) + (y - want.1).pow(2);

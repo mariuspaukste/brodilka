@@ -22,6 +22,11 @@ name = "Ranger"
 "Graveyard" = "Barrow-downs"
 "Daytide" = "Morning"
 
+[void.echoes]
+name = "the Isle of the Choir"
+folk = "orc"
+count = 4
+
 [words]
 "Ankh shrine" = "Waystone"
 "Duskhold" = "Testhold"
@@ -36,6 +41,16 @@ fn a_pack_renames_the_world_it_is_played_in() {
 
     assert_eq!(MONS[mon_idx("wolf")].name, "a warg");
     assert_eq!(VENDORS[V_LORD].title, "of Testhold");
+
+    // the pack settles a people on an isle of the Void, and renames it
+    assert!(data_warnings_empty());
+    let m = brodilka::world::generate(4242);
+    let isle = m.isles.iter().find(|s| s.id == "echoes").unwrap();
+    assert_eq!(isle.name, "the Isle of the Choir");
+    assert!(m
+        .spawns
+        .iter()
+        .any(|&(id, x, y, _, n)| id == "orc" && (x, y) == (isle.x, isle.y) && n == 4));
 
     let mut g = Game::new(4242);
     g.w = 390.0;
@@ -54,4 +69,10 @@ fn a_pack_renames_the_world_it_is_played_in() {
     assert!(u.contains("Testhold"), "{u}");
     assert!(!u.contains("Duskhold"), "{u}");
     assert!(!u.contains("Ankh shrine"), "{u}");
+}
+
+fn data_warnings_empty() -> bool {
+    let w = pack_warnings(pack::get());
+    assert!(w.is_empty(), "{w:?}");
+    true
 }

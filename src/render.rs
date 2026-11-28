@@ -374,13 +374,14 @@ fn tex_of(t: u8) -> u32 {
         T_MOUNT => TEX_ROCK,
         T_BRIDGE => TEX_BRIDGE,
         T_CAVE => TEX_CAVE,
+        T_ASTRAL => TEX_ASTRAL,
         _ => TEX_GRASS,
     }
 }
 /// which terrain spills over which at borders
 fn prio(t: u8) -> i32 {
     match t {
-        T_WATER => 0,
+        T_WATER | T_VOID => 0,
         T_CAVE => 1,
         T_SAND => 2,
         T_DIRT => 3,
@@ -401,6 +402,7 @@ fn tile_color(t: u8) -> u32 {
         T_MOUNT => 0x5e5650ff,
         T_BRIDGE => 0x4a321eff,
         T_CAVE => 0x221a16ff,
+        T_ASTRAL => 0x5a5470ff,
         _ => 0x000000ff,
     }
 }
@@ -761,7 +763,9 @@ impl Game {
                 let (x, y) = ((s + d) / 2, (s - d) / 2);
                 let (sx, sy) = scr(x, y);
                 let tl = self.map.tile(x, y);
-                if holes && tl == T_WATER {
+                // the water is drawn live under the ground chunks, and the
+                // stars under the Void
+                if holes && (tl == T_WATER || tl == T_VOID) {
                     if !erasing {
                         c.erase(true);
                         c.fill(0xffffffff);
@@ -1358,6 +1362,24 @@ impl Game {
                         };
                     }
                     "mongbat" => return Some(Look::creature(bake::Body::Bat, 0x6a4e6aff, 100)),
+                    // the things of the Void: an indigo bat, a star-flecked
+                    // hunting beast, and a hooded thing of bone and starlight
+                    "starbat" => return Some(Look::creature(bake::Body::Bat, d.color, 108)),
+                    "stalker" => {
+                        let mut s = Look::creature(bake::Body::Wolf, d.color, 118);
+                        s.stripes = 0xa49ce8ff;
+                        return Some(s);
+                    }
+                    "voidwraith" => {
+                        l.skin = 0xbcb4e4ff;
+                        l.skeleton = true;
+                        l.robe = true;
+                        l.body = 0x1c1634ff;
+                        l.legs = 0x1c1634ff;
+                        l.hood = 0x120e26ff;
+                        l.weapon = Weapon::Staff;
+                        l.eyes = 0xa8e8ffff;
+                    }
                     "slime" => return Some(Look::creature(bake::Body::Slime, 0x5aa83aff, 100)),
                     "spider" => return Some(Look::creature(bake::Body::Spider, d.color, 135)),
                     "dragon" => return Some(Look::creature(bake::Body::Dragon, 0x9a2e24ff, 160)),
@@ -1655,11 +1677,18 @@ impl Game {
         let p = &self.ents[0];
         let (ps, pd) = (p.x + p.y, p.x - p.y);
 
-        // ---- the ground: live water under the cached chunks, or all of it
+        // ---- the ground: live water under the cached chunks, or all of it;
+        // in the Void, the stars under everything
+        let void = self.in_void();
+        if void {
+            self.stars(c, t);
+        }
         match chunks {
             Some(list) => {
-                self.pat(c, TEX_WATER, 0.0);
-                c.rect(0.0, 0.0, self.w, self.h);
+                if !void {
+                    self.pat(c, TEX_WATER, 0.0);
+                    c.rect(0.0, 0.0, self.w, self.h);
+                }
                 for &(id, x, y) in list {
                     c.chunk_draw(id, x, y);
                 }
@@ -2010,6 +2039,10 @@ impl Game {
         let lz = LH * z;
         let cn = self.map.corners(x, y);
         let base = self.map.level(x, y) as f32;
+        // the Void: nothing, and the stars behind
+        if tl == T_VOID {
+            return;
+        }
         if tl != T_MOUNT {
             let pts = self.diamond(sx, sy, &cn);
             self.pat(c, self.ground_tex(x, y, tl), base * lz);
@@ -2937,6 +2970,8 @@ impl Game {
             }
         }
         match o {
+            O_MOONGATE => self.moongate(c, x, y, sx, sy, z, t, lights),
+            O_CRYSTAL => self.crystal(c, x, y, sx, sy, style, z, t, lights),
             O_TREE => {
                 let depleted = self.map.res[idx(x, y)] == 0;
                 c.fill(0x00000040);
@@ -3925,7 +3960,8 @@ impl Game {
                         self.quad(c, e, sx, sy, z * s, col, "rabbit", wk, t)
                     }
                     "crab" => self.slime(c, e, sx, sy, z * s, col, t),
-                    "mongbat" => self.mongbat(c, e, sx, sy, z * s, col, t),
+                    "mongbat" | "starbat" => self.mongbat(c, e, sx, sy, z * s, col, t),
+                    "stalker" => self.quad(c, e, sx, sy, z * s, col, "wolf", wk, t),
                     "slime" | "spider" => self.slime(c, e, sx, sy, z * s, col, t),
                     "dragon" => self.dragon(c, e, sx, sy, z * s, col, wk, t),
                     "skeleton" => self.humanoid(
@@ -5804,12 +5840,206 @@ impl Game {
 impl Game {
     /// The light of the hour, the weather, and the gloom under trees, laid
     /// over the world: see `game/sky.rs`.
+    /// The Void behind its isles: the dark, the starfield (fixed to the
+    /// isles), and nearer stars that twinkle and drift past slower, farther
+    /// off, with a haze of violet and blue.
+    fn stars(&self, c: &mut Canvas, t: f32) {
+        let z = self.zoom;
+        let full = |c: &mut Canvas| c.rect(0.0, 0.0, self.w, self.h);
+        c.outline(0, 0.0);
+        c.fill(0x05040bff);
+        full(c);
+        self.pat(c, TEX_STARS, 0.0);
+        full(c);
+        let (sw, sh) = (self.w + 600.0, self.h + 600.0);
+        for i in 0..3 {
+            let (a, b) = (h2(i, 81, 5), h2(i, 83, 6));
+            let x = (a * sw - self.camx * z * 0.2).rem_euclid(sw) - 300.0;
+            let y = (b * sh - self.camy * z * 0.2).rem_euclid(sh) - 300.0;
+            c.alpha(0.16);
+            c.glow(
+                x,
+                y,
+                (220.0 + 160.0 * a) * z,
+                [0x5a2a9aff, 0x2a4aaaff, 0x7a2a6aff][i as usize],
+            );
+        }
+        for i in 0..46 {
+            let (a, b) = (h2(i, 61, 3), h2(i, 67, 4));
+            let x = (a * sw - self.camx * z * 0.5).rem_euclid(sw) - 300.0;
+            let y = (b * sh - self.camy * z * 0.5).rem_euclid(sh) - 300.0;
+            let tw = 0.5 + 0.5 * (t * (0.8 + a * 2.2) + i as f32).sin();
+            c.alpha(0.25 + 0.55 * tw);
+            let col = if i % 5 == 0 { 0xc8b0ffff } else { 0xe0e8ffff };
+            c.glow(x, y, (2.5 + 4.0 * b) * z, col);
+        }
+        c.alpha(1.0);
+    }
+
+    /// A moongate: a tall oval of blue light, turning, over a ring of runes;
+    /// on the land, a ring of standing stones about it. Shut, only a faint
+    /// shimmer hangs between the stones.
+    #[allow(clippy::too_many_arguments)]
+    fn moongate(
+        &self,
+        c: &mut Canvas,
+        x: i32,
+        y: i32,
+        sx: f32,
+        sy: f32,
+        z: f32,
+        t: f32,
+        lights: &mut Vec<(f32, f32, f32, u32)>,
+    ) {
+        let k = self
+            .map
+            .gates
+            .iter()
+            .position(|&g| g == (x, y))
+            .unwrap_or(1);
+        let open = self.gate_open(k);
+        let ink = self.pix.max(z);
+        // the stones, the back half before the gate and the front half after
+        let stones = |c: &mut Canvas, front: bool| {
+            if k % 2 == 1 {
+                return;
+            }
+            for i in 0..8 {
+                let a = i as f32 / 8.0 * std::f32::consts::TAU + 0.2;
+                let (dx, dy) = (a.cos() * 1.25, a.sin() * 1.25);
+                let (px, py) = ((dx - dy) * 32.0 * z, (dx + dy) * 16.0 * z);
+                if (py > 0.0) != front {
+                    continue;
+                }
+                let h = (20.0 + h2(x + i, y, 9) * 10.0) * z;
+                let w = 5.0 * z;
+                let (bx, by) = (sx + px, sy + py);
+                c.outline(INK, ink);
+                c.fill(0x6a6660ff);
+                c.poly(&[
+                    (bx - w, by),
+                    (bx + w, by + 2.0 * z),
+                    (bx + w * 0.8, by - h + 2.0 * z),
+                    (bx - w * 0.7, by - h),
+                ]);
+                c.outline(0, 0.0);
+                c.fill(0x00000040);
+                c.poly(&[
+                    (bx, by + 1.0 * z),
+                    (bx + w, by + 2.0 * z),
+                    (bx + w * 0.8, by - h + 2.0 * z),
+                    (bx, by - h + 1.0 * z),
+                ]);
+            }
+        };
+        stones(c, false);
+        // the rune ring on the ground
+        c.outline(0, 0.0);
+        c.stroke(if open { 0x80a0ffa0 } else { 0x8088a040 }, 1.5 * ink);
+        c.poly_s(
+            &(0..24)
+                .map(|i| {
+                    let a = i as f32 / 24.0 * std::f32::consts::TAU;
+                    (sx + a.cos() * 26.0 * z, sy + a.sin() * 13.0 * z)
+                })
+                .collect::<Vec<_>>(),
+        );
+        let (gx, gy) = (sx, sy - 27.0 * z);
+        let oval = |c: &mut Canvas, rx: f32, ry: f32| c.ell(gx, gy, rx * z, ry * z);
+        if open {
+            c.alpha(0.55);
+            c.glow(gx, gy, 46.0 * z, 0x4a6aff_ff);
+            c.alpha(1.0);
+            c.fill(0x1a2aa0d0);
+            oval(c, 12.0, 26.0);
+            c.fill(0x3a6affc0);
+            oval(c, 9.5, 22.0);
+            // light turning inside it
+            for j in 0..3 {
+                let ph = t * 1.6 + j as f32 * 2.1;
+                let w = (ph.sin() * 0.5 + 0.5) * 7.0 + 1.5;
+                c.fill(with_a(0xa8c8ffff, 0.35 + 0.15 * (ph * 1.3).cos()));
+                c.ell(
+                    gx + ph.cos() * 3.0 * z,
+                    gy + (ph * 0.7).sin() * 6.0 * z,
+                    w * z,
+                    16.0 * z,
+                );
+            }
+            c.fill(0xe8f0ffd0);
+            oval(c, 2.0, 12.0);
+            lights.push((gx, gy, 150.0, 0x6a8affff));
+        } else {
+            let a = 0.08 + 0.04 * (t * 1.5).sin();
+            c.fill(with_a(0x8aa0d8ff, a));
+            oval(c, 11.0, 25.0);
+        }
+        stones(c, true);
+        c.outline(INK, ink);
+    }
+
+    /// A cluster of the Void's crystals: long six-sided shards leaning out
+    /// from a common root, glowing from within.
+    #[allow(clippy::too_many_arguments)]
+    fn crystal(
+        &self,
+        c: &mut Canvas,
+        x: i32,
+        y: i32,
+        sx: f32,
+        sy: f32,
+        style: u8,
+        z: f32,
+        t: f32,
+        lights: &mut Vec<(f32, f32, f32, u32)>,
+    ) {
+        const COLS: [u32; 3] = [0x9a70e0ff, 0x58c8e0ff, 0xc8b8f4ff];
+        let col = COLS[style as usize % 3];
+        let ink = self.pix.max(z);
+        let pulse = 0.5 + 0.5 * (t * 1.3 + (x * 7 + y * 3) as f32).sin();
+        c.outline(0, 0.0);
+        c.alpha(0.25 + 0.15 * pulse);
+        c.glow(sx, sy - 12.0 * z, 26.0 * z, col);
+        c.alpha(1.0);
+        c.outline(INK, ink);
+        let n = 3 + (h2(x, y, 31) * 3.0) as i32;
+        for i in 0..n {
+            let lean = (i as f32 - (n - 1) as f32 * 0.5) * 0.35 + (h2(x + i, y, 33) - 0.5) * 0.3;
+            let len = (14.0 + h2(x, y + i, 35) * 16.0) * z;
+            let w = (3.0 + h2(x - i, y, 37) * 2.5) * z;
+            let (bx, by) = (
+                sx + (i as f32 - n as f32 * 0.5) * 3.0 * z,
+                sy + (i % 2) as f32 * 2.0 * z,
+            );
+            let (tx, ty) = (bx + lean.sin() * len, by - lean.cos() * len);
+            let (nx, ny) = (lean.cos() * w, lean.sin() * w);
+            c.fill(shade(col, 0.75));
+            c.poly(&[
+                (bx - nx, by - ny),
+                (bx + nx, by + ny),
+                (tx + nx * 0.7, ty + ny * 0.7),
+                (tx, ty - 3.0 * z),
+                (tx - nx * 0.7, ty - ny * 0.7),
+            ]);
+            c.outline(0, 0.0);
+            c.fill(with_a(0xffffffff, 0.35));
+            c.poly(&[
+                (bx, by),
+                (bx - nx, by - ny),
+                (tx - nx * 0.7, ty - ny * 0.7),
+                (tx, ty - 3.0 * z),
+            ]);
+            c.outline(INK, ink);
+        }
+        lights.push((sx, sy - 12.0 * z, 70.0, col));
+    }
+
     fn draw_sky(&self, c: &mut Canvas, z: f32, t: f32, lights: &[(f32, f32, f32, u32)]) {
         use crate::game::sky::Weather;
         let (px, py) = self.ents[0].tile();
         let indoors = self.map.building_at(px, py).is_some();
         let (w, k) = self.weather();
-        let (dark, tint) = self.daylight();
+        let (dark, tint) = self.view_light();
         let fv = self.forest_view;
         let full = |c: &mut Canvas| c.rect(-10.0, -10.0, self.w + 20.0, self.h + 20.0);
         c.outline(0, 0.0);

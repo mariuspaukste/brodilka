@@ -1279,6 +1279,59 @@ static MONS_DEF: &[MonDef] = &[
         domestic: true,
         ..MB
     },
+    // the things of the Ethereal Void (`world/void.rs`)
+    MonDef {
+        id: "starbat",
+        name: "a starbat",
+        hp: 22,
+        dmg: (2, 7),
+        skill: 40,
+        speed: 1.8,
+        mv: 4.4,
+        gold: (10, 30),
+        fame: 30,
+        karma: -30,
+        size: 0.62,
+        color: 0x5a4a9aff,
+        flies: true,
+        ..MB
+    },
+    MonDef {
+        id: "stalker",
+        name: "a star-stalker",
+        hp: 60,
+        dmg: (5, 12),
+        skill: 60,
+        speed: 2.0,
+        mv: 5.0,
+        gold: (40, 90),
+        fame: 120,
+        karma: -120,
+        size: 0.9,
+        color: 0x2a2450ff,
+        ar: 8,
+        drops: &["gems"],
+        ..MB
+    },
+    MonDef {
+        id: "voidwraith",
+        name: "a voidwraith",
+        hp: 90,
+        dmg: (5, 11),
+        skill: 65,
+        speed: 2.4,
+        mv: 3.0,
+        gold: (90, 200),
+        fame: 250,
+        karma: -250,
+        size: 1.05,
+        color: 0x8a80c8ff,
+        caster: &[0, 5, 6],
+        magery: 800,
+        regs: true,
+        drops: &["gems", "scroll"],
+        ..MB
+    },
 ];
 
 /// The things of the deep: Cthulhu and what serves him. They belong to no
@@ -1288,6 +1341,11 @@ pub fn of_the_deep(id: &str) -> bool {
         id,
         "cthulhu" | "deepone" | "deeppriest" | "crab" | "saltfolk"
     )
+}
+
+/// The things of the Ethereal Void, which belong to no site of the wild.
+pub fn of_the_void(id: &str) -> bool {
+    matches!(id, "starbat" | "stalker" | "voidwraith")
 }
 
 pub fn mon_idx(id: &str) -> usize {
@@ -2160,7 +2218,7 @@ pub fn templates_for(p: &Pack) -> Vec<Template> {
 /// What in a pack the engine will not use: unknown ids, sections and keys.
 pub fn pack_warnings(p: &Pack) -> Vec<String> {
     use crate::sim::{REGION_KEYS, SIM_KEYS, SITE_IDS, SITE_KEYS};
-    let known: [(&str, Vec<&str>, &[&str]); 6] = [
+    let known: [(&str, Vec<&str>, &[&str]); 7] = [
         (
             "mon",
             MONS_DEF.iter().map(|d| d.id).collect(),
@@ -2187,6 +2245,7 @@ pub fn pack_warnings(p: &Pack) -> Vec<String> {
             &["title", "names", "chatter", "robe"],
         ),
         ("site", SITE_IDS.to_vec(), &SITE_KEYS),
+        ("void", crate::world::isle_ids(), &crate::world::ISLE_KEYS),
     ];
     let mut w = vec![];
     for sec in p.sections.keys() {
@@ -2217,6 +2276,13 @@ pub fn pack_warnings(p: &Pack) -> Vec<String> {
             if let Some(r) = p.str(sec, "region") {
                 if !p.sections.contains_key(&format!("region.{r}")) {
                     w.push(format!("[{sec}] region: no [region.{r}] in this pack"));
+                }
+            }
+        }
+        if kind == "void" {
+            if let Some(f) = p.str(sec, "folk") {
+                if !MONS_DEF.iter().any(|d| d.id == f) {
+                    w.push(format!("[{sec}] folk: no monster with id \"{f}\""));
                 }
             }
         }

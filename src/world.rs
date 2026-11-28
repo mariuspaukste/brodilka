@@ -6,9 +6,16 @@ use std::collections::BinaryHeap;
 
 pub const W: i32 = 240;
 /// the land runs further south than east: below `NORTH_H` lie the tropics
-pub const H: i32 = 320;
+pub const LAND_H: i32 = 320;
 /// the height of the northern lands, as they were before the tropics were added
 pub const NORTH_H: i32 = 240;
+/// the tiles of the land, row by row: those of the Ethereal Void come after
+pub const LAND_N: usize = (W * LAND_H) as usize;
+/// Below the land, beyond a gulf of nothing that no eye on the land can see
+/// across, lies the Ethereal Void (`world/void.rs`): from `VOID_Y0` to `H`.
+pub const VOID_Y0: i32 = 360;
+/// the whole map, the land and the Void
+pub const H: i32 = 440;
 pub const N: usize = (W * H) as usize;
 
 pub const T_WATER: u8 = 0;
@@ -20,6 +27,10 @@ pub const T_FLOOR: u8 = 5;
 pub const T_MOUNT: u8 = 6;
 pub const T_BRIDGE: u8 = 7;
 pub const T_CAVE: u8 = 8;
+/// the Ethereal Void: nothing underfoot but the stars (`world/void.rs`)
+pub const T_VOID: u8 = 9;
+/// the pale stone of the Void's isles and starways
+pub const T_ASTRAL: u8 = 10;
 
 pub const O_NONE: u8 = 0;
 pub const O_TREE: u8 = 1;
@@ -98,6 +109,11 @@ pub const O_STOOL: u8 = 52;
 pub const O_HERBS: u8 = 53;
 /// a cyclopean ruin of sunken R'lyeh, risen from the sea (style: which)
 pub const O_RUIN: u8 = 54;
+/// a moongate: a ring of standing stones about a gate of blue light that
+/// joins the land and the Void (`Map::gates`; walked into, not round)
+pub const O_MOONGATE: u8 = 55;
+/// a cluster of the Void's glowing crystals (style: its colour)
+pub const O_CRYSTAL: u8 = 56;
 /// O_RUIN styles: R'lyeh's monolith, door and jumble (0–2), the idol in
 /// drowned Saltgrave, a wrecked boat
 pub const RUIN_IDOL: u8 = 3;
@@ -154,6 +170,8 @@ pub fn size(o: u8) -> (i32, f32) {
         O_WHEEL => (1, 2.0),
         O_SHIP => (1, 3.0),
         O_RUIN => (1, 3.2),
+        O_MOONGATE => (1, 3.0),
+        O_CRYSTAL => (1, 1.2),
         O_WARDROBE => (1, 2.0),
         O_DRESSER => (1, 1.95),
         O_RACK => (1, 1.9),
@@ -322,6 +340,11 @@ pub struct Map {
     pub bld: Vec<u16>,
     /// where sunken R'lyeh lies, in the bay below Kanakpur (`game/deep.rs`)
     pub rlyeh: Option<(i32, i32)>,
+    /// the moongates, in pairs that lead to each other: the land's, then
+    /// the Void's (`world/void.rs`)
+    pub gates: Vec<(i32, i32)>,
+    /// the isles of the Ethereal Void, the Isle of the Gate first
+    pub isles: Vec<Isle>,
     // pathfinding scratch
     pf_g: Vec<f32>,
     pf_par: Vec<i32>,
@@ -448,7 +471,7 @@ fn movable(o: u8) -> bool {
 pub fn blocks(o: u8) -> bool {
     !matches!(
         o,
-        O_NONE | O_DOOR | O_BUSH | O_FLOWERS | O_BONES | O_SKULLS | O_STAIRS
+        O_NONE | O_DOOR | O_BUSH | O_FLOWERS | O_BONES | O_SKULLS | O_STAIRS | O_MOONGATE
     )
 }
 
@@ -522,7 +545,7 @@ impl Map {
         if o == O_STAIRS && !w.stairs {
             return false;
         }
-        t != T_WATER && t != T_MOUNT && !blocks(o)
+        t != T_WATER && t != T_MOUNT && t != T_VOID && !blocks(o)
     }
     pub fn building_at(&self, x: i32, y: i32) -> Option<usize> {
         if !self.bld.is_empty() {
@@ -1488,7 +1511,7 @@ impl Map {
     /// can be reached from the town.
     fn assign_levels(&mut self, elev: &[f32]) {
         let land = |t: u8| t != T_WATER && t != T_MOUNT;
-        for i in 0..N {
+        for i in 0..LAND_N {
             let t = self.t[i];
             self.lv[i] = if land(t) && t != T_SAND && t != T_BRIDGE {
                 (((elev[i] - 0.36) / 0.095).floor().clamp(0.0, 3.0)) as u8
@@ -1500,7 +1523,7 @@ impl Map {
         // which removes one-tile spurs and notches from the ledges
         for _ in 0..2 {
             let prev = self.lv.clone();
-            for y in 1..H - 1 {
+            for y in 1..LAND_H - 1 {
                 for x in 1..W - 1 {
                     let i = idx(x, y);
                     if !land(self.t[i]) || self.t[i] == T_SAND || self.t[i] == T_BRIDGE {
@@ -1523,7 +1546,7 @@ impl Map {
         // every tile of a hex cell takes the level of the cell's own tile,
         // so the ledges follow the cells' edges
         let prev = self.lv.clone();
-        for y in 0..H {
+        for y in 0..LAND_H {
             for x in 0..W {
                 let i = idx(x, y);
                 if !land(self.t[i]) || self.t[i] == T_SAND || self.t[i] == T_BRIDGE {
@@ -1564,7 +1587,7 @@ impl Map {
             }
         }
         // bridges and their banks sit at water level
-        for i in 0..N {
+        for i in 0..LAND_N {
             if self.t[i] == T_BRIDGE {
                 self.lv[i] = 0;
             }
@@ -1572,7 +1595,7 @@ impl Map {
         // no ledge taller than one level between walkable neighbours
         for _ in 0..12 {
             let mut changed = false;
-            for y in 0..H {
+            for y in 0..LAND_H {
                 for x in 0..W {
                     let i = idx(x, y);
                     if !land(self.t[i]) {
@@ -1596,7 +1619,7 @@ impl Map {
             }
         }
         // mountains stand on the highest ground beside them
-        for y in 0..H {
+        for y in 0..LAND_H {
             for x in 0..W {
                 let i = idx(x, y);
                 if self.t[i] == T_MOUNT {
@@ -1611,7 +1634,7 @@ impl Map {
             }
         }
         // slopes: along roads, and at a quarter of the ledge feet
-        for y in 0..H {
+        for y in 0..LAND_H {
             for x in 0..W {
                 let i = idx(x, y);
                 if !land(self.t[i]) {
@@ -1648,7 +1671,7 @@ impl Map {
                 }
             }
             let mut fixed = false;
-            'outer: for y in 0..H {
+            'outer: for y in 0..LAND_H {
                 for x in 0..W {
                     if !seen[idx(x, y)] || !self.passable(x, y) {
                         continue;
@@ -1741,9 +1764,11 @@ const TOWER_TOP: &[(i32, i32, bool, u8)] = &[
 mod drowned;
 mod dwarves;
 mod south;
+mod void;
 pub use drowned::SALT;
 pub use dwarves::HOLD;
 pub use south::{KANAK, SURYA};
+pub use void::{isle_ids, Isle, ISLE_KEYS, ISLE_LV};
 
 pub fn generate(seed: u32) -> Map {
     let mut rng = Rng::new(seed as u64 ^ 0xABCD);
@@ -1781,6 +1806,8 @@ pub fn generate(seed: u32) -> Map {
         raj: vec![],
         hold: (0, 0, 0, 0),
         rlyeh: None,
+        gates: vec![],
+        isles: vec![],
         pf_g: vec![0.0; N],
         pf_par: vec![-1; N],
         pf_stamp: vec![0; N],
@@ -1790,6 +1817,10 @@ pub fn generate(seed: u32) -> Map {
         road: vec![false; N],
         reach: vec![false; N],
     };
+    // below the land, nothing yet: the Void is made last (`world/void.rs`)
+    for i in LAND_N..N {
+        m.t[i] = T_WATER;
+    }
     let town_c = (80, 84);
     let grave = (124, 32);
     let orcs = (32, 124);
@@ -1815,7 +1846,7 @@ pub fn generate(seed: u32) -> Map {
     let mut moist = vec![0f32; N];
     // which tiles were grass before the land ran on south past the old shore
     let mut old_grass = vec![false; N];
-    for y in 0..H {
+    for y in 0..LAND_H {
         for x in 0..W {
             let i = idx(x, y);
             let noise = fbm(x as f32 / 26.0, y as f32 / 26.0, seed);
@@ -1836,7 +1867,7 @@ pub fn generate(seed: u32) -> Map {
                 }
                 e
             };
-            let e = height(H);
+            let e = height(LAND_H);
             elev[i] = e;
             if y < NORTH_H {
                 let old = if y < NORTH_H - 12 { e } else { height(NORTH_H) };
@@ -1850,7 +1881,7 @@ pub fn generate(seed: u32) -> Map {
     // northern ones come out as they always have for a seed: a tile takes
     // from the old stream exactly when it was grass before
     let mut trng = Rng::new(seed as u64 ^ 0x7209);
-    for i in 0..N {
+    for i in 0..LAND_N {
         let e = elev[i];
         let mo = moist[i];
         m.t[i] = if e < 0.33 {
@@ -2320,6 +2351,8 @@ pub fn generate(seed: u32) -> Map {
     for &i in &m.doors {
         m.door[i] = 0.0;
     }
+    // and last, below it all, the Ethereal Void
+    m.make_void(seed);
     m
 }
 
@@ -2656,6 +2689,7 @@ pub fn mini_color(m: &Map, i: usize) -> [u8; 4] {
         (T_MOUNT, _) => 0x6e675cff,
         (T_BRIDGE, _) => 0x7a5432ff,
         (T_CAVE, _) => 0x40382fff,
+        (T_ASTRAL, _) => 0x8a80a8ff,
         _ => 0x000000ff,
     };
     let s = (m.shade[i] as f32 / 255.0 * 0.15 + 0.86 + m.lv[i] as f32 * 0.06)
@@ -3084,7 +3118,7 @@ impl Map {
     /// A mountain range along `pts`: a jagged core of rock `width` wide,
     /// with high foothills stepping down on either side.
     fn range(&mut self, elev: &mut [f32], pts: &[(i32, i32)], width: f32, seed: u32) {
-        let (mut x0, mut y0, mut x1, mut y1) = (W, H, 0, 0);
+        let (mut x0, mut y0, mut x1, mut y1) = (W, LAND_H, 0, 0);
         for &(x, y) in pts {
             x0 = x0.min(x);
             y0 = y0.min(y);
@@ -3092,7 +3126,7 @@ impl Map {
             y1 = y1.max(y);
         }
         let pad = width as i32 * 2;
-        for y in (y0 - pad).max(0)..(y1 + pad).min(H) {
+        for y in (y0 - pad).max(0)..(y1 + pad).min(LAND_H) {
             for x in (x0 - pad).max(0)..(x1 + pad).min(W) {
                 if self.in_town(x, y) || self.in_village(x, y) {
                     continue;
