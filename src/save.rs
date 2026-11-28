@@ -65,6 +65,7 @@ impl Game {
         kv("fame", pl.fame.to_string());
         kv("kills", pl.kills.to_string());
         kv("lines", pl.lines_best.to_string());
+        kv("dice", (pl.dice_log as u8).to_string());
         kv("spells", pl.spells.to_string());
         kv("ghost", (pl.ghost as u8).to_string());
         kv(
@@ -160,6 +161,7 @@ impl Game {
                 "fame" => pl.fame = v.parse().unwrap_or(0),
                 "kills" => pl.kills = v.parse().unwrap_or(0),
                 "lines" => pl.lines_best = v.parse().unwrap_or(0).max(0),
+                "dice" => pl.dice_log = v != "0",
                 "spells" => pl.spells = v.parse().unwrap_or(0),
                 "ghost" => pl.ghost = v == "1",
                 "pos" => {

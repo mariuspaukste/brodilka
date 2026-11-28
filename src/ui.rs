@@ -483,6 +483,15 @@ impl Game {
                 for (_, t, _) in self.journal.iter().rev().take(60) {
                     w.rows.push(Row::new("", t, ""));
                 }
+                // the d20 rolls of every blow and spell (`game/dice.rs`)
+                w.foot(
+                    if pl.dice_log {
+                        "🎲 Dice: shown"
+                    } else {
+                        "🎲 Dice: hidden"
+                    },
+                    "dice",
+                );
                 w
             }
             Win::Help => {
@@ -500,6 +509,7 @@ impl Game {
                     ("📜", "The world moves without thee: the Chronicle (C, or from the map) tells the date, how strong each dark place is, and the news. Slay its creatures and it weakens; leave it and it grows back. Strong places raid the farms; caravans bring cheaper goods; a dark power's Shadow spreads from its places."),
                     ("🐎", "The stablemaster east of town sells horses. Tap thy horse to mount, tap thyself to get down; riding is fast, but a heavy blow throws thee."),
                     ("🛡️", "In war mode hold BLOCK to catch blows; KICK shoves a foe back and may floor it. Heavy blows can knock thee down."),
+                    ("🎲", "Every blow is a d20 roll against Armour Class: a 20 is a critical, a 1 a miss. Spells allow a saving throw for half. At peace thou mayst go unseen, or tap a monster that hunts thee to talk it down."),
                     ("🗺️", "Tap the radar for the map of the whole land: pinch or scroll to zoom, drag to look about, tap a spot to walk there."),
                     ("⌨️", "Keys: WASD/arrows move · Tab war · Space block · F kick · B bandage · P pack · K skills · E mount · M map · L places · C chronicle · 1-9 cast · Esc close"),
                 ] {
@@ -876,6 +886,17 @@ impl Game {
                 self.win = if self.win == w { Win::None } else { w };
             }
             "close" => self.win = Win::None,
+            "dice" => {
+                self.pl.dice_log = !self.pl.dice_log;
+                self.msg(
+                    if self.pl.dice_log {
+                        "The dice will be shown in the journal."
+                    } else {
+                        "The dice will roll unseen."
+                    },
+                    C_SYS,
+                );
+            }
             // a game of Lines played out at the pub's table: lines:<score>
             "lines" => self.lines_score(num(1)),
             "escape" => {

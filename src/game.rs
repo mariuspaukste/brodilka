@@ -7,6 +7,7 @@ use std::collections::VecDeque;
 
 pub mod critters;
 pub mod deep;
+pub mod dice;
 pub mod lines;
 pub mod market;
 pub mod panda;
@@ -255,6 +256,11 @@ pub struct Ent {
     pub stolen: Option<Item>,
     /// a tile a beast is making for: a panda's next stand of bamboo
     pub goal: Option<(i32, i32)>,
+    /// seconds a monster talked down leaves the player be (below 0: so
+    /// enraged it will hear no more talk); see `game/dice.rs`
+    pub calm_t: f32,
+    /// seconds till a monster looks about for the player again
+    pub notice_t: f32,
 }
 
 impl Ent {
@@ -291,6 +297,8 @@ impl Ent {
             busy_t: 0.0,
             stolen: None,
             goal: None,
+            calm_t: 0.0,
+            notice_t: 0.0,
         }
     }
     /// 0 wild (or not a horse), 1 the player's own, 2 the stablemaster's
@@ -459,6 +467,10 @@ pub struct Pl {
     pub kills: i32,
     /// the best score the player has made at Lines in a pub (`game/lines.rs`)
     pub lines_best: i64,
+    /// show the dice in the journal (`game/dice.rs`)
+    pub dice_log: bool,
+    /// seconds till the player may try to talk a monster down again
+    pub parley_t: f32,
     pub war: bool,
     pub ghost: bool,
     pub chase: bool,
@@ -502,6 +514,8 @@ impl Pl {
             fame: 0,
             kills: 0,
             lines_best: 0,
+            dice_log: true,
+            parley_t: 0.0,
             war: false,
             ghost: false,
             chase: false,
@@ -1465,6 +1479,7 @@ impl Game {
 
     fn player_tick(&mut self, dt: f32) {
         self.pl.kick_cd = (self.pl.kick_cd - dt).max(0.0);
+        self.pl.parley_t = (self.pl.parley_t - dt).max(0.0);
         if self.ents[0].down_t > 0.0 || self.pl.blocking {
             // finish the step in progress, then stand still
             self.ents[0].path.truncate(1);
@@ -1649,21 +1664,27 @@ impl Game {
         let mon = self.ents[ti].mon().unwrap_or(&MONS[0]);
         let atk = self.pl.sk(wskill);
         let def = mon.skill as f32;
-        let hit = ((atk + 50.0) / ((def + 50.0) * 2.0)).clamp(0.05, 0.95);
         self.gain(wskill, atk < def + 40.0);
         self.ents[ti].combat.provoked = true;
         if self.ents[ti].combat.target == 0 {
             self.ents[ti].combat.target = self.ents[0].id;
         }
-        if !self.rng.chance(hit) {
+        // the d20 against its Armour Class (`game/dice.rs`)
+        let roll = self.player_attack_roll(ti, wskill);
+        if !roll.success() {
             let (x, y) = (self.ents[ti].x, self.ents[ti].y);
             self.float(x, y, "miss", 0xc0c0c0ff);
             return;
         }
+        let mon = self.ents[ti].mon().unwrap_or(&MONS[0]);
         self.gain(TACTICS, true);
         let w = self.pl.weapon.as_ref();
         let exc = w.map(|w| w.exc).unwrap_or(false);
         let mut dmg = self.rng.range(wd.dmg.0, wd.dmg.1) as f32;
+        // a critical rolls the damage dice twice
+        if roll.crit() {
+            dmg += self.rng.range(wd.dmg.0, wd.dmg.1) as f32;
+        }
         dmg *= 0.5 + self.pl.sk(TACTICS) / 100.0;
         dmg *= 1.0 + self.pl.str_ as f32 / 200.0;
         if exc {
@@ -1790,13 +1811,16 @@ impl Game {
         self.ents[0].dir8 = dir8_of(tx - px, ty - py);
         let mon = self.ents[ti].mon().unwrap_or(&MONS[0]);
         let atk = self.pl.sk(WRESTLING);
-        let hit = ((atk + 60.0) / ((mon.skill as f32 + 50.0) * 2.0)).clamp(0.1, 0.95);
         self.gain(WRESTLING, atk < mon.skill as f32 + 40.0);
-        if !self.rng.chance(hit) {
+        let roll = self.player_attack_roll(ti, WRESTLING);
+        if !roll.success() {
             self.float(tx, ty, "miss", 0xc0c0c0ff);
             return;
         }
-        let dmg = self.rng.range(2, 6) + self.pl.str_ / 15;
+        let mut dmg = self.rng.range(2, 6) + self.pl.str_ / 15;
+        if roll.crit() {
+            dmg += self.rng.range(2, 6);
+        }
         // shove one tile away if there is room
         let (mx, my) = self.ents[ti].tile();
         let (dx, dy) = (
@@ -2321,11 +2345,29 @@ impl Game {
             return;
         }
 
-        // acquire / drop target
+        // talked down: it leaves the player be a while, unless struck
+        {
+            let e = &mut self.ents[i];
+            if e.calm_t > 0.0 {
+                e.calm_t = (e.calm_t - dt).max(0.0);
+                if e.combat.provoked {
+                    e.calm_t = 0.0;
+                } else if e.combat.target == pid {
+                    e.combat.target = 0;
+                }
+            } else if e.calm_t < 0.0 {
+                e.calm_t = (e.calm_t + dt).min(0.0);
+            }
+            e.notice_t -= dt;
+        }
+        // acquire / drop target: at peace, the player may go unseen (a
+        // Perception roll against their Stealth, `game/dice.rs`)
         if !ghost
             && self.ents[i].combat.target == 0
+            && self.ents[i].calm_t <= 0.0
             && pd < 7.0
             && !self.map.guarded(px.round() as i32, py.round() as i32)
+            && self.notices(i, pd)
         {
             self.ents[i].combat.target = pid;
         }
@@ -2413,11 +2455,15 @@ impl Game {
             self.ents[i].combat.swing = d.speed;
             self.ents[i].anim.atk = 1.0;
             let def = self.pl.sk(self.pl.weapon_def().skill);
-            let hit = ((d.skill as f32 + 50.0) / ((def + 50.0) * 2.0)).clamp(0.05, 0.95);
             let wsk = self.pl.weapon_def().skill;
             self.gain(wsk, def < d.skill as f32 + 30.0);
-            if self.rng.chance(hit) {
+            // the d20 against the player's Armour Class (`game/dice.rs`)
+            let roll = self.mon_attack_roll(i);
+            if roll.success() {
                 let mut dmg = self.rng.range(d.dmg.0, d.dmg.1);
+                if roll.crit() {
+                    dmg += self.rng.range(d.dmg.0, d.dmg.1);
+                }
                 if self.pl.blocking && self.ents[0].down_t <= 0.0 {
                     let parry = self.pl.sk(PARRY);
                     let shield = if self.pl.shield.is_some() { 0.15 } else { 0.0 };
@@ -2575,6 +2621,22 @@ impl Game {
                 if kind == FX_BREATH && i == 0 {
                     self.msg("You are engulfed in dragon fire!", C_WARN);
                 }
+                // a saving throw against a spell or a dragon's fire
+                let dmg = if matches!(
+                    kind,
+                    FX_FIREBALL
+                        | FX_EBOLT
+                        | FX_LIGHTNING
+                        | FX_EXPLOSION
+                        | FX_FLAMESTRIKE
+                        | FX_HARM
+                        | FX_BREATH
+                ) && self.ents[i].tame() == 0
+                {
+                    self.saving_throw(i, dmg, kind, byp)
+                } else {
+                    dmg
+                };
                 self.damage(i, dmg, byp);
             }
         }
@@ -3509,7 +3571,11 @@ impl Game {
                     let nm = self.ents[i].name.clone();
                     self.ents[i].talk(&nm, 0xd8d0c0ff);
                     let d = &MONS[m];
-                    if !self.pl.ghost && !d.passive && !d.domestic {
+                    let hunting = self.ents[i].combat.target == self.ents[0].id;
+                    if !self.pl.ghost && hunting {
+                        // after you: try to talk it down (`game/dice.rs`)
+                        self.parley(i);
+                    } else if !self.pl.ghost && !d.passive && !d.domestic {
                         self.msg("Thou art at peace. Go to war to attack.", C_SYS);
                     }
                 }

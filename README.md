@@ -282,6 +282,44 @@ driven into the deep at once and the sea casts up the treasures of R'lyeh
 at your feet. But that is not dead which can eternal lie: he wakes again,
 later. The timers are kept in the save.
 
+## The dice
+
+Every blow and every spell is rolled the Dungeons & Dragons way
+(`src/game/dice.rs`), and the rolls go to the journal (the Journal's 🎲
+button hides them):
+
+- **Attack rolls.** A swing hits when d20 + attack bonus meets the
+  defender's **Armour Class**. Your bonus is a tenth of your weapon skill
+  plus your Strength modifier (Wrestling for a kick); your AC is 10 + a
+  tenth of your weapon skill + your Dexterity modifier, +2 with a shield. A
+  monster's bonus is a tenth of its skill and its AC 10 + the same. Armour
+  still soaks damage after a hit.
+- **Natural 20s and 1s.** A natural 20 always hits and is a **critical**:
+  the damage dice are rolled twice. A natural 1 always misses.
+- **Saving throws.** Struck by a spell or a dragon's fire, you or the
+  monster roll d20 + save bonus against the caster's **DC** (10 + a tenth
+  of your Magery + your Intelligence modifier; 13 for a monster's spell, 16
+  for dragon fire). A save halves the damage. Magic Arrow never misses and
+  allows no save.
+
+Abilities run 10–100 here, so a modifier is (score − 40) / 20, from −1 to
++3. The odds come out close to the old ones, so the balance stands.
+
+The dice can also keep you out of a fight:
+
+- **Stealth.** At peace, a monster that might see you rolls Perception
+  (d20 + a tenth of its skill) against your **Stealth** (10 + Dexterity
+  modifier, +2 by night or in the Void's starlight, +2 under trees, −4 on
+  a horse) every couple of seconds; it misses you until it makes the roll.
+  Within two tiles, or in war mode, you are always seen.
+- **Talking it down.** At peace, tap a monster that is after you to
+  intimidate or persuade it: d20 + the better of your Strength and
+  Intelligence modifiers + a point per 250 fame (up to 3), against 10 + a
+  tenth of its skill. Make it and it lets you go for 45 seconds unless you
+  strike it; fail and you may try again in three seconds; a natural 1
+  enrages it past talking for half a minute. Slimes and the walking dead
+  cannot be reasoned with.
+
 ## Lines at the pub
 
 Every pub has a little table with a board of Lines on it, by the door.
